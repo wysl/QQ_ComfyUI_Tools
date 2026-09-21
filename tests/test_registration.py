@@ -429,6 +429,10 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("addDroppedFiles(node, files)", source)
         self.assertIn("/wysl/media-loader/list", source)
         self.assertNotIn("currentFolderFiles(node", source)
+        self.assertIn("const HOVER_PREVIEW_SCALE = 2", source)
+        self.assertIn("function attachImageHoverPreview(node, anchor, path)", source)
+        self.assertIn("section.hidden = group.type !== \"image\"", source)
+        self.assertIn("wysl-media-hover-preview", source)
 
     def test_media_index_output_splits_image_lists_and_bundles(self):
         node = self.package.NODE_CLASS_MAPPINGS["WyslMediaIndexOutput"]

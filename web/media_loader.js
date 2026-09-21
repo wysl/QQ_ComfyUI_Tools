@@ -16,6 +16,8 @@ const GROUP_GAP = 4;
 const MODAL_RENDER_CHUNK = 60;
 const AUTOFIT_RETRIES = 3;
 const MODAL_WATCH_INTERVAL = 400;
+const HOVER_PREVIEW_SIZE = 384;
+const HOVER_PREVIEW_SCALE = 2;
 const GROUPS = [
     { key: "images", type: "image", label: "图片" },
     { key: "audios", type: "audio", label: "音频" },
@@ -122,6 +124,58 @@ function mediaUrl(path) {
 function thumbnailUrl(path, size) {
     const params = new URLSearchParams({ filename: normalizePath(path), size: String(size) });
     return `/wysl/media-loader/thumbnail?${params.toString()}`;
+}
+
+function closeHoverPreview(node) {
+    const preview = node?.__wyslMediaLoaderHoverPreview;
+    if (!preview) return;
+    preview.remove();
+    node.__wyslMediaLoaderHoverPreview = null;
+}
+
+function positionHoverPreview(preview, anchor) {
+    if (!preview?.isConnected || !anchor?.isConnected) return;
+    const rect = anchor.getBoundingClientRect();
+    const width = preview.offsetWidth || HOVER_PREVIEW_SIZE;
+    const height = preview.offsetHeight || HOVER_PREVIEW_SIZE;
+    const margin = 8;
+    let left = rect.left + rect.width / 2;
+    let top = rect.top - margin;
+    let placement = "above";
+    if (top - height < margin) {
+        top = rect.bottom + margin;
+        placement = "below";
+    }
+    left = Math.max(margin + width / 2, Math.min(window.innerWidth - margin - width / 2, left));
+    preview.dataset.placement = placement;
+    preview.style.left = `${left}px`;
+    preview.style.top = `${top}px`;
+}
+
+function attachImageHoverPreview(node, anchor, path) {
+    if (!node || !anchor || !path || anchor.__wyslHoverPreviewAttached) return;
+    anchor.__wyslHoverPreviewAttached = true;
+    const show = () => {
+        closeHoverPreview(node);
+        const preview = document.createElement("div");
+        preview.className = "wysl-media-hover-preview";
+        preview.setAttribute("aria-hidden", "true");
+        const image = document.createElement("img");
+        image.alt = "";
+        image.decoding = "async";
+        image.src = thumbnailUrl(path, HOVER_PREVIEW_SIZE);
+        image.addEventListener("error", () => closeHoverPreview(node), { once: true });
+        preview.append(image);
+        const rect = anchor.getBoundingClientRect();
+        preview.style.width = `${Math.max(72, Math.round(rect.width * HOVER_PREVIEW_SCALE))}px`;
+        preview.style.height = `${Math.max(72, Math.round(rect.height * HOVER_PREVIEW_SCALE))}px`;
+        document.body.append(preview);
+        node.__wyslMediaLoaderHoverPreview = preview;
+        positionHoverPreview(preview, anchor);
+        requestAnimationFrame(() => preview.classList.add("is-visible"));
+    };
+    anchor.addEventListener("pointerenter", show);
+    anchor.addEventListener("pointerleave", () => closeHoverPreview(node));
 }
 
 function formatBytes(value) {
@@ -410,6 +464,7 @@ function createSelectedCard(node, group, path, index) {
     card.dataset.index = String(index);
     card.title = `${index + 1}. ${cardTitle(path)}（序号按类别单独计数）`;
     card.append(filePreview(path, group.type, THUMB_TILE));
+    if (group.type === "image") attachImageHoverPreview(node, card, path);
 
     const order = document.createElement("span");
     order.className = "wysl-media-order";
@@ -544,7 +599,16 @@ function render(node) {
     // Tiles wrap instead of scrolling sideways, so the only scroll box is the
     // group stack; keep its offset while the selection changes underneath it.
     const scrollTop = groups?.scrollTop || 0;
-    for (const group of GROUPS) renderGroup(node, group, state[group.key]);
+    for (const group of GROUPS) {
+        renderGroup(node, group, state[group.key]);
+        const section = panel.querySelector(`.wysl-media-group.is-${group.type}`);
+        if (section) {
+            // Keep the image category visible as the primary drop target. Audio
+            // and video categories appear only after that media type is chosen,
+            // and their visibility is reconstructed from the saved state.
+            section.hidden = group.type !== "image" && state[group.key].length === 0;
+        }
+    }
     if (groups) groups.scrollTop = scrollTop;
     panel.classList.toggle("is-empty", selectedCount(state) === 0);
     renderStatus(node);
@@ -615,6 +679,7 @@ function createFileRow(node, group, item, state) {
     const thumb = document.createElement("span");
     thumb.className = "wysl-media-file-thumb";
     thumb.append(filePreview(item.path, group.type, THUMB_TILE));
+    if (group.type === "image") attachImageHoverPreview(node, thumb, item.path);
 
     const meta = document.createElement("span");
     meta.className = "wysl-media-file-meta";
@@ -976,6 +1041,11 @@ const CSS_TEXT = `
 .wysl-media-card:active{cursor:grabbing}
 .wysl-media-thumb{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:4px;background:var(--comfy-input-bg,#151719)}
 .wysl-media-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.wysl-media-hover-preview{position:fixed;z-index:11000;box-sizing:border-box;transform:translate(-50%,-100%) scale(.86);transform-origin:50% 100%;opacity:0;pointer-events:none;padding:3px;border:1px solid var(--p-primary-color,#85a8c4);border-radius:7px;background:var(--comfy-menu-bg,#25292d);box-shadow:0 10px 28px rgba(0,0,0,.62);transition:opacity .14s ease,transform .16s cubic-bezier(.2,.75,.25,1)}
+.wysl-media-hover-preview[data-placement="below"]{transform-origin:50% 0;transform:translate(-50%,0) scale(.86)}
+.wysl-media-hover-preview.is-visible{opacity:1;transform:translate(-50%,-100%) scale(1)}
+.wysl-media-hover-preview[data-placement="below"].is-visible{transform:translate(-50%,0) scale(1)}
+.wysl-media-hover-preview img{display:block;width:100%;height:100%;object-fit:contain;border-radius:4px;background:#111}
 .wysl-media-thumb.is-audio{background:var(--comfy-input-bg,#142a27)}
 .wysl-media-audio-wave{display:flex;align-items:center;justify-content:center;gap:3px;width:75%;height:55%}
 .wysl-media-audio-wave i{display:block;width:3px;height:var(--bar-height);border-radius:2px;background:var(--success-color,#46c5b1)}
@@ -1146,6 +1216,7 @@ function setup(node) {
 
 function teardown(node) {
     closeModal(node, false);
+    closeHoverPreview(node);
     node.__wyslMediaLoaderResizeObserver?.disconnect?.();
     node.__wyslMediaLoaderResizeObserver = null;
     if (node.__wyslMediaLoaderStatusTimer) {
