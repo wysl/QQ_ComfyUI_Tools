@@ -379,6 +379,7 @@ class RegistrationTests(unittest.TestCase):
         splitter = self.package.NODE_CLASS_MAPPINGS["WyslMediaAutoSplitter"]
         self.assertEqual(splitter.RETURN_NAMES, ("图像", "音频", "视频", "图片组合"))
         self.assertEqual(splitter.OUTPUT_IS_LIST, (True, True, True, False))
+        self.assertTrue(splitter.INPUT_IS_LIST)
         inputs = splitter.INPUT_TYPES()
         self.assertEqual(inputs["optional"]["media_bundle"][0], "MINIMAX_H3_MEDIA_BUNDLE")
         self.assertEqual(inputs["optional"]["image"][0], "IMAGE")
@@ -391,7 +392,9 @@ class RegistrationTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "node_modules" / "media.py").read_text(
             encoding="utf-8",
         )
-        self.assertIn('column = columns - 1 - column', source)
+        self.assertIn('ordered = normalized if layout == "从左向右" else list(reversed(normalized))', source)
+        self.assertIn('sum(int(image.shape[2]) for image in ordered)', source)
+        self.assertIn('MEDIA_COMPOSE_GAP = 10', source)
         self.assertIn('layout == "单元居中排列"', source)
         self.assertIn('columns = len(normalized)', source)
         self.assertIn('rows = 1', source)
@@ -429,8 +432,16 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("addDroppedFiles(node, files)", source)
         self.assertIn("/wysl/media-loader/list", source)
         self.assertNotIn("currentFolderFiles(node", source)
-        self.assertIn("const HOVER_PREVIEW_SCALE = 2", source)
+        self.assertIn("const HOVER_PREVIEW_SCALE = 3", source)
+        self.assertIn("const HOVER_PREVIEW_CLOSE_DELAY = 180", source)
         self.assertIn("function attachImageHoverPreview(node, anchor, path)", source)
+        self.assertIn("function scheduleHoverPreviewClose(node, preview)", source)
+        self.assertIn("preview.href = mediaUrl(path);", source)
+        self.assertIn('preview.target = "_blank";', source)
+        self.assertIn('preview.rel = "noopener noreferrer";', source)
+        self.assertIn('preview.addEventListener("pointerenter"', source)
+        self.assertIn('preview.addEventListener("pointerleave"', source)
+        self.assertIn("pointer-events:auto", source)
         self.assertIn("section.hidden = group.type !== \"image\"", source)
         self.assertIn("wysl-media-hover-preview", source)
 

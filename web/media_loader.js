@@ -17,7 +17,10 @@ const MODAL_RENDER_CHUNK = 60;
 const AUTOFIT_RETRIES = 3;
 const MODAL_WATCH_INTERVAL = 400;
 const HOVER_PREVIEW_SIZE = 384;
-const HOVER_PREVIEW_SCALE = 2;
+// The old popup was 2x the tile. Make it another half larger while retaining
+// the same 384px source tier so opening a large folder remains inexpensive.
+const HOVER_PREVIEW_SCALE = 3;
+const HOVER_PREVIEW_CLOSE_DELAY = 180;
 const GROUPS = [
     { key: "images", type: "image", label: "图片" },
     { key: "audios", type: "audio", label: "音频" },
@@ -127,10 +130,38 @@ function thumbnailUrl(path, size) {
 }
 
 function closeHoverPreview(node) {
+    if (node?.__wyslMediaLoaderHoverPreviewCloseTimer) {
+        clearTimeout(node.__wyslMediaLoaderHoverPreviewCloseTimer);
+        node.__wyslMediaLoaderHoverPreviewCloseTimer = null;
+    }
     const preview = node?.__wyslMediaLoaderHoverPreview;
     if (!preview) return;
     preview.remove();
     node.__wyslMediaLoaderHoverPreview = null;
+}
+
+function cancelHoverPreviewClose(node) {
+    if (!node?.__wyslMediaLoaderHoverPreviewCloseTimer) return;
+    clearTimeout(node.__wyslMediaLoaderHoverPreviewCloseTimer);
+    node.__wyslMediaLoaderHoverPreviewCloseTimer = null;
+}
+
+function scheduleHoverPreviewClose(node, preview) {
+    if (!node || node.__wyslMediaLoaderHoverPreview !== preview) return;
+    cancelHoverPreviewClose(node);
+    // The small delay bridges the few pixels between the source tile and the
+    // popup. Once the pointer is over either surface, the timer is cancelled.
+    node.__wyslMediaLoaderHoverPreviewCloseTimer = setTimeout(() => {
+        node.__wyslMediaLoaderHoverPreviewCloseTimer = null;
+        if (node.__wyslMediaLoaderHoverPreview !== preview) return;
+        const anchor = preview.__wyslMediaLoaderHoverAnchor;
+        if (anchor?.matches?.(":hover") || preview.matches?.(":hover")) return;
+        closeHoverPreview(node);
+    }, HOVER_PREVIEW_CLOSE_DELAY);
+}
+
+function keepHoverPreviewOpen(node, preview) {
+    if (node?.__wyslMediaLoaderHoverPreview === preview) cancelHoverPreviewClose(node);
 }
 
 function positionHoverPreview(preview, anchor) {
@@ -156,26 +187,52 @@ function attachImageHoverPreview(node, anchor, path) {
     if (!node || !anchor || !path || anchor.__wyslHoverPreviewAttached) return;
     anchor.__wyslHoverPreviewAttached = true;
     const show = () => {
+        const current = node.__wyslMediaLoaderHoverPreview;
+        if (current?.__wyslMediaLoaderHoverAnchor === anchor) {
+            keepHoverPreviewOpen(node, current);
+            positionHoverPreview(current, anchor);
+            return;
+        }
         closeHoverPreview(node);
-        const preview = document.createElement("div");
+        // A native link lets the browser show the original input image using
+        // its normal zoom, save and new-tab behavior.
+        const preview = document.createElement("a");
         preview.className = "wysl-media-hover-preview";
-        preview.setAttribute("aria-hidden", "true");
+        preview.href = mediaUrl(path);
+        preview.target = "_blank";
+        preview.rel = "noopener noreferrer";
+        preview.title = "点击查看原图";
+        preview.setAttribute("aria-label", `查看原图：${cardTitle(path)}`);
+        preview.__wyslMediaLoaderHoverAnchor = anchor;
         const image = document.createElement("img");
         image.alt = "";
         image.decoding = "async";
         image.src = thumbnailUrl(path, HOVER_PREVIEW_SIZE);
-        image.addEventListener("error", () => closeHoverPreview(node), { once: true });
+        image.addEventListener("error", () => {
+            if (node.__wyslMediaLoaderHoverPreview === preview) closeHoverPreview(node);
+        }, { once: true });
         preview.append(image);
         const rect = anchor.getBoundingClientRect();
         preview.style.width = `${Math.max(72, Math.round(rect.width * HOVER_PREVIEW_SCALE))}px`;
         preview.style.height = `${Math.max(72, Math.round(rect.height * HOVER_PREVIEW_SCALE))}px`;
+        preview.addEventListener("pointerenter", () => keepHoverPreviewOpen(node, preview));
+        preview.addEventListener("pointerleave", () => scheduleHoverPreviewClose(node, preview));
+        // Do not let the Comfy canvas consume clicks inside the floating view;
+        // stopping propagation leaves the anchor's normal navigation intact.
+        preview.addEventListener("pointerdown", (event) => event.stopPropagation());
+        preview.addEventListener("click", (event) => event.stopPropagation());
         document.body.append(preview);
         node.__wyslMediaLoaderHoverPreview = preview;
         positionHoverPreview(preview, anchor);
         requestAnimationFrame(() => preview.classList.add("is-visible"));
     };
     anchor.addEventListener("pointerenter", show);
-    anchor.addEventListener("pointerleave", () => closeHoverPreview(node));
+    anchor.addEventListener("pointerleave", () => {
+        const preview = node.__wyslMediaLoaderHoverPreview;
+        if (preview?.__wyslMediaLoaderHoverAnchor === anchor) {
+            scheduleHoverPreviewClose(node, preview);
+        }
+    });
 }
 
 function formatBytes(value) {
@@ -1041,11 +1098,13 @@ const CSS_TEXT = `
 .wysl-media-card:active{cursor:grabbing}
 .wysl-media-thumb{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:4px;background:var(--comfy-input-bg,#151719)}
 .wysl-media-thumb img{width:100%;height:100%;object-fit:cover;display:block}
-.wysl-media-hover-preview{position:fixed;z-index:11000;box-sizing:border-box;transform:translate(-50%,-100%) scale(.86);transform-origin:50% 100%;opacity:0;pointer-events:none;padding:3px;border:1px solid var(--p-primary-color,#85a8c4);border-radius:7px;background:var(--comfy-menu-bg,#25292d);box-shadow:0 10px 28px rgba(0,0,0,.62);transition:opacity .14s ease,transform .16s cubic-bezier(.2,.75,.25,1)}
+.wysl-media-hover-preview{position:fixed;z-index:11000;box-sizing:border-box;transform:translate(-50%,-100%) scale(.86);transform-origin:50% 100%;opacity:0;pointer-events:auto;cursor:zoom-in;text-decoration:none;padding:3px;border:1px solid var(--p-primary-color,#85a8c4);border-radius:7px;background:var(--comfy-menu-bg,#25292d);box-shadow:0 10px 28px rgba(0,0,0,.62);transition:opacity .14s ease,transform .16s cubic-bezier(.2,.75,.25,1)}
 .wysl-media-hover-preview[data-placement="below"]{transform-origin:50% 0;transform:translate(-50%,0) scale(.86)}
 .wysl-media-hover-preview.is-visible{opacity:1;transform:translate(-50%,-100%) scale(1)}
 .wysl-media-hover-preview[data-placement="below"].is-visible{transform:translate(-50%,0) scale(1)}
-.wysl-media-hover-preview img{display:block;width:100%;height:100%;object-fit:contain;border-radius:4px;background:#111}
+.wysl-media-hover-preview:hover,.wysl-media-hover-preview:focus-visible{border-color:var(--p-primary-color,#a9ccef);box-shadow:0 12px 32px rgba(0,0,0,.72),0 0 0 1px color-mix(in srgb,var(--p-primary-color,#85a8c4) 45%,transparent)}
+.wysl-media-hover-preview:focus-visible{outline:2px solid var(--p-primary-color,#85a8c4);outline-offset:2px}
+.wysl-media-hover-preview img{display:block;width:100%;height:100%;object-fit:contain;border-radius:4px;background:#111;pointer-events:none}
 .wysl-media-thumb.is-audio{background:var(--comfy-input-bg,#142a27)}
 .wysl-media-audio-wave{display:flex;align-items:center;justify-content:center;gap:3px;width:75%;height:55%}
 .wysl-media-audio-wave i{display:block;width:3px;height:var(--bar-height);border-radius:2px;background:var(--success-color,#46c5b1)}
