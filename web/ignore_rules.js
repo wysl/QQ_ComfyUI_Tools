@@ -15,8 +15,8 @@ function isEnabled(node) {
     return value === true || value === 1 || value === "true";
 }
 
-function rulesOf(node) {
-    return String(widget(node, "规则")?.value || "")
+function linesOf(node, name) {
+    return String(widget(node, name)?.value || "")
         .split(/\r?\n/)
         .map((line) => line.trim())
         .filter(Boolean);
@@ -37,53 +37,43 @@ function matches(rule, value) {
     }
 }
 
+function anyMatch(rules, values) {
+    return rules.some((rule) => values.some((value) => matches(rule, value)));
+}
+
 function nodeNames(node) {
     return [node.title, node.type, node.comfyClass, node.constructor?.title]
         .filter((value) => typeof value === "string");
 }
 
-function widgetNames(node) {
-    return (node.widgets || []).flatMap((entry) => [entry.name, entry.label, entry.options?.name]);
-}
-
-export function nodeShouldBeIgnored(node, rules) {
-    return rules.some((rule) => nodeNames(node).some((name) => matches(rule, name)));
-}
-
-export function widgetShouldBeIgnored(entry, rules) {
-    return rules.some((rule) => [entry?.name, entry?.label].some((name) => matches(rule, name)));
-}
-
-function signature(node) {
-    return JSON.stringify((node.widgets || []).map((entry) => [
-        entry.name,
-        entry.value,
-        entry.options?.values,
-    ]));
-}
-
 function applyRules(graph) {
     const controllers = graphNodes(graph).filter((node) => node.comfyClass === NODE_TYPE || node.type === NODE_TYPE);
-    const rules = controllers.filter(isEnabled).flatMap(rulesOf);
+    const enabled = controllers.filter(isEnabled);
+    const nodeRules = enabled.flatMap((node) => linesOf(node, "节点"));
+    const widgetRules = enabled.flatMap((node) => linesOf(node, "选框"));
     for (const node of graphNodes(graph)) {
         if (controllers.includes(node)) continue;
-        const ignoreNode = nodeShouldBeIgnored(node, rules);
+        const ignoreNode = anyMatch(nodeRules, nodeNames(node));
         if (node.mode !== LiteGraph.NEVER) node._wyslIgnorePreviousMode ??= node.mode;
         node.mode = ignoreNode ? LiteGraph.NEVER : (node._wyslIgnorePreviousMode ?? node.mode);
         if (!ignoreNode) delete node._wyslIgnorePreviousMode;
 
         for (const entry of node.widgets || []) {
-            const ignoreWidget = ignoreNode || widgetShouldBeIgnored(entry, rules);
+            const ignoreWidget = ignoreNode || anyMatch(widgetRules, [entry?.name, entry?.label]);
             entry.disabled = ignoreWidget;
             entry.computedDisabled = ignoreWidget;
         }
     }
 }
 
+function signature(node) {
+    return JSON.stringify((node.widgets || []).map((entry) => [entry.name, entry.value]));
+}
+
 app.registerExtension({
     name: "Wysl.IgnoreRules",
     setup() {
-        const timer = setInterval(() => {
+        globalThis.__wyslIgnoreRulesTimer = setInterval(() => {
             const graph = app.graph;
             if (!graph) return;
             const controllers = graphNodes(graph).filter((node) => node.comfyClass === NODE_TYPE || node.type === NODE_TYPE);
@@ -93,6 +83,5 @@ app.registerExtension({
             applyRules(graph);
             graph.setDirtyCanvas?.(true, true);
         }, 300);
-        globalThis.__wyslIgnoreRulesTimer = timer;
     },
 });
