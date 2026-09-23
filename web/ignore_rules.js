@@ -13,7 +13,7 @@ function widget(node, name) {
 
 function isEnabled(node) {
     const value = widget(node, "启用")?.value;
-    return value === true || value === 1 || value === "true";
+    return value === true || value === 1 || value === "true" || value === "启用";
 }
 
 function linesOf(node, name) {
@@ -43,7 +43,7 @@ function anyMatch(rules, values) {
 }
 
 function nodeNames(node) {
-    const values = [node.title, node.type, node.comfyClass, node.constructor?.title];
+    const values = [node.title, node.type, node.comfyClass, node.constructor?.title, node.constructor?.type];
     for (const entry of node.widgets || []) values.push(entry?.name, entry?.label, entry?.value);
     for (const input of node.inputs || []) values.push(input?.name, input?.label);
     return values.filter((value) => typeof value === "string");
@@ -71,6 +71,16 @@ function restore(node) {
     delete node._wyslIgnoreRestore;
 }
 
+function hideStatusOutput(node) {
+    const output = node.outputs?.[0];
+    if (!output || output._wyslHidden) return;
+    output._wyslHidden = true;
+    output.name = "";
+    output.label = "";
+    output.hidden = true;
+    if (node.outputs.length === 1) node.size = [node.size?.[0] || 240, Math.max(80, (node.size?.[1] || 120) - 18)];
+}
+
 function applyRules(graph) {
     if (!graph) return;
     const controllers = graphNodes(graph).filter(isController);
@@ -81,7 +91,10 @@ function applyRules(graph) {
     let ignoredWidgets = 0;
 
     for (const node of graphNodes(graph)) {
-        if (isController(node)) continue;
+        if (isController(node)) {
+            hideStatusOutput(node);
+            continue;
+        }
         const ignoreNode = anyMatch(nodeRules, nodeNames(node));
         if (ignoreNode) {
             remember(node);
@@ -124,15 +137,11 @@ function startIgnoreRules() {
 
 app.registerExtension({
     name: "Wysl.IgnoreRules",
+    setup() {
+        startIgnoreRules();
+    },
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name !== NODE_TYPE) return;
         startIgnoreRules();
-        const original = nodeType.prototype.onNodeCreated;
-        nodeType.prototype.onNodeCreated = function () {
-            const result = original?.apply(this, arguments);
-            startIgnoreRules();
-            applyRules(this.graph || app.graph);
-            return result;
-        };
     },
 });
