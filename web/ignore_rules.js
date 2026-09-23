@@ -1,11 +1,7 @@
 import { app } from "../../scripts/app.js";
 
+// 只做「选框忽略」。不修改节点模式、不修改节点标题、不写只读属性。
 const NODE_TYPE = "WyslIgnoreRules";
-const MODE_NEVER = 2;
-
-function isVueNodesMode() {
-    return typeof LiteGraph !== "undefined" && LiteGraph.vueNodesMode === true;
-}
 
 function nodesOf(graph) {
     if (!graph) return [];
@@ -47,59 +43,53 @@ function hitAny(patterns, values) {
     return false;
 }
 
-function searchableText(node) {
-    const values = [node.title, node.type, node.comfyClass];
-    for (const input of node.inputs || []) values.push(input?.label, input?.name);
-    for (const entry of node.widgets || []) values.push(entry?.label, entry?.name, entry?.value);
-    return values.filter((value) => typeof value === "string");
-}
-
 function isRuleNode(node) {
     return node?.comfyClass === NODE_TYPE || node?.type === NODE_TYPE;
 }
 
-function nodeContainer(node) {
-    if (!node || node.id == null) return null;
-    return document.querySelector(`[data-node-id="${node.id}"]`);
+// 找到节点容器里所有像「一行选框」的元素
+function widgetRows(container) {
+    const rows = new Set();
+    for (const label of container.querySelectorAll("label")) {
+        const row = label.closest(".p-float-label") || label.parentElement || label;
+        if (row) rows.add(row);
+    }
+    for (const marked of container.querySelectorAll("[data-widget-name]")) {
+        rows.add(marked);
+    }
+    return Array.from(rows);
 }
 
-function widgetElements(container) {
-    if (!container) return [];
-    return Array.from(container.querySelectorAll("[data-widget-name], .p-float-label, .comfy-widget"));
-}
-
-function widgetLabelText(element) {
-    const label = element.querySelector("label");
-    return [label?.textContent, element.getAttribute("data-widget-name")]
-        .filter(Boolean)
-        .map((value) => String(value).trim())
+function rowText(element) {
+    const label = element.querySelector?.("label");
+    const parts = [
+        label?.textContent,
+        element.getAttribute?.("data-widget-name"),
+        element.getAttribute?.("data-testid"),
+    ];
+    return parts.filter((value) => typeof value === "string" && value.trim())
+        .map((value) => value.trim())
         .join(" ");
 }
 
-function hideElement(element, hidden) {
+function hide(element, hidden) {
     if (!element || !element.style) return;
     element.style.display = hidden ? "none" : "";
 }
 
-function applyWidgetVisibility(node, ignoreNode, widgetPatterns) {
-    if (!isVueNodesMode()) return;
-    const container = nodeContainer(node);
-    if (!container) return;
-    for (const element of widgetElements(container)) {
-        const hit = ignoreNode || hitAny(widgetPatterns, [widgetLabelText(element)]);
-        hideElement(element, hit);
+function applyWidgetRules(node, nodeHit, widgetPatterns) {
+    // 旧版渲染：控件自带 DOM element
+    for (const entry of node.widgets || []) {
+        if (!entry?.element?.style) continue;
+        hide(entry.element, nodeHit || hitAny(widgetPatterns, [entry.label, entry.name]));
     }
-}
 
-function applyNodeMode(node, ignoreNode) {
-    if (ignoreNode) {
-        if (node.mode !== MODE_NEVER) {
-            if (node._wyslPrevMode === undefined) node._wyslPrevMode = node.mode ?? 0;
-            node.mode = MODE_NEVER;
-        }
-    } else if (node._wyslPrevMode !== undefined) {
-        node.mode = node._wyslPrevMode;
-        delete node._wyslPrevMode;
+    // Vue 渲染：在节点容器里按标签文字匹配
+    if (node.id == null) return;
+    const container = document.querySelector(`[data-node-id="${node.id}"]`);
+    if (!container) return;
+    for (const row of widgetRows(container)) {
+        hide(row, nodeHit || hitAny(widgetPatterns, [rowText(row)]));
     }
 }
 
@@ -118,10 +108,10 @@ function applyRules(graph) {
     for (const node of all) {
         if (isRuleNode(node)) continue;
         try {
-            const ignoreNode = hitAny(nodePatterns, searchableText(node));
-            applyNodeMode(node, ignoreNode);
-            applyWidgetVisibility(node, ignoreNode, widgetPatterns);
-            node.setDirtyCanvas?.(true, true);
+            const texts = [node.title, node.type, node.comfyClass]
+                .filter((value) => typeof value === "string");
+            const nodeHit = hitAny(nodePatterns, texts);
+            applyWidgetRules(node, nodeHit, widgetPatterns);
         } catch (error) {
             console.warn("Wysl-忽略规则：跳过节点", node?.title, error);
         }
@@ -142,7 +132,7 @@ app.registerExtension({
         const tick = () => {
             if (app.graph && !app.loading_graph && !app.configuringGraph) safeApply();
         };
-        if (!globalThis.__wyslIgnoreTimer) globalThis.__wyslIgnoreTimer = setInterval(tick, 700);
+        if (!globalThis.__wyslIgnoreTimer) globalThis.__wyslIgnoreTimer = setInterval(tick, 800);
         setTimeout(tick, 1600);
     },
 });
