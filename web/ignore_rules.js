@@ -11,137 +11,102 @@ function widget(node, name) {
     return (node.widgets || []).find((entry) => entry.name === name);
 }
 
-function isEnabled(node) {
+function enabled(node) {
     const value = widget(node, "启用")?.value;
     return value === true || value === 1 || value === "true" || value === "启用";
 }
 
-function linesOf(node, name) {
+function rules(node, name) {
     return String(widget(node, name)?.value || "")
         .split(/[,，;；\n]+/)
         .map((line) => line.trim())
         .filter(Boolean);
 }
 
-function isRegex(rule) {
-    return /[\\^$.*+?()[\]{}|]/.test(rule);
-}
-
 function matches(rule, value) {
     const text = String(value || "");
     if (!rule || !text) return false;
-    if (!isRegex(rule)) return text.includes(rule);
-    try {
-        return new RegExp(rule).test(text);
-    } catch {
-        return false;
+    if (/[\\^$.*+?()[\]{}|]/.test(rule)) {
+        try {
+            return new RegExp(rule).test(text);
+        } catch {
+            return false;
+        }
     }
+    return text.includes(rule);
 }
 
-function anyMatch(rules, values) {
-    return rules.some((rule) => values.some((value) => matches(rule, value)));
+function anyMatch(patterns, values) {
+    return patterns.some((rule) => values.some((value) => matches(rule, value)));
 }
 
-function nodeNames(node) {
-    const values = [node.title, node.type, node.comfyClass, node.constructor?.title, node.constructor?.type];
-    for (const entry of node.widgets || []) values.push(entry?.name, entry?.label, entry?.value);
+function names(node) {
+    const values = [node.title, node.type, node.comfyClass];
     for (const input of node.inputs || []) values.push(input?.name, input?.label);
+    for (const entry of node.widgets || []) values.push(entry?.name, entry?.label, entry?.value);
     return values.filter((value) => typeof value === "string");
 }
 
-function isController(node) {
+function controller(node) {
     return node?.comfyClass === NODE_TYPE || node?.type === NODE_TYPE;
 }
 
-function remember(node) {
-    if (node._wyslIgnoreRestore) return;
-    node._wyslIgnoreRestore = {
-        mode: node.mode ?? 0,
-        color: node.color,
-        bgcolor: node.bgcolor,
-    };
-}
-
-function restore(node) {
-    const saved = node._wyslIgnoreRestore;
-    if (!saved) return;
-    node.mode = saved.mode;
-    node.color = saved.color;
-    node.bgcolor = saved.bgcolor;
-    delete node._wyslIgnoreRestore;
-}
-
-function hideStatusOutput(node) {
-    const output = node.outputs?.[0];
-    if (!output || output._wyslHidden) return;
-    output._wyslHidden = true;
-    output.name = "";
-    output.label = "";
-    output.hidden = true;
-    if (node.outputs.length === 1) node.size = [node.size?.[0] || 240, Math.max(80, (node.size?.[1] || 120) - 18)];
+function setMode(node, mode) {
+    if (typeof node.setMode === "function") node.setMode(mode);
+    else node.mode = mode;
 }
 
 function applyRules(graph) {
     if (!graph) return;
-    const controllers = graphNodes(graph).filter(isController);
-    const enabled = controllers.filter(isEnabled);
-    const nodeRules = enabled.flatMap((node) => linesOf(node, "节点"));
-    const widgetRules = enabled.flatMap((node) => linesOf(node, "选框"));
+    const controllers = graphNodes(graph).filter(controller);
+    const active = controllers.filter(enabled);
+    const nodeRules = active.flatMap((node) => rules(node, "节点"));
+    const widgetRules = active.flatMap((node) => rules(node, "选框"));
     let ignoredNodes = 0;
     let ignoredWidgets = 0;
 
     for (const node of graphNodes(graph)) {
-        if (isController(node)) {
-            hideStatusOutput(node);
-            continue;
-        }
-        const ignoreNode = anyMatch(nodeRules, nodeNames(node));
+        if (controller(node)) continue;
+        const ignoreNode = anyMatch(nodeRules, names(node));
         if (ignoreNode) {
-            remember(node);
-            node.mode = MUTED;
-            node.color = "#6b4a4a";
-            node.bgcolor = "#3d2c2c";
+            if (node.mode !== MUTED) node._wyslPreviousMode = node.mode ?? 0;
+            setMode(node, MUTED);
             ignoredNodes += 1;
-        } else {
-            restore(node);
+        } else if (node._wyslPreviousMode != null) {
+            setMode(node, node._wyslPreviousMode);
+            delete node._wyslPreviousMode;
         }
+
         for (const entry of node.widgets || []) {
             const ignoreWidget = ignoreNode || anyMatch(widgetRules, [entry?.name, entry?.label, entry?.value]);
             entry.disabled = ignoreWidget;
             entry.computedDisabled = ignoreWidget;
+            if (entry.element) entry.element.style.display = ignoreWidget ? "none" : "";
             if (ignoreWidget) ignoredWidgets += 1;
         }
+        node.widgets_height = undefined;
+        node.setDirtyCanvas?.(true, true);
     }
 
     for (const node of controllers) {
         const base = String(widget(node, "名称")?.value || "忽略规则");
-        node.title = isEnabled(node)
+        node.title = enabled(node)
             ? `${base} · 已忽略 ${ignoredNodes} 个节点 / ${ignoredWidgets} 个选框`
             : base;
-        node.color = isEnabled(node) ? "#3f5c45" : undefined;
-        node.bgcolor = isEnabled(node) ? "#24362a" : undefined;
     }
     graph.setDirtyCanvas?.(true, true);
-}
-
-function startIgnoreRules() {
-    if (globalThis.__wyslIgnoreRulesTimer) return;
-    globalThis.__wyslIgnoreRulesTimer = setInterval(() => {
-        try {
-            applyRules(app.graph);
-        } catch (error) {
-            console.warn("Wysl-忽略规则失败", error);
-        }
-    }, 300);
 }
 
 app.registerExtension({
     name: "Wysl.IgnoreRules",
     setup() {
-        startIgnoreRules();
-    },
-    async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (nodeData?.name !== NODE_TYPE) return;
-        startIgnoreRules();
+        if (globalThis.__wyslIgnoreRulesTimer) return;
+        globalThis.__wyslIgnoreRulesTimer = setInterval(() => {
+            try {
+                applyRules(app.canvas?.graph || app.graph);
+            } catch (error) {
+                console.warn("Wysl-忽略规则失败", error);
+            }
+        }, 250);
     },
 });
