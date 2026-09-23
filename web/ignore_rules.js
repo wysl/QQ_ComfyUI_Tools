@@ -1,6 +1,7 @@
 import { app } from "../../../scripts/app.js";
 
 const NODE_TYPE = "WyslIgnoreRules";
+const MUTED = 2;
 
 function graphNodes(graph) {
     return graph?._nodes || [];
@@ -42,46 +43,57 @@ function anyMatch(rules, values) {
 }
 
 function nodeNames(node) {
-    return [node.title, node.type, node.comfyClass, node.constructor?.title]
-        .filter((value) => typeof value === "string");
+    const values = [node.title, node.type, node.comfyClass, node.constructor?.title];
+    for (const entry of node.widgets || []) values.push(entry?.name, entry?.label, entry?.value);
+    for (const input of node.inputs || []) values.push(input?.name, input?.label);
+    return values.filter((value) => typeof value === "string");
+}
+
+function isController(node) {
+    return node?.comfyClass === NODE_TYPE || node?.type === NODE_TYPE;
 }
 
 function applyRules(graph) {
-    const controllers = graphNodes(graph).filter((node) => node.comfyClass === NODE_TYPE || node.type === NODE_TYPE);
+    const controllers = graphNodes(graph).filter(isController);
     const enabled = controllers.filter(isEnabled);
     const nodeRules = enabled.flatMap((node) => linesOf(node, "节点"));
     const widgetRules = enabled.flatMap((node) => linesOf(node, "选框"));
+    let changed = false;
     for (const node of graphNodes(graph)) {
-        if (controllers.includes(node)) continue;
+        if (isController(node)) continue;
         const ignoreNode = anyMatch(nodeRules, nodeNames(node));
-        if (node.mode !== LiteGraph.NEVER) node._wyslIgnorePreviousMode ??= node.mode;
-        node.mode = ignoreNode ? LiteGraph.NEVER : (node._wyslIgnorePreviousMode ?? node.mode);
-        if (!ignoreNode) delete node._wyslIgnorePreviousMode;
-
+        if (ignoreNode) {
+            if (node.mode !== MUTED) {
+                node._wyslIgnorePreviousMode = node.mode ?? 0;
+                node.mode = MUTED;
+                changed = true;
+            }
+        } else if (node._wyslIgnorePreviousMode != null) {
+            node.mode = node._wyslIgnorePreviousMode;
+            delete node._wyslIgnorePreviousMode;
+            changed = true;
+        }
         for (const entry of node.widgets || []) {
-            const ignoreWidget = ignoreNode || anyMatch(widgetRules, [entry?.name, entry?.label]);
-            entry.disabled = ignoreWidget;
-            entry.computedDisabled = ignoreWidget;
+            const ignoreWidget = ignoreNode || anyMatch(widgetRules, [entry?.name, entry?.label, entry?.value]);
+            if (entry.disabled !== ignoreWidget || entry.computedDisabled !== ignoreWidget) {
+                entry.disabled = ignoreWidget;
+                entry.computedDisabled = ignoreWidget;
+                changed = true;
+            }
         }
     }
-}
-
-function signature(node) {
-    return JSON.stringify((node.widgets || []).map((entry) => [entry.name, entry.value]));
+    if (changed) graph.setDirtyCanvas?.(true, true);
 }
 
 app.registerExtension({
     name: "Wysl.IgnoreRules",
     setup() {
         globalThis.__wyslIgnoreRulesTimer = setInterval(() => {
-            const graph = app.graph;
-            if (!graph) return;
-            const controllers = graphNodes(graph).filter((node) => node.comfyClass === NODE_TYPE || node.type === NODE_TYPE);
-            const current = controllers.map(signature).join("\n");
-            if (current === graph._wyslIgnoreSignature) return;
-            graph._wyslIgnoreSignature = current;
-            applyRules(graph);
-            graph.setDirtyCanvas?.(true, true);
+            try {
+                applyRules(app.graph);
+            } catch (error) {
+                console.warn("Wysl-忽略规则失败", error);
+            }
         }, 300);
     },
 });
