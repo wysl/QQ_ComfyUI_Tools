@@ -77,6 +77,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(display["WyslMediaAutoSplitter"], "Wysl-自动拆分媒体")
         self.assertEqual(display["WyslH3SegmentChromaNoise"], "Wysl-H3 分段彩噪")
         self.assertEqual(display["WyslGrokImagineImage"], "Wysl-Grok Imagine Image")
+        self.assertEqual(display["WyslLightroomGrain"], "Wysl-LightroomGrain")
 
     def test_grok_image_node_has_profile_only_endpoint_selector(self):
         node = self.package.NODE_CLASS_MAPPINGS["WyslGrokImagineImage"]

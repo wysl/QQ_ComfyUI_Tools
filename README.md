@@ -29,6 +29,18 @@
   - `Wysl-LightroomDetail`
   - `Wysl-LightroomHSLWarm`
   - `Wysl-LightroomHSLCool`
+  - `Wysl-LightroomGrain`
+
+`Wysl-LightroomGrain` 模拟 Lightroom 面板 **Effects → Grain** 的三参数颗粒效果：
+
+- **数量 (Amount, 0-100)**：颗粒强度，0 等于不加颗粒；
+- **大小 (Size, 0-100)**：颗粒尺寸，越大颗粒越粗；
+- **粗糙度 (Roughness, 0-100)**：颗粒不规则程度，越高越像数字噪点，越低越像柔和胶片斑块。
+
+三个控件默认 **50 / 25 / 100**，与 Lightroom Effects→Grain 面板的默认值完全一致，
+可以直接接入任意 `Wysl-Lightroom*` 调色链路之后使用。算法在 luminance 维度上叠加，
+并保留 alpha 通道（RGBA 输入时 alpha 不变）。
+
 - `Wysl/图像生成`
   - `Wysl-Grok Imagine Image`
 
