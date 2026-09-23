@@ -75,7 +75,7 @@ class LightroomGrainTests(unittest.TestCase):
         self.assertEqual(cls.FUNCTION, "apply_grain")
         inputs = cls.INPUT_TYPES()["required"]
         self.assertEqual(inputs["image"][0], "IMAGE")
-        for name, default in (("amount", 50.0), ("size", 25.0), ("roughness", 100.0)):
+        for name, default in (("amount", 20.0), ("size", 0.0), ("roughness", 0.0)):
             self.assertEqual(inputs[name][1]["default"], default,
                              msg=f"{name} default != Lightroom")
             self.assertEqual(inputs[name][1]["min"], 0.0)
