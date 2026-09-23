@@ -1,7 +1,6 @@
 import { app } from "../../scripts/app.js";
 
 const NODE_TYPE = "WyslIgnoreRules";
-const MODE_ALWAYS = 0;
 const MODE_NEVER = 2;
 
 function nodesOf(graph) {
@@ -11,24 +10,23 @@ function nodesOf(graph) {
     return [];
 }
 
-function widget(node, name) {
-    return (node.widgets || []).find((entry) => entry.name === name);
+function getWidget(node, name) {
+    if (!Array.isArray(node?.widgets)) return null;
+    return node.widgets.find((entry) => entry && entry.name === name) || null;
 }
 
-function enabled(node) {
-    const value = widget(node, "启用")?.value;
+function isEnabled(node) {
+    const value = getWidget(node, "启用")?.value;
     return value === true || value === 1 || value === "true" || value === "启用";
 }
 
-function patterns(node, name) {
-    return String(widget(node, name)?.value || "")
-        .split(/[,，;；\n]+/)
-        .map((line) => line.trim())
-        .filter(Boolean);
+function patternList(node, name) {
+    const raw = String(getWidget(node, name)?.value ?? "");
+    return raw.split(/[,，;；\n]+/).map((item) => item.trim()).filter(Boolean);
 }
 
-function matches(pattern, value) {
-    const text = String(value || "");
+function textMatches(pattern, value) {
+    const text = String(value ?? "");
     if (!pattern || !text) return false;
     if (/[\\^$.*+?()[\]{}|]/.test(pattern)) {
         try { return new RegExp(pattern).test(text); } catch { return false; }
@@ -36,11 +34,16 @@ function matches(pattern, value) {
     return text.includes(pattern);
 }
 
-function matchesAny(patternsToCheck, values) {
-    return patternsToCheck.some((pattern) => values.some((value) => matches(pattern, value)));
+function hitAny(patterns, values) {
+    for (const pattern of patterns) {
+        for (const value of values) {
+            if (textMatches(pattern, value)) return true;
+        }
+    }
+    return false;
 }
 
-function nodeText(node) {
+function searchableText(node) {
     const values = [node.title, node.type, node.comfyClass];
     for (const input of node.inputs || []) values.push(input?.label, input?.name);
     for (const entry of node.widgets || []) values.push(entry?.label, entry?.name, entry?.value);
@@ -51,48 +54,51 @@ function isRuleNode(node) {
     return node?.comfyClass === NODE_TYPE || node?.type === NODE_TYPE;
 }
 
-function muteNode(node, muted) {
-    const target = muted ? MODE_NEVER : (node._wyslSavedMode ?? MODE_ALWAYS);
-    if (muted && node.mode !== MODE_NEVER) node._wyslSavedMode = node.mode ?? MODE_ALWAYS;
-    if (!muted) delete node._wyslSavedMode;
-    if (node.mode === target) return;
-    try {
-        if (typeof node.setMode === "function") node.setMode(target);
-        else node.mode = target;
-    } catch {
-        // Ignore widgets that reject the mode change.
-    }
+function hideWidget(entry, hidden) {
+    const element = entry?.element;
+    if (!element || !element.style) return;
+    element.style.display = hidden ? "none" : "";
 }
 
-function fadeWidget(entry, hidden) {
-    if (!entry) return;
-    const element = entry.element;
-    if (element?.style) element.style.display = hidden ? "none" : "";
-}
-
-function apply(graph) {
+function applyRules(graph) {
     const all = nodesOf(graph);
-    const active = all.filter(isRuleNode).filter(enabled);
-    const nodePatterns = active.flatMap((node) => patterns(node, "节点"));
-    const widgetPatterns = active.flatMap((node) => patterns(node, "选框"));
+    if (!all.length) return;
+
+    const active = all.filter(isRuleNode).filter(isEnabled);
+    const nodePatterns = [];
+    const widgetPatterns = [];
+    for (const node of active) {
+        nodePatterns.push(...patternList(node, "节点"));
+        widgetPatterns.push(...patternList(node, "选框"));
+    }
 
     for (const node of all) {
         if (isRuleNode(node)) continue;
-        const ignoreWholeNode = matchesAny(nodePatterns, nodeText(node));
-        muteNode(node, ignoreWholeNode);
-        for (const entry of node.widgets || []) {
-            const ignoreWidget = ignoreWholeNode
-                || matchesAny(widgetPatterns, [entry?.label, entry?.name, entry?.value]);
-            fadeWidget(entry, ignoreWidget);
+        try {
+            const ignoreNode = hitAny(nodePatterns, searchableText(node));
+            if (ignoreNode) {
+                if (node.mode !== MODE_NEVER) {
+                    if (node._wyslPrevMode === undefined) node._wyslPrevMode = node.mode ?? 0;
+                    node.mode = MODE_NEVER;
+                }
+            } else if (node._wyslPrevMode !== undefined) {
+                node.mode = node._wyslPrevMode;
+                delete node._wyslPrevMode;
+            }
+
+            for (const entry of node.widgets || []) {
+                hideWidget(entry, ignoreNode || hitAny(widgetPatterns, [entry?.label, entry?.name, entry?.value]));
+            }
+            node.setDirtyCanvas?.(true, true);
+        } catch (error) {
+            console.warn("Wysl-忽略规则：跳过节点", node?.title, error);
         }
-        node.setDirtyCanvas?.(true, true);
     }
-    graph?.setDirtyCanvas?.(true, true);
 }
 
-function guardedApply(graph) {
+function safeApply() {
     try {
-        apply(graph);
+        applyRules(app.canvas?.graph || app.graph);
     } catch (error) {
         console.warn("Wysl-忽略规则失败", error);
     }
@@ -100,10 +106,13 @@ function guardedApply(graph) {
 
 app.registerExtension({
     name: "Wysl.IgnoreRules",
-    loadedGraphNode(node) {
-        if (isRuleNode(node)) guardedApply(node.graph || app.graph);
-    },
     setup() {
-        setInterval(() => guardedApply(app.canvas?.graph || app.graph), 500);
+        const tick = () => {
+            if (app.graph && !app.loading_graph && !app.configuringGraph) {
+                safeApply();
+            }
+        };
+        if (!globalThis.__wyslIgnoreTimer) globalThis.__wyslIgnoreTimer = setInterval(tick, 600);
+        setTimeout(tick, 1500);
     },
 });
