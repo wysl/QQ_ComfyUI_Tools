@@ -21,6 +21,7 @@
   - `Wysl-媒体序号输出`
   - `Wysl-自动拆分媒体`
   - `Wysl-H3分段时长`
+  - `Wysl-LatentSwitch`
 - `Wysl/Lightroom 调色`
   - `Wysl-LightroomImage`
   - `Wysl-LightroomVideo`
