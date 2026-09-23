@@ -1,10 +1,14 @@
 import { app } from "../../scripts/app.js";
 
 const NODE_TYPE = "WyslIgnoreRules";
-const MUTED = 2;
+const MODE_ALWAYS = 0;
+const MODE_NEVER = 2;
 
-function graphNodes(graph) {
-    return graph?._nodes || [];
+function nodesOf(graph) {
+    if (!graph) return [];
+    if (Array.isArray(graph._nodes)) return graph._nodes;
+    if (graph._nodes_by_id) return Object.values(graph._nodes_by_id);
+    return [];
 }
 
 function widget(node, name) {
@@ -16,97 +20,85 @@ function enabled(node) {
     return value === true || value === 1 || value === "true" || value === "启用";
 }
 
-function rules(node, name) {
+function patterns(node, name) {
     return String(widget(node, name)?.value || "")
         .split(/[,，;；\n]+/)
         .map((line) => line.trim())
         .filter(Boolean);
 }
 
-function matches(rule, value) {
+function matches(pattern, value) {
     const text = String(value || "");
-    if (!rule || !text) return false;
-    if (/[\\^$.*+?()[\]{}|]/.test(rule)) {
-        try {
-            return new RegExp(rule).test(text);
-        } catch {
-            return false;
-        }
+    if (!pattern || !text) return false;
+    if (/[\\^$.*+?()[\]{}|]/.test(pattern)) {
+        try { return new RegExp(pattern).test(text); } catch { return false; }
     }
-    return text.includes(rule);
+    return text.includes(pattern);
 }
 
-function anyMatch(patterns, values) {
-    return patterns.some((rule) => values.some((value) => matches(rule, value)));
+function matchesAny(patternsToCheck, values) {
+    return patternsToCheck.some((pattern) => values.some((value) => matches(pattern, value)));
 }
 
-function names(node) {
-    const values = [node.title, node.type, node.comfyClass];
-    for (const input of node.inputs || []) values.push(input?.name, input?.label);
-    for (const entry of node.widgets || []) values.push(entry?.name, entry?.label, entry?.value);
+function nodeText(node) {
+    const values = [node.title, node.type, node.comfyClass, node.constructor?.title];
+    for (const input of node.inputs || []) values.push(input?.label, input?.name);
+    for (const entry of node.widgets || []) values.push(entry?.label, entry?.name, entry?.value);
     return values.filter((value) => typeof value === "string");
 }
 
-function controller(node) {
+function isRuleNode(node) {
     return node?.comfyClass === NODE_TYPE || node?.type === NODE_TYPE;
 }
 
-function setMode(node, mode) {
-    if (typeof node.setMode === "function") node.setMode(mode);
-    else node.mode = mode;
+function muteNode(node, muted) {
+    const graph = node.graph;
+    const target = muted ? MODE_NEVER : (node._wyslSavedMode ?? MODE_ALWAYS);
+    if (muted && node.mode !== MODE_NEVER) node._wyslSavedMode = node.mode ?? MODE_ALWAYS;
+    if (!muted) delete node._wyslSavedMode;
+    if (graph?.canvas?.onNodeModeChange) graph.canvas.onNodeModeChange(node, target);
+    else if (typeof node.setMode === "function") node.setMode(target);
+    else node.mode = target;
 }
 
-function applyRules(graph) {
-    if (!graph) return;
-    const controllers = graphNodes(graph).filter(controller);
-    const active = controllers.filter(enabled);
-    const nodeRules = active.flatMap((node) => rules(node, "节点"));
-    const widgetRules = active.flatMap((node) => rules(node, "选框"));
-    let ignoredNodes = 0;
-    let ignoredWidgets = 0;
+function apply(graph) {
+    const all = nodesOf(graph);
+    const ruleNodes = all.filter(isRuleNode);
+    const active = ruleNodes.filter(enabled);
+    const nodePatterns = active.flatMap((node) => patterns(node, "节点"));
+    const widgetPatterns = active.flatMap((node) => patterns(node, "选框"));
 
-    for (const node of graphNodes(graph)) {
-        if (controller(node)) continue;
-        const ignoreNode = anyMatch(nodeRules, names(node));
-        if (ignoreNode) {
-            if (node.mode !== MUTED) node._wyslPreviousMode = node.mode ?? 0;
-            setMode(node, MUTED);
-            ignoredNodes += 1;
-        } else if (node._wyslPreviousMode != null) {
-            setMode(node, node._wyslPreviousMode);
-            delete node._wyslPreviousMode;
-        }
-
+    for (const node of all) {
+        if (isRuleNode(node)) continue;
+        const ignoreWholeNode = matchesAny(nodePatterns, nodeText(node));
+        muteNode(node, ignoreWholeNode);
         for (const entry of node.widgets || []) {
-            const ignoreWidget = ignoreNode || anyMatch(widgetRules, [entry?.name, entry?.label, entry?.value]);
+            const ignoreWidget = ignoreWholeNode || matchesAny(widgetPatterns, [entry?.label, entry?.name, entry?.value]);
             entry.disabled = ignoreWidget;
             entry.computedDisabled = ignoreWidget;
             if (entry.element) entry.element.style.display = ignoreWidget ? "none" : "";
-            if (ignoreWidget) ignoredWidgets += 1;
         }
         node.widgets_height = undefined;
         node.setDirtyCanvas?.(true, true);
     }
-
-    for (const node of controllers) {
-        const base = String(widget(node, "名称")?.value || "忽略规则");
-        node.title = enabled(node)
-            ? `${base} · 已忽略 ${ignoredNodes} 个节点 / ${ignoredWidgets} 个选框`
-            : base;
-    }
-    graph.setDirtyCanvas?.(true, true);
+    graph?.setDirtyCanvas?.(true, true);
 }
 
 app.registerExtension({
     name: "Wysl.IgnoreRules",
+    loadedGraphNode(node) {
+        if (isRuleNode(node)) apply(node.graph || app.graph);
+    },
     setup() {
-        if (globalThis.__wyslIgnoreRulesTimer) return;
-        globalThis.__wyslIgnoreRulesTimer = setInterval(() => {
-            try {
-                applyRules(app.canvas?.graph || app.graph);
-            } catch (error) {
-                console.warn("Wysl-忽略规则失败", error);
-            }
-        }, 250);
+        const original = app.graph?.change;
+        if (app.graph && original && !app.graph._wyslIgnoreWrapped) {
+            app.graph._wyslIgnoreWrapped = true;
+            app.graph.change = function () {
+                const result = original.apply(this, arguments);
+                apply(this);
+                return result;
+            };
+        }
+        setInterval(() => apply(app.canvas?.graph || app.graph), 500);
     },
 });
