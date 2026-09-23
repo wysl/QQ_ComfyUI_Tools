@@ -3,9 +3,13 @@ import { app } from "../../scripts/app.js";
 const NODE_TYPE = "WyslIgnoreRules";
 const MODE_NEVER = 2;
 
+function isVueNodesMode() {
+    return typeof LiteGraph !== "undefined" && LiteGraph.vueNodesMode === true;
+}
+
 function nodesOf(graph) {
     if (!graph) return [];
-    if (Array.isArray(graph._nodes)) return graph._nodes;
+    if (Array.isArray(graph._nodes)) return graph._nodes.slice();
     if (graph._nodes_by_id) return Object.values(graph._nodes_by_id);
     return [];
 }
@@ -54,10 +58,49 @@ function isRuleNode(node) {
     return node?.comfyClass === NODE_TYPE || node?.type === NODE_TYPE;
 }
 
-function hideWidget(entry, hidden) {
-    const element = entry?.element;
+function nodeContainer(node) {
+    if (!node || node.id == null) return null;
+    return document.querySelector(`[data-node-id="${node.id}"]`);
+}
+
+function widgetElements(container) {
+    if (!container) return [];
+    return Array.from(container.querySelectorAll("[data-widget-name], .p-float-label, .comfy-widget"));
+}
+
+function widgetLabelText(element) {
+    const label = element.querySelector("label");
+    return [label?.textContent, element.getAttribute("data-widget-name")]
+        .filter(Boolean)
+        .map((value) => String(value).trim())
+        .join(" ");
+}
+
+function hideElement(element, hidden) {
     if (!element || !element.style) return;
     element.style.display = hidden ? "none" : "";
+}
+
+function applyWidgetVisibility(node, ignoreNode, widgetPatterns) {
+    if (!isVueNodesMode()) return;
+    const container = nodeContainer(node);
+    if (!container) return;
+    for (const element of widgetElements(container)) {
+        const hit = ignoreNode || hitAny(widgetPatterns, [widgetLabelText(element)]);
+        hideElement(element, hit);
+    }
+}
+
+function applyNodeMode(node, ignoreNode) {
+    if (ignoreNode) {
+        if (node.mode !== MODE_NEVER) {
+            if (node._wyslPrevMode === undefined) node._wyslPrevMode = node.mode ?? 0;
+            node.mode = MODE_NEVER;
+        }
+    } else if (node._wyslPrevMode !== undefined) {
+        node.mode = node._wyslPrevMode;
+        delete node._wyslPrevMode;
+    }
 }
 
 function applyRules(graph) {
@@ -76,19 +119,8 @@ function applyRules(graph) {
         if (isRuleNode(node)) continue;
         try {
             const ignoreNode = hitAny(nodePatterns, searchableText(node));
-            if (ignoreNode) {
-                if (node.mode !== MODE_NEVER) {
-                    if (node._wyslPrevMode === undefined) node._wyslPrevMode = node.mode ?? 0;
-                    node.mode = MODE_NEVER;
-                }
-            } else if (node._wyslPrevMode !== undefined) {
-                node.mode = node._wyslPrevMode;
-                delete node._wyslPrevMode;
-            }
-
-            for (const entry of node.widgets || []) {
-                hideWidget(entry, ignoreNode || hitAny(widgetPatterns, [entry?.label, entry?.name, entry?.value]));
-            }
+            applyNodeMode(node, ignoreNode);
+            applyWidgetVisibility(node, ignoreNode, widgetPatterns);
             node.setDirtyCanvas?.(true, true);
         } catch (error) {
             console.warn("Wysl-忽略规则：跳过节点", node?.title, error);
@@ -108,11 +140,9 @@ app.registerExtension({
     name: "Wysl.IgnoreRules",
     setup() {
         const tick = () => {
-            if (app.graph && !app.loading_graph && !app.configuringGraph) {
-                safeApply();
-            }
+            if (app.graph && !app.loading_graph && !app.configuringGraph) safeApply();
         };
-        if (!globalThis.__wyslIgnoreTimer) globalThis.__wyslIgnoreTimer = setInterval(tick, 600);
-        setTimeout(tick, 1500);
+        if (!globalThis.__wyslIgnoreTimer) globalThis.__wyslIgnoreTimer = setInterval(tick, 700);
+        setTimeout(tick, 1600);
     },
 });
