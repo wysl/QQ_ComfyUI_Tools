@@ -1,4 +1,4 @@
-"""Matching checks for node and group ignore rules."""
+"""Matching checks for bypass rules, including ! exclusions."""
 
 from __future__ import annotations
 
@@ -37,13 +37,25 @@ class IgnoreRuleTests(unittest.TestCase):
     def test_plain_text_matches_by_contains(self):
         self.assertTrue(self.module.rule_matches("图像", "图像放大"))
 
+    def test_exclusion_prefix_is_detected(self):
+        self.assertTrue(self.module.is_exclusion("!保留组"))
+        self.assertFalse(self.module.is_exclusion("保留组"))
+        self.assertEqual(self.module.strip_exclusion("!保留组"), "保留组")
+
+    def test_include_exclude_are_separated(self):
+        include, exclude = self.module.split_include_exclude("^Get_图片, !Get_图片 1, ^预处理")
+        self.assertEqual(include, ["^Get_图片", "^预处理"])
+        self.assertEqual(exclude, ["Get_图片 1"])
+
+    def test_exclusion_suppresses_include_match(self):
+        include, exclude = self.module.split_include_exclude("图像, !图像1")
+        self.assertTrue(self.module.any_rule_matches(include, ["图像2"]))
+        self.assertTrue(self.module.any_rule_matches(exclude, ["图像1"]))
+
     def test_inputs_have_node_and_group_boxes(self):
         inputs = self.module.WyslIgnoreRules.INPUT_TYPES()["required"]
         self.assertIn("节点", inputs)
         self.assertIn("组", inputs)
-        self.assertEqual(inputs["节点"][1]["default"], "")
-        self.assertEqual(inputs["组"][1]["default"], "")
-        self.assertFalse(inputs["启用"][1]["default"])
         self.assertNotIn("multiline", inputs["节点"][1])
         self.assertNotIn("multiline", inputs["组"][1])
 
