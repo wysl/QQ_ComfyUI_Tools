@@ -67,14 +67,32 @@ function fallbackInputSpec(input, targetWidget) {
     return null;
 }
 
+function liveComboValues(widget) {
+    const values = widget?.options?.values;
+    if (typeof values === "function") {
+        try {
+            const resolved = values();
+            return Array.isArray(resolved) ? resolved : null;
+        } catch {
+            return null;
+        }
+    }
+    return Array.isArray(values) && values.length ? values : null;
+}
+
 function targetInfo(targetNode, input) {
     if (!targetNode || !input) return null;
     const widgetName = input.widget?.name || input.name;
     if (!widgetName) return null;
     const targetWidget = targetNode.widgets?.find((widget) => widget.name === widgetName);
-    const config = symbolInputSpec(input.widget)
+    let config = symbolInputSpec(input.widget)
         ?? nodeInputSpec(targetNode, widgetName)
         ?? fallbackInputSpec(input, targetWidget);
+    const liveValues = liveComboValues(targetWidget);
+    if (liveValues) {
+        const options = { ...(Array.isArray(config) ? config[1] : {}), values: liveValues };
+        config = [liveValues, options];
+    }
     if (!isInputSpec(config)) return null;
     return { config, input, targetNode, targetWidget, widgetName };
 }

@@ -374,6 +374,7 @@ class RegistrationTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertIn('const NODE_TYPE = "WyslMultiPrimitive";', source)
+        self.assertIn('function liveComboValues(widget)', source)
         self.assertIn('name: "Wysl.MultiPrimitive"', source)
         self.assertIn('category: "Wysl/工具"', source)
 
