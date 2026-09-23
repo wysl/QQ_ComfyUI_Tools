@@ -246,9 +246,9 @@ app.registerExtension({
                         ? info.config[0]
                         : info.config?.[1]?.values;
                     if (!values) continue;
-                    widget.options.values = values;
                     const choices = typeof values === "function" ? values() : values;
-                    if (Array.isArray(choices) && !choices.includes(widget.value)) {
+                    widget.options.values = choices;
+                    if (Array.isArray(choices) && choices.length && !choices.includes(widget.value)) {
                         widget.value = choices[0];
                         widget.callback?.(widget.value);
                     }

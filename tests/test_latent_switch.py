@@ -62,11 +62,17 @@ class LatentSwitchTests(unittest.TestCase):
         )[0]
         self.assertIs(selected, second)
 
+    def test_numeric_select_from_multiprimitive_uses_connected_order(self):
+        first = {"samples": "one"}
+        second = {"samples": "two"}
+        selected = self.module.WyslLatentSwitch.select_latent("2", latent1=first, latent2=second)[0]
+        self.assertIs(selected, second)
+
     def test_frontend_builds_combo_from_input_labels(self):
         source = JS_PATH.read_text(encoding="utf-8")
         self.assertIn("function displayName(input)", source)
         self.assertIn("input.label || input.name", source)
-        self.assertIn("widget.options.values = names", source)
+        self.assertIn("widget.options.values = choices", source)
         ast.parse(MODULE_PATH.read_text(encoding="utf-8"))
 
 
