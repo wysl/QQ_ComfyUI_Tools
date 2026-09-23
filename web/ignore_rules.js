@@ -111,15 +111,28 @@ function applyRules(graph) {
     graph.setDirtyCanvas?.(true, true);
 }
 
+function startIgnoreRules() {
+    if (globalThis.__wyslIgnoreRulesTimer) return;
+    globalThis.__wyslIgnoreRulesTimer = setInterval(() => {
+        try {
+            applyRules(app.graph);
+        } catch (error) {
+            console.warn("Wysl-忽略规则失败", error);
+        }
+    }, 300);
+}
+
 app.registerExtension({
     name: "Wysl.IgnoreRules",
-    setup() {
-        globalThis.__wyslIgnoreRulesTimer = setInterval(() => {
-            try {
-                applyRules(app.graph);
-            } catch (error) {
-                console.warn("Wysl-忽略规则失败", error);
-            }
-        }, 300);
+    async beforeRegisterNodeDef(nodeType, nodeData) {
+        if (nodeData?.name !== NODE_TYPE) return;
+        startIgnoreRules();
+        const original = nodeType.prototype.onNodeCreated;
+        nodeType.prototype.onNodeCreated = function () {
+            const result = original?.apply(this, arguments);
+            startIgnoreRules();
+            applyRules(this.graph || app.graph);
+            return result;
+        };
     },
 });
