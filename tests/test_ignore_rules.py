@@ -1,4 +1,4 @@
-"""Matching checks for widget ignore rules."""
+"""Matching checks for node and group ignore rules."""
 
 from __future__ import annotations
 
@@ -24,22 +24,28 @@ class IgnoreRuleTests(unittest.TestCase):
         cls.module = load_module()
 
     def test_rules_split_on_commas(self):
-        self.assertEqual(self.module.split_rules("提示词, ^图像"), ["提示词", "^图像"])
+        self.assertEqual(self.module.split_rules("^Get_图片, 提示词"), ["^Get_图片", "提示词"])
 
-    def test_regex_matches_widget_prefix(self):
-        self.assertTrue(self.module.rule_matches("^图像", "图像1"))
-        self.assertFalse(self.module.rule_matches("^图像", "参考图像"))
+    def test_regex_matches_node_title(self):
+        self.assertTrue(self.module.rule_matches("^Get_图片", "Get_图片 8"))
+        self.assertFalse(self.module.rule_matches("^Get_图片", "Get_CLIP"))
+
+    def test_regex_matches_group_title(self):
+        self.assertTrue(self.module.rule_matches("^预处理", "预处理组"))
+        self.assertFalse(self.module.rule_matches("^预处理", "后处理组"))
 
     def test_plain_text_matches_by_contains(self):
-        self.assertTrue(self.module.rule_matches("提示词", "正向提示词"))
+        self.assertTrue(self.module.rule_matches("图像", "图像放大"))
 
-    def test_both_boxes_are_optional_and_separate(self):
+    def test_inputs_have_node_and_group_boxes(self):
         inputs = self.module.WyslIgnoreRules.INPUT_TYPES()["required"]
+        self.assertIn("节点", inputs)
+        self.assertIn("组", inputs)
         self.assertEqual(inputs["节点"][1]["default"], "")
-        self.assertEqual(inputs["选框"][1]["default"], "")
+        self.assertEqual(inputs["组"][1]["default"], "")
         self.assertFalse(inputs["启用"][1]["default"])
         self.assertNotIn("multiline", inputs["节点"][1])
-        self.assertNotIn("multiline", inputs["选框"][1])
+        self.assertNotIn("multiline", inputs["组"][1])
 
 
 if __name__ == "__main__":
