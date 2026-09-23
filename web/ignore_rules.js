@@ -1,18 +1,22 @@
 import { app } from "../../scripts/app.js";
 
-// Wysl-忽略规则
-// 用「文字」或「正则」匹配 节点标题 或 组名，把匹配到的设为 ComfyUI 的忽略(Never)状态。
+// Wysl-绕过规则
+// 用「文字」或「正则」匹配 节点标题 或 组名，把匹配到的节点设为 ComfyUI 的「绕过(Bypass)」状态。
 //
-// 依据官方 ComfyUI_frontend 实现：
-//   - 节点忽略: node.mode = LGraphEventMode.NEVER (2)          // useGroupMenuOptions.ts
-//   - 组忽略:   组内全部节点 mode = NEVER, 用 group.nodes + recomputeInsideNodes()
-//   - 改完需 graph.change() 触发重绘（Node 2.0 / Vue 渲染同样依赖它）
+// 依据官方 ComfyUI_frontend 源码：
+//   src/lib/litegraph/src/types/globalEnums.ts
+//     LGraphEventMode = { ALWAYS:0, ON_EVENT:1, NEVER:2, ON_TRIGGER:3, BYPASS:4 }
+//   src/composables/graph/useGroupMenuOptions.ts
+//     官方「组」操作：groupNodes.forEach(n => n.mode = mode) → canvas.setDirty() → graph.change()
+//
+// 注意：切换模式后必须调用 graph.change()，Node 2.0 / Vue 渲染才会重绘。
 
 const NODE_TYPE = "WyslIgnoreRules";
-const TAG = "[Wysl-忽略规则]";
+const TAG = "[Wysl-绕过规则]";
 
-function neverMode() {
-    return globalThis.LiteGraph?.LGraphEventMode?.NEVER ?? 2;
+// 官方枚举：BYPASS = 4。运行时优先读 LiteGraph，读不到就用字面值。
+function bypassMode() {
+    return globalThis.LiteGraph?.LGraphEventMode?.BYPASS ?? 4;
 }
 
 function currentGraph() {
@@ -35,8 +39,7 @@ function allNodes(graph) {
 }
 
 function allGroups(graph) {
-    if (!Array.isArray(graph?._groups)) return [];
-    return graph._groups.slice();
+    return Array.isArray(graph?._groups) ? graph._groups.slice() : [];
 }
 
 function getWidget(node, name) {
@@ -57,7 +60,6 @@ function patterns(node, name) {
 function textMatches(pattern, value) {
     const text = String(value ?? "");
     if (!pattern || !text) return false;
-    // 含正则元字符时按正则匹配，否则按包含匹配
     if (/[\\^$.*+?()[\]{}|]/.test(pattern)) {
         try { return new RegExp(pattern).test(text); } catch { return false; }
     }
@@ -89,15 +91,14 @@ function nodesInGroup(group) {
     return [];
 }
 
-function setIgnored(node, ignore) {
-    const NEVER = neverMode();
-    if (ignore) {
+// 设为绕过 / 恢复原状态
+function setBypassed(node, bypass) {
+    const BYPASS = bypassMode();
+    if (bypass) {
+        if (node.mode === BYPASS) return false;
         if (node._wyslPrevMode === undefined) node._wyslPrevMode = node.mode ?? 0;
-        if (node.mode !== NEVER) {
-            node.mode = NEVER;
-            return true;
-        }
-        return false;
+        node.mode = BYPASS;
+        return true;
     }
     if (node._wyslPrevMode !== undefined) {
         node.mode = node._wyslPrevMode;
@@ -121,7 +122,7 @@ function applyRules(graph) {
         groupPatterns.push(...patterns(rule, "组"));
     }
 
-    // 计算本轮应被忽略的节点集合
+    // 计算本轮应被绕过的节点
     const targets = new Set();
     for (const node of nodes) {
         if (isRuleNode(node)) continue;
@@ -139,20 +140,20 @@ function applyRules(graph) {
     let changed = false;
     for (const node of nodes) {
         if (isRuleNode(node)) continue;
-        if (setIgnored(node, targets.has(node))) changed = true;
+        if (setBypassed(node, targets.has(node))) changed = true;
     }
 
     if (changed) {
-        // 关键：通知画布重绘（Vue / Node 2.0 渲染依赖此调用）
-        try { graph.change?.(); } catch { /* 忽略 */ }
+        // 官方做法：canvas.setDirty() + graph.change() 才会重绘
         try { graph.setDirtyCanvas?.(true, true); } catch { /* 忽略 */ }
+        try { graph.change?.(); } catch { /* 忽略 */ }
     }
 
     return {
         ruleCount: active.length,
         nodePatterns: nodePatterns.length,
         groupPatterns: groupPatterns.length,
-        ignored: targets.size,
+        bypassed: targets.size,
         changed,
     };
 }
@@ -160,8 +161,7 @@ function applyRules(graph) {
 function safeApply() {
     try {
         const graph = currentGraph();
-        if (!graph) return null;
-        return applyRules(graph);
+        return graph ? applyRules(graph) : null;
     } catch (error) {
         console.warn(TAG, "执行失败", error);
         return null;
@@ -169,8 +169,8 @@ function safeApply() {
 }
 
 function start() {
-    if (globalThis.__wyslIgnoreTimer) return;
-    console.log(TAG, "扩展已加载，规则匹配将在 2 秒后开始");
+    if (globalThis.__wyslBypassTimer) return;
+    console.log(TAG, "扩展已加载");
     let lastLog = 0;
     const tick = () => {
         if (!app || app.loading_graph || app.configuringGraph) return;
@@ -180,12 +180,12 @@ function start() {
             lastLog = now;
             console.log(
                 TAG,
-                `规则 ${result.ruleCount} 条 | 节点规则 ${result.nodePatterns} 条 / 组规则 ${result.groupPatterns} 条`
-                + ` | 已忽略 ${result.ignored} 个节点 | 本轮变更: ${result.changed}`,
+                `规则 ${result.ruleCount} 条 | 节点 ${result.nodePatterns} / 组 ${result.groupPatterns}`
+                + ` | 已绕过 ${result.bypassed} 个节点 | 本轮变更: ${result.changed}`,
             );
         }
     };
-    globalThis.__wyslIgnoreTimer = setInterval(tick, 800);
+    globalThis.__wyslBypassTimer = setInterval(tick, 800);
     setTimeout(tick, 2000);
 }
 

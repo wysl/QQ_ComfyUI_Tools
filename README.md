@@ -22,7 +22,7 @@
   - `Wysl-自动拆分媒体`
   - `Wysl-H3分段时长`
   - `Wysl-LatentSwitch`
-  - `Wysl-忽略规则`
+  - `Wysl-绕过规则`
 - `Wysl/Lightroom 调色`
   - `Wysl-LightroomImage`
   - `Wysl-LightroomVideo`
