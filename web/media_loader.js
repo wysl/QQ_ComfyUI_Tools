@@ -1413,11 +1413,13 @@ const CSS_TEXT = `
 .qq-media-loader-modal-v2[data-layout="4"] .wysl-media-file-list{--wysl-file-thumb-size:128px}
 .qq-media-loader-modal-v2[data-layout="5"] .wysl-media-file-list{--wysl-file-thumb-size:90px}
 .qq-media-loader-modal-v2[data-layout="list"] .wysl-media-file-list{--wysl-file-thumb-size:68px}
-.qq-media-loader-modal-v2 .wysl-media-file-thumb{border-radius:8px!important;border:0!important;background:transparent}
-.qq-media-loader-modal-v2 .wysl-media-file-thumb .wysl-media-thumb{background:#2a2d31}
+.qq-media-loader-modal-v2 .wysl-media-file-thumb{border-radius:3px!important;border:0!important;background:transparent}
+.qq-media-loader-modal-v2 .wysl-media-file-meta{margin-left:2px}
+.qq-media-loader-modal-v2 .wysl-media-file-thumb .wysl-media-thumb{background:transparent}
 .qq-media-loader-modal-v2 .wysl-media-file-thumb .wysl-media-thumb,
 .qq-media-loader-modal-v2 .wysl-media-file-thumb .wysl-media-thumb img,
 .qq-media-loader-modal-v2 .wysl-media-file-thumb .wysl-media-file-icon{border-radius:inherit}
+.qq-media-loader-modal-v2 .wysl-media-file-thumb .wysl-media-thumb img{object-fit:cover}
 `;
 
 function installStyles() {
