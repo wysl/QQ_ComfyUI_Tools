@@ -276,10 +276,10 @@ function positionHoverPreview(preview, anchor) {
 }
 
 function hoverPreviewDimensions(width, height, viewportWidth, viewportHeight) {
-    const maxWidth = Math.min(420, Math.max(72, viewportWidth * .7 - 16));
-    const maxHeight = Math.min(540, Math.max(72, viewportHeight * .7 - 16));
-    const ratio = Math.min(maxWidth / width, maxHeight / height);
-    return { width: Math.round(width * ratio), height: Math.round(height * ratio) };
+    return {
+        width: Math.round(Math.min(width * 3, viewportWidth - 16)),
+        height: Math.round(Math.min(height * 3, viewportHeight - 16)),
+    };
 }
 
 function attachImageHoverPreview(node, anchor, path) {
@@ -311,20 +311,13 @@ function attachImageHoverPreview(node, anchor, path) {
             if (node.__wyslMediaLoaderHoverPreview === preview) closeHoverPreview(node);
         }, { once: true });
         preview.append(image);
-        const resize = () => {
-            if (node.__wyslMediaLoaderHoverPreview !== preview) return;
-            const dimensions = hoverPreviewDimensions(
-                image.naturalWidth || 384, image.naturalHeight || 384,
-                window.innerWidth, window.innerHeight,
-            );
-            preview.style.width = `${dimensions.width}px`;
-            preview.style.height = `${dimensions.height}px`;
-            positionHoverPreview(preview, anchor);
-        };
-        image.addEventListener("load", resize, { once: true });
-        const initial = hoverPreviewDimensions(384, 384, window.innerWidth, window.innerHeight);
-        preview.style.width = `${initial.width}px`;
-        preview.style.height = `${initial.height}px`;
+        const rect = anchor.getBoundingClientRect();
+        const dimensions = hoverPreviewDimensions(
+            anchor.clientWidth || rect.width, anchor.clientHeight || rect.height,
+            window.innerWidth, window.innerHeight,
+        );
+        preview.style.width = `${dimensions.width}px`;
+        preview.style.height = `${dimensions.height}px`;
         preview.addEventListener("pointerenter", () => keepHoverPreviewOpen(node, preview));
         preview.addEventListener("pointerleave", () => scheduleHoverPreviewClose(node, preview));
         // Do not let the Comfy canvas consume clicks inside the floating view;
@@ -465,9 +458,7 @@ function filePreview(path, type, size = THUMB_TILE) {
 
 function modalThumbnailSize(list, layout) {
     if (layout === "list") return THUMB_TILE;
-    const columns = Number(layout) || 4;
-    const width = list?.clientWidth || 860;
-    const edge = (width - (columns - 1) * 9) / columns - 58;
+    const edge = { "3": 205, "4": 145, "5": 103 }[layout] || 145;
     const target = edge * Math.min(window.devicePixelRatio || 1, 1.5);
     return [128, 256, 384].find((size) => size >= target) || 384;
 }
@@ -905,7 +896,6 @@ function createFileRow(node, group, item, state, source, thumbSize) {
     const thumb = document.createElement("span");
     thumb.className = "wysl-media-file-thumb";
     thumb.append(filePreview(reference, group.type, thumbSize));
-    if (group.type === "image") attachImageHoverPreview(node, thumb, reference);
 
     const meta = document.createElement("span");
     meta.className = "wysl-media-file-meta";
@@ -1176,6 +1166,7 @@ function pickFilesInto(node) {
 
 function openModal(node) {
     registerModalCleanup();
+    closeHoverPreview(node);
     if (node.__wyslMediaLoaderModal?.isConnected) {
         refreshModal(node, node.__wyslMediaLoaderModal);
         syncModalChecks(node);
@@ -1386,26 +1377,24 @@ const CSS_TEXT = `
 .wysl-media-modal-folders{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:9px}
 .wysl-media-folder-chip{font-size:11px!important}
 .wysl-media-modal-group-title{margin:9px 0 4px;color:var(--content-fg,#9eb7c9);font-size:11px;font-weight:650}
-.wysl-media-file-list{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 9px;min-width:600px}
-.wysl-media-modal-overlay[data-layout="3"] .wysl-media-file-list{grid-template-columns:repeat(3,minmax(0,1fr));min-width:460px}
-.wysl-media-modal-overlay[data-layout="5"] .wysl-media-file-list{grid-template-columns:repeat(5,minmax(0,1fr));min-width:720px}
-.wysl-media-modal-overlay[data-layout="list"] .wysl-media-file-list{grid-template-columns:minmax(0,1fr);min-width:0}
-.wysl-media-file-row{position:relative;display:flex;align-items:center;align-self:start;min-width:0;gap:6px;padding:2px;border-radius:4px;cursor:pointer}
+.wysl-media-file-list{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 9px;min-width:855px;--wysl-file-thumb-size:145px}
+.wysl-media-modal-overlay[data-layout="3"] .wysl-media-file-list{grid-template-columns:repeat(3,minmax(0,1fr));min-width:820px;--wysl-file-thumb-size:205px}
+.wysl-media-modal-overlay[data-layout="5"] .wysl-media-file-list{grid-template-columns:repeat(5,minmax(0,1fr));min-width:860px;--wysl-file-thumb-size:103px}
+.wysl-media-modal-overlay[data-layout="list"] .wysl-media-file-list{grid-template-columns:minmax(0,1fr);min-width:0;--wysl-file-thumb-size:68px}
+.wysl-media-file-row{position:relative;display:grid;grid-template-columns:15px var(--wysl-file-thumb-size) minmax(0,1fr);align-items:start;align-self:start;min-width:0;gap:2px;padding:2px;border-radius:4px;cursor:pointer}
 .wysl-media-file-row:hover{background:var(--comfy-menu-hover-bg,rgba(255,255,255,.07))}
 .wysl-media-file-row.is-checked{background:rgba(116,169,207,.16);box-shadow:inset 0 0 0 1px var(--p-primary-color,rgba(116,169,207,.7))}
-.wysl-media-file-row input{position:absolute;z-index:2;left:7px;top:7px;margin:0;width:15px;height:15px;accent-color:var(--p-primary-color,#74a9cf);filter:drop-shadow(0 1px 2px rgba(0,0,0,.8))}
-.wysl-media-file-thumb{position:relative;flex:1 1 auto;min-width:0;aspect-ratio:1;overflow:hidden;border-radius:3px}
+.wysl-media-file-row input{position:static;margin:2px 0 0;width:15px;height:15px;accent-color:var(--p-primary-color,#74a9cf)}
+.wysl-media-file-thumb{position:relative;display:block;width:var(--wysl-file-thumb-size);height:var(--wysl-file-thumb-size);overflow:hidden;border-radius:3px}
 .wysl-media-file-thumb .wysl-media-thumb{background:transparent}
 .wysl-media-file-thumb .wysl-media-thumb img{object-fit:contain}
-.wysl-media-file-meta{display:flex;flex:0 0 50px;flex-direction:column;justify-content:center;min-width:0;gap:3px;overflow:hidden}
+.wysl-media-file-meta{display:flex;flex-direction:column;justify-content:center;min-width:0;gap:3px;overflow:hidden}
 .wysl-media-file-name{display:none;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wysl-media-file-format{color:var(--fg-color,#dbe3e9);font-size:11px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wysl-media-file-size{color:var(--content-fg,#89949d);font-size:10px;opacity:.8;font-variant-numeric:tabular-nums}
 .wysl-media-modal-overlay[data-layout="list"] .wysl-media-file-name{display:block;white-space:normal;overflow:visible;overflow-wrap:anywhere}
 .wysl-media-modal-overlay[data-layout="list"] .wysl-media-file-format{display:none}
 .wysl-media-modal-overlay[data-layout="list"] .wysl-media-file-row{min-height:72px}
-.wysl-media-modal-overlay[data-layout="list"] .wysl-media-file-thumb{flex:0 0 68px;width:68px;height:68px;aspect-ratio:auto}
-.wysl-media-modal-overlay[data-layout="list"] .wysl-media-file-meta{flex:1 1 auto}
 .wysl-media-load-more{grid-column:1/-1;justify-self:stretch;color:var(--content-fg,#aebbc4)!important;background:transparent!important;border-style:dashed!important}
 .wysl-media-file-icon{display:grid;place-items:center;width:100%;height:100%;border-radius:3px;background:#344451;color:#bed2df;font-size:8px;font-weight:700;letter-spacing:.03em}
 .wysl-media-file-icon.is-audio{background:#294d48;color:#8ee3d4}
