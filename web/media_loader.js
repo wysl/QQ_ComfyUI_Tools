@@ -158,7 +158,8 @@ function filesFromClipboardItems(items) {
         if (item?.kind !== "file") continue;
         const file = item.getAsFile?.();
         if (!file) continue;
-        if (!typeForFile(file) && !extensionFromMime(file.type)) continue;
+        // 只接受能归类为图片/音频/视频的文件
+        if (!typeForFile(file)) continue;
         files.push(file);
     }
     return files;
@@ -1231,18 +1232,28 @@ function installStyles() {
 async function pasteFromClipboardDirect(node) {
     try {
         const items = await globalThis.navigator.clipboard.read();
+        const seen = [];
+        for (const item of items) seen.push(...item.types);
+        console.log("[Wysl media] clipboard types:", seen);
         const blobs = [];
         for (const item of items) {
             for (const type of item.types) {
-                if (type === "text/plain" || type === "text/html") continue;
-                blobs.push(await item.getType(type));
+                const mime = String(type || "").toLowerCase().split(";")[0].trim();
+                if (mime === "text/plain" || mime === "text/html" || mime === "text/uri-list") continue;
+                try {
+                    blobs.push(await item.getType(type));
+                } catch (error) {
+                    console.warn("Wysl media: 读取剪贴板条目失败", type, error);
+                }
             }
         }
+        console.log("[Wysl media] blobs:", blobs.map((b) => `${b.type || "no-type"} ${b.size}B`));
         const files = blobs
             .map((blob, index) => fileFromBlob(blob, index))
-            .filter((file) => typeForFile(file) || extensionFromMime(file.type));
+            .filter((file) => typeForFile(file));
         if (!files.length) {
-            setStatus(node, "剪贴板里没有可导入的媒体", true, 6000);
+            const detail = seen.length ? seen.join(", ") : "空";
+            setStatus(node, `剪贴板里没有可导入的媒体（类型：${detail}）；若文件来自文件管理器，请改用 选中节点后 Ctrl+V`, true, 9000);
             return;
         }
         await addDroppedFiles(node, files);

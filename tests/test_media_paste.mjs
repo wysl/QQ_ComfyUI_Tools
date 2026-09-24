@@ -110,6 +110,15 @@ console.log('== 2. 剪贴板内容判定 ==')
 
   const none = api.filesFromClipboardItems([{ kind: 'string', type: 'text/plain' }])
   check('纯文本 → 无文件（不拦截）', none.length === 0)
+
+  const pdf = api.filesFromClipboardItems([fakeItem('application/pdf', 'a.pdf')])
+  check('非媒体 pdf 被排除（缺陷 1）', pdf.length === 0)
+
+  const uri = api.filesFromClipboardItems([fakeItem('text/uri-list', 'x')])
+  check('text/uri-list 被排除', uri.length === 0)
+
+  const byName = api.filesFromClipboardItems([fakeItem('', 'photo.jpg')])
+  check('空 MIME 但扩展名可识别时仍接受', byName.length === 1)
 }
 
 console.log('== 3. MIME 合成扩展名 ==')
@@ -138,6 +147,9 @@ console.log('== 4. 源码结构约束 ==')
   check('未命中时不拦截（提前 return）', /if \(!files\.length\) return;/.test(src))
   check('未选中时返回 null', src.includes('return null;'))
   check('复用 addDroppedFiles', src.includes('addDroppedFiles(node, files)'))
+  check('不再用 MIME 兜底放行非媒体', !src.includes('typeForFile(file) || extensionFromMime(file.type)'))
+  check('跳过 text/uri-list', src.includes('text/uri-list'))
+  check('getType 失败有兜底', src.includes('读取剪贴板条目失败'))
 
   check('粘贴按钮已定义', src.includes('wysl-media-paste'))
   // 显示在「添加媒体」左侧 —— 由 toolbar.append 的参数顺序决定
