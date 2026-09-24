@@ -155,6 +155,14 @@ function splitRules(entries) {
 }
 
 // 读取原状态：优先 node.properties（会随工作流保存），兼容旧版 _wyslPrevMode
+// 是否由本扩展标记过（只认 node.properties）
+function hasOwnRecord(node) {
+    try {
+        if (node && node.properties && node.properties[PROP_PREV_MODE] !== undefined) return true;
+    } catch (e) { /* ignore */ }
+    return false;
+}
+
 function readPrevMode(node) {
     const fromProps = node?.properties?.[PROP_PREV_MODE];
     if (typeof fromProps === "number") return fromProps;
@@ -177,21 +185,22 @@ function clearPrevMode(node) {
     delete node._wyslPrevMode;
 }
 
+// 只在我们留下过标记（node.properties 里存在 prev）时，才认为自己有权改动。
+// 用户手动绕过的节点没有任何标记，必须原样保留，绝不启用。
 function setBypassed(node, bypass) {
     const { ALWAYS, BYPASS } = enums();
+    const marked = hasOwnRecord(node);
     const prev = readPrevMode(node);
 
     if (bypass) {
         if (node.mode === BYPASS) return false;
-        if (prev === undefined) writePrevMode(node, node.mode ?? ALWAYS);
+        writePrevMode(node, node.mode ?? ALWAYS);
         node.mode = BYPASS;
         return true;
     }
 
-    if (node.mode !== BYPASS) {
-        if (prev !== undefined) clearPrevMode(node);
-        return false;
-    }
+    // 取消绕过：只有我们标记过的节点才恢复，用户的绕过不动
+    if (!marked) return false;
     node.mode = prev !== undefined ? prev : ALWAYS;
     clearPrevMode(node);
     return true;
