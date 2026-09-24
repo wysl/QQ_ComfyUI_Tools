@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 
-const NODE_TYPE = "WyslMediaIndexOutput";
+const NODE_TYPE = "QQMediaIndexOutput";
 const MEDIA_BUNDLE_TYPE = "MINIMAX_H3_MEDIA_BUNDLE";
 const MAX_OUTPUTS = 64;
 const MIN_OUTPUTS = 1;
@@ -86,7 +86,7 @@ function isBundleConnection(connection) {
 
 function sourceIsKnownLoader(connection) {
     const type = String(connection?.sourceNode?.type || "");
-    return type === "WyslMediaLoader" || type === "MiniMaxH3EasyMediaLoader";
+    return type === "QQMediaLoader" || type === "MiniMaxH3EasyMediaLoader";
 }
 
 function descriptorsForConnection(connection) {
@@ -229,7 +229,7 @@ function syncOutputs(node, force = false) {
 function initializeNode(node) {
     if (!node || node.__wyslMediaIndexInitialized) return;
     node.__wyslMediaIndexInitialized = true;
-    node.title = "Wysl-媒体序号输出";
+    node.title = "QQ-媒体序号输出";
     node.resizable = true;
     node.__wyslMediaIndexUserResized = Boolean(node.properties?.wysl_media_index_user_resized);
     installScaleControls(node);
@@ -248,17 +248,17 @@ function stopTimer(node) {
 }
 
 app.registerExtension({
-    name: "Wysl.MediaIndexOutput",
+    name: "QQ.MediaIndexOutput",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name !== NODE_TYPE) return;
         const originalCreated = nodeType.prototype.onNodeCreated;
-        nodeType.prototype.onNodeCreated = function onNodeCreatedWyslMediaIndexOutput() {
+        nodeType.prototype.onNodeCreated = function onNodeCreatedQQMediaIndexOutput() {
             const result = originalCreated?.apply(this, arguments);
             initializeNode(this);
             return result;
         };
         const originalAdded = nodeType.prototype.onAdded;
-        nodeType.prototype.onAdded = function onAddedWyslMediaIndexOutput() {
+        nodeType.prototype.onAdded = function onAddedQQMediaIndexOutput() {
             const result = originalAdded?.apply(this, arguments);
             initializeNode(this);
             syncScaleWidgetVisibility(this);
@@ -266,7 +266,7 @@ app.registerExtension({
             return result;
         };
         const originalConfigured = nodeType.prototype.onConfigure;
-        nodeType.prototype.onConfigure = function onConfigureWyslMediaIndexOutput(info) {
+        nodeType.prototype.onConfigure = function onConfigureQQMediaIndexOutput(info) {
             const result = originalConfigured?.apply(this, arguments);
             // Restore the persisted manual-resize choice after LiteGraph has
             // loaded node properties, then compact legacy oversized nodes.
@@ -283,7 +283,7 @@ app.registerExtension({
             return result;
         };
         const originalConnectionsChange = nodeType.prototype.onConnectionsChange;
-        nodeType.prototype.onConnectionsChange = function onConnectionsChangeWyslMediaIndexOutput(type) {
+        nodeType.prototype.onConnectionsChange = function onConnectionsChangeQQMediaIndexOutput(type) {
             const result = originalConnectionsChange?.apply(this, arguments);
             if (type === (globalThis.LiteGraph?.INPUT ?? 1) || type === (globalThis.LiteGraph?.OUTPUT ?? 2)) {
                 queueMicrotask(() => syncOutputs(this, true));
@@ -291,12 +291,12 @@ app.registerExtension({
             return result;
         };
         const originalRemoved = nodeType.prototype.onRemoved;
-        nodeType.prototype.onRemoved = function onRemovedWyslMediaIndexOutput() {
+        nodeType.prototype.onRemoved = function onRemovedQQMediaIndexOutput() {
             stopTimer(this);
             return originalRemoved?.apply(this, arguments);
         };
         const originalResized = nodeType.prototype.onResize;
-        nodeType.prototype.onResize = function onResizeWyslMediaIndexOutput() {
+        nodeType.prototype.onResize = function onResizeQQMediaIndexOutput() {
             const result = originalResized?.apply(this, arguments);
             if (pointerHeld && !this.__wyslMediaIndexSizing) {
                 this.__wyslMediaIndexUserResized = true;

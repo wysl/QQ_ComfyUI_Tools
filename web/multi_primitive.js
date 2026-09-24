@@ -1,15 +1,15 @@
 import { app } from "../../../scripts/app.js";
 import { ComfyWidgets } from "../../../scripts/widgets.js";
 
-const NODE_TYPE = "WyslMultiPrimitive";
+const NODE_TYPE = "QQMultiPrimitive";
 const MIN_OUTPUTS = 2;
 const ZH_BROWSER = /^(zh)(?:[-_]|$)/i.test(
     String(globalThis.navigator?.language || globalThis.navigator?.languages?.[0] || ""),
 );
 const TEXT = {
-    title: "Wysl-MultiPrimitive",
+    title: "QQ-多值输入",
     empty: ZH_BROWSER ? "连接到控件输入" : "Connect to widget input",
-    category: "Wysl/工具",
+    category: "QQ/工具",
 };
 
 function isInputSpec(value) {
@@ -120,7 +120,7 @@ function chainWidgetCallback(node, slot, widget) {
 }
 
 app.registerExtension({
-    name: "Wysl.MultiPrimitive",
+    name: "QQ.MultiPrimitive",
     registerCustomNodes() {
         const LiteGraph = globalThis.LiteGraph;
         if (!LiteGraph?.LGraphNode || LiteGraph.registered_node_types?.[NODE_TYPE]) return;

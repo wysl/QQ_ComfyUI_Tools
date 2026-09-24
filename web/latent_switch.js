@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 
-const NODE_TYPE = "WyslLatentSwitch";
+const NODE_TYPE = "QQLatentSwitch";
 
 function latentInputs(node) {
     return (node.inputs || []).filter((input) => input.type === "LATENT");
@@ -58,7 +58,7 @@ function onLatentConnectionChange(node, type, index, connected) {
 }
 
 app.registerExtension({
-    name: "Wysl.LatentSwitch",
+    name: "QQ.LatentSwitch",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== NODE_TYPE) return;
         const original = nodeType.prototype.onConnectionsChange;

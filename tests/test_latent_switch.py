@@ -26,14 +26,14 @@ class LatentSwitchTests(unittest.TestCase):
         cls.module = load_module()
 
     def test_combo_default_is_the_first_input_name(self):
-        select = self.module.WyslLatentSwitch.INPUT_TYPES()["required"]["select"]
+        select = self.module.QQLatentSwitch.INPUT_TYPES()["required"]["select"]
         self.assertEqual(select[0], ["latent1"])
         self.assertEqual(select[1]["default"], "latent1")
 
     def test_selection_uses_input_name(self):
         first = {"samples": "one"}
         second = {"samples": "two"}
-        node = self.module.WyslLatentSwitch
+        node = self.module.QQLatentSwitch
         self.assertIs(node.select_latent("latent2", latent1=first, latent2=second)[0], second)
 
     def test_renamed_label_resolves_back_to_the_input_slot(self):
@@ -53,7 +53,7 @@ class LatentSwitchTests(unittest.TestCase):
                 ]
             }
         }
-        selected = self.module.WyslLatentSwitch.select_latent(
+        selected = self.module.QQLatentSwitch.select_latent(
             "放大潜空间",
             unique_id=7,
             extra_pnginfo=workflow,
@@ -65,7 +65,7 @@ class LatentSwitchTests(unittest.TestCase):
     def test_numeric_select_from_multiprimitive_uses_connected_order(self):
         first = {"samples": "one"}
         second = {"samples": "two"}
-        selected = self.module.WyslLatentSwitch.select_latent("2", latent1=first, latent2=second)[0]
+        selected = self.module.QQLatentSwitch.select_latent("2", latent1=first, latent2=second)[0]
         self.assertIs(selected, second)
 
     def test_frontend_builds_combo_from_input_labels(self):

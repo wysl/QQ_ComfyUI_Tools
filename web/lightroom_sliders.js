@@ -1,13 +1,11 @@
 import { app } from "../../../scripts/app.js";
 
 const NODE_TYPES = new Set([
-    "WyslLightroomImage",
-    "WyslLightroomVideo",
-    "WyslLightroomLight",
-    "WyslLightroomColor",
-    "WyslLightroomDetail",
-    "WyslLightroomHSLWarm",
-    "WyslLightroomHSLCool",
+    "QQLightroomLight",
+    "QQLightroomColor",
+    "QQLightroomDetail",
+    "QQLightroomHSLWarm",
+    "QQLightroomHSLCool",
 ]);
 
 const HSL_ZONES = [
@@ -208,7 +206,7 @@ function styleWidgets(node) {
 }
 
 app.registerExtension({
-    name: "Wysl.LightroomSliders",
+    name: "QQ.LightroomSliders",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (!NODE_TYPES.has(nodeData?.name)) return;
 

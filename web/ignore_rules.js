@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 
-// Wysl-绕过规则
+// QQ-绕过规则
 // 用「文字」或「正则」匹配 节点标题 或 组名，把匹配到的节点设为「绕过(Bypass)」。
 //
 // 规则语法（节点 / 组 两个输入框各自独立）：
@@ -21,8 +21,8 @@ import { app } from "../../scripts/app.js";
 //   工作流保存再加载就丢失，导致「关闭」无法恢复。
 //   现改为记进 node.properties（官方序列化字段），并兜底恢复为 ALWAYS。
 
-const NODE_TYPE = "WyslIgnoreRules";
-const TAG = "[Wysl-绕过规则]";
+const NODE_TYPE = "QQIgnoreRules";
+const TAG = "[QQ-绕过规则]";
 const EXCLUDE_PREFIX = "!";
 const PROP_PREV_MODE = "wyslPrevMode";
 
@@ -309,7 +309,7 @@ function start() {
 }
 
 app.registerExtension({
-    name: "Wysl.IgnoreRules",
+    name: "QQ.IgnoreRules",
     setup() { start(); },
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name === NODE_TYPE) start();

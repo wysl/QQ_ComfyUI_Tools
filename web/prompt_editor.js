@@ -1,12 +1,12 @@
 import { app } from "../../../scripts/app.js";
 
-const NODE_TYPE = "WyslMiniMaxH3EasyPrompt";
+const NODE_TYPE = "QQMiniMaxH3EasyPrompt";
 const H3_TARGET_TYPES = new Set([
     "MiniMaxH3Easy",
     "MiniMaxH3EasyContextSegments",
     "MiniMaxH3EasySelectedVideoContext",
 ]);
-const PASS_THROUGH_TYPES = new Set(["WyslMiniMaxH3EasyAreaSwitch"]);
+const PASS_THROUGH_TYPES = new Set(["QQMiniMaxH3EasyAreaSwitch"]);
 const MEDIA_LOADER_TYPE = "MiniMaxH3EasyMediaLoader";
 const LINKS_PROP = "minimax_h3_virtual_media_links";
 const VIEW_PROP = "wsl_h3_prompt_view_mode";
@@ -934,7 +934,7 @@ function patchPromptNode(nodeType) {
 }
 
 app.registerExtension({
-    name: "Wysl.H3PromptEditor",
+    name: "QQ.H3PromptEditor",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name === NODE_TYPE) patchPromptNode(nodeType);
     },

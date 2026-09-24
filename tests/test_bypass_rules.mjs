@@ -26,7 +26,7 @@ const pure = src
 
 const factory = new Function(`
   const globalThis = {};
-  const NODE_TYPE = "WyslIgnoreRules";
+  const NODE_TYPE = "QQIgnoreRules";
   const EXCLUDE_PREFIX = "!";
   const PROP_PREV_MODE = "wyslPrevMode";
   ${pure}

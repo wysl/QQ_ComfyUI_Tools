@@ -1,10 +1,10 @@
 import { app } from "../../scripts/app.js";
 
-// Wysl-轮询切换 的前端：只负责「显示几个输入口」。
+// QQ-轮询切换 的前端：只负责「显示几个输入口」。
 // 后端声明了 MAX_INPUTS 个可选输入，这里默认只留 MIN_INPUTS 个；
 // 每接满一个就补下一个，尾部空闲的再收回去。
 
-const NODE_TYPE = "WyslPollingSwitch";
+const NODE_TYPE = "QQPollingSwitch";
 const MIN_INPUTS = 2;
 const MAX_INPUTS = 8;
 
@@ -92,7 +92,7 @@ function install(nodeType) {
 }
 
 app.registerExtension({
-    name: "Wysl.PollingSwitch",
+    name: "QQ.PollingSwitch",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name !== NODE_TYPE) return;
         install(nodeType);

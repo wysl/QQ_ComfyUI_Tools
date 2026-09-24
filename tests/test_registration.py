@@ -60,30 +60,36 @@ class RegistrationTests(unittest.TestCase):
         sys.path.insert(0, str(Path(__file__).resolve().parents[1].parent))
         cls.package = importlib.import_module("Wysl_ComfyUI_Tools")
 
-    def test_all_requested_nodes_are_registered_with_unique_wysl_ids(self):
+    def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 20)
-        self.assertTrue(all(name.startswith("Wysl") for name in mappings))
+        self.assertEqual(len(mappings), 22)
+        self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
+        self.assertNotIn("QQLightroomImage", mappings)
+        self.assertNotIn("QQLightroomVideo", mappings)
 
     def test_display_names_match_requested_names(self):
         display = self.package.NODE_DISPLAY_NAME_MAPPINGS
-        self.assertEqual(display["WyslVideoBlackIntro"], "Wysl-VideoBlackIntro")
-        self.assertEqual(display["WyslVfiX2"], "Wysl-VFI x 2")
-        self.assertEqual(display["WyslSaveVideo"], "Wysl-SaveVideo")
-        self.assertEqual(display["WyslLightroomImage"], "Wysl-LightroomImage")
-        self.assertEqual(display["WyslMediaLoader"], "Wysl-多媒体加载")
-        self.assertEqual(display["WyslMediaIndexOutput"], "Wysl-媒体序号输出")
-        self.assertEqual(display["WyslMediaAutoSplitter"], "Wysl-自动拆分媒体")
-        self.assertEqual(display["WyslH3SegmentChromaNoise"], "Wysl-H3 分段彩噪")
-        self.assertEqual(display["WyslGrokImagineImage"], "Wysl-Grok Imagine Image")
-        self.assertEqual(display["WyslLightroomGrain"], "Wysl-LightroomGrain")
-        self.assertEqual(display["WyslLatentSwitch"], "Wysl-LatentSwitch")
-        self.assertEqual(display["WyslPollingSwitch"], "Wysl-图像轮询切换")
-        self.assertEqual(display["WyslIgnoreRules"], "Wysl-绕过规则")
+        self.assertEqual(set(display), set(self.package.NODE_CLASS_MAPPINGS))
+        self.assertTrue(all(name.startswith("QQ-") for name in display.values()))
+        self.assertTrue(all(any("\u4e00" <= char <= "\u9fff" for char in name) for name in display.values()))
+        self.assertEqual(display["QQVideoBlackIntro"], "QQ-视频开头黑屏")
+        self.assertEqual(display["QQVfiX2"], "QQ-视频补帧×2")
+        self.assertEqual(display["QQSaveVideo"], "QQ-保存视频")
+        self.assertEqual(display["QQLightroomHSLWarm"], "QQ-LR-暖色调色")
+        self.assertEqual(display["QQLightroomHSLCool"], "QQ-LR-冷色调色")
+        self.assertEqual(display["QQMediaLoader"], "QQ-多媒体加载")
+        self.assertEqual(display["QQMediaIndexOutput"], "QQ-媒体序号输出")
+        self.assertEqual(display["QQMediaAutoSplitter"], "QQ-自动拆分媒体")
+        self.assertEqual(display["QQH3SegmentChromaNoise"], "QQ-H3 分段彩噪")
+        self.assertEqual(display["QQGrokImagineImage"], "QQ-Grok图像生成")
+        self.assertEqual(display["QQLightroomGrain"], "QQ-LR-颗粒效果")
+        self.assertEqual(display["QQLatentSwitch"], "QQ-潜空间切换")
+        self.assertEqual(display["QQPollingSwitch"], "QQ-图像轮询切换")
+        self.assertEqual(display["QQIgnoreRules"], "QQ-绕过规则")
 
     def test_grok_image_node_has_profile_only_endpoint_selector(self):
-        node = self.package.NODE_CLASS_MAPPINGS["WyslGrokImagineImage"]
+        node = self.package.NODE_CLASS_MAPPINGS["QQGrokImagineImage"]
         controls = node.INPUT_TYPES()["required"]
         self.assertEqual(controls["endpoint_profile"][0], ["未配置 Grok endpoint"])
         self.assertEqual(controls["model"][0], ["grok-imagine-image-2.0"])
@@ -149,7 +155,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertNotIn("size", payload)
 
     def test_h3_segment_chroma_noise_uses_upstream_segment_transport(self):
-        node = self.package.NODE_CLASS_MAPPINGS["WyslH3SegmentChromaNoise"]
+        node = self.package.NODE_CLASS_MAPPINGS["QQH3SegmentChromaNoise"]
         controls = node.INPUT_TYPES()["required"]
         self.assertEqual(controls["segments"][0], "MINIMAX_H3_SEGMENTS")
         self.assertEqual(node.RETURN_TYPES, ("MINIMAX_H3_SEGMENTS",))
@@ -159,18 +165,18 @@ class RegistrationTests(unittest.TestCase):
         self.assertTrue(controls["preserve_luminance"][1]["default"])
 
     def test_swap_and_prompt_contracts(self):
-        swap = self.package.NODE_CLASS_MAPPINGS["WyslSwapDimensions"]
+        swap = self.package.NODE_CLASS_MAPPINGS["QQSwapDimensions"]
         self.assertEqual(swap.swap(640, 480, False), (640, 480))
         self.assertEqual(swap.swap(640, 480, True), (480, 640))
-        prompt = self.package.NODE_CLASS_MAPPINGS["WyslMiniMaxH3EasyPrompt"]
+        prompt = self.package.NODE_CLASS_MAPPINGS["QQMiniMaxH3EasyPrompt"]
         self.assertEqual(prompt.get_prompt("hello"), ("hello",))
 
     def test_h3_segment_timing_normalizes_duration_input(self):
-        timing = self.package.NODE_CLASS_MAPPINGS["WyslMiniMaxH3EasySegmentTiming"]
+        timing = self.package.NODE_CLASS_MAPPINGS["QQMiniMaxH3EasySegmentTiming"]
         self.assertEqual(timing.calculate("4， 4\n2", 24), ("4,4,2", 10.0, 24, 243))
 
     def test_h3_segment_timing_accepts_units_labels_and_brackets(self):
-        timing = self.package.NODE_CLASS_MAPPINGS["WyslMiniMaxH3EasySegmentTiming"]
+        timing = self.package.NODE_CLASS_MAPPINGS["QQMiniMaxH3EasySegmentTiming"]
         self.assertEqual(
             timing.calculate("第1段：6秒\n第2段：6.5s", 24),
             ("6,6.5", 12.5, 24, 311),
@@ -178,11 +184,11 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(timing.calculate("[6, 6]", 24), ("6,6", 12.0, 24, 294))
 
     def test_h3_segment_timing_uses_h3_temporal_grid(self):
-        timing = self.package.NODE_CLASS_MAPPINGS["WyslMiniMaxH3EasySegmentTiming"]
+        timing = self.package.NODE_CLASS_MAPPINGS["QQMiniMaxH3EasySegmentTiming"]
         self.assertEqual(timing.calculate("5,5,5,5,5", 24)[-1], 600)
 
     def test_h3_segment_timing_uses_a_compact_single_line_input(self):
-        timing = self.package.NODE_CLASS_MAPPINGS["WyslMiniMaxH3EasySegmentTiming"]
+        timing = self.package.NODE_CLASS_MAPPINGS["QQMiniMaxH3EasySegmentTiming"]
         options = timing.INPUT_TYPES()["required"]["segment_seconds"][1]
         self.assertFalse(options["multiline"])
 
@@ -201,7 +207,7 @@ class RegistrationTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "web" / "prompt_editor.js").read_text(
             encoding="utf-8",
         )
-        self.assertIn('const NODE_TYPE = "WyslMiniMaxH3EasyPrompt";', source)
+        self.assertIn('const NODE_TYPE = "QQMiniMaxH3EasyPrompt";', source)
         self.assertIn('"MiniMaxH3EasyContextSegments"', source)
         self.assertIn('const LINKS_PROP = "minimax_h3_virtual_media_links";', source)
         self.assertIn('const MEDIA_LOADER_TYPE = "MiniMaxH3EasyMediaLoader";', source)
@@ -240,7 +246,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("function mediaLoaderRuntimeIndex(targetNode, mediaType, ordinal)", source)
 
     def test_h3_segment_timing_rejects_invalid_duration(self):
-        timing = self.package.NODE_CLASS_MAPPINGS["WyslMiniMaxH3EasySegmentTiming"]
+        timing = self.package.NODE_CLASS_MAPPINGS["QQMiniMaxH3EasySegmentTiming"]
         with self.assertRaises(ValueError):
             timing.calculate("4,not-a-number", 24)
         with self.assertRaises(ValueError):
@@ -261,9 +267,9 @@ class RegistrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             video._custom_frame_indices("-1", 100)
 
-        controls = video.WyslSaveVideo.INPUT_TYPES()["required"]
-        self.assertEqual(video.WyslSaveVideo.RETURN_TYPES, ("VIDEO", "IMAGE", "IMAGE", "IMAGE"))
-        self.assertEqual(video.WyslSaveVideo.RETURN_NAMES[-1], "自定义帧")
+        controls = video.QQSaveVideo.INPUT_TYPES()["required"]
+        self.assertEqual(video.QQSaveVideo.RETURN_TYPES, ("VIDEO", "IMAGE", "IMAGE", "IMAGE"))
+        self.assertEqual(video.QQSaveVideo.RETURN_NAMES[-1], "自定义帧")
         self.assertFalse(controls["自定义帧位置"][1]["multiline"])
         self.assertEqual(controls["自定义帧位置"][1]["default"], "")
 
@@ -275,7 +281,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(pairs, list(range(11)))
 
     def test_vfi_defaults_to_chunked_fp16_low_memory_mode(self):
-        vfi = self.package.NODE_CLASS_MAPPINGS["WyslVfiX2"]
+        vfi = self.package.NODE_CLASS_MAPPINGS["QQVfiX2"]
         controls = vfi.INPUT_TYPES()["required"]
         self.assertEqual(controls["memory_mode"][1]["default"], "低内存（FP16）")
         self.assertEqual(controls["chunk_frames"][1]["default"], 96)
@@ -283,7 +289,7 @@ class RegistrationTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "node_modules" / "video.py").read_text(
             encoding="utf-8",
         )
-        vfi_source = source[source.index("class WyslVfiX2") : source.index("class WyslSaveVideo")]
+        vfi_source = source[source.index("class QQVfiX2") : source.index("class QQSaveVideo")]
         self.assertIn("for start, stop in ranges:", vfi_source)
         self.assertIn("interpolated[-2:].copy_", vfi_source)
         self.assertNotIn("torch.cat", vfi_source)
@@ -298,7 +304,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_save_video_time_format_defaults_to_the_existing_counter_name(self):
         video = importlib.import_module("Wysl_ComfyUI_Tools.node_modules.video")
-        controls = video.WyslSaveVideo.INPUT_TYPES()["required"]
+        controls = video.QQSaveVideo.INPUT_TYPES()["required"]
         self.assertEqual(
             controls["time_format"][1]["default"],
             video.SAVE_TIME_DISABLED,
@@ -327,7 +333,7 @@ class RegistrationTests(unittest.TestCase):
     def test_save_video_supports_compact_minute_time_with_collision_only_suffix(self):
         video = importlib.import_module("Wysl_ComfyUI_Tools.node_modules.video")
         now = datetime(2026, 1, 2, 17, 30, 59)
-        controls = video.WyslSaveVideo.INPUT_TYPES()["required"]
+        controls = video.QQSaveVideo.INPUT_TYPES()["required"]
         self.assertIn(video.SAVE_TIME_MINUTE, controls["time_format"][0])
 
         with tempfile.TemporaryDirectory() as output_folder:
@@ -365,7 +371,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertNotIn("MIN_PREVIEW_HEIGHT", source)
 
     def test_lightroom_controls_default_to_zero(self):
-        lightroom = self.package.NODE_CLASS_MAPPINGS["WyslLightroomColor"]
+        lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
         controls = lightroom.INPUT_TYPES()["required"]
         self.assertEqual(controls["temperature"][1]["default"], 0.0)
         self.assertEqual(controls["tint"][1]["default"], 0.0)
@@ -375,13 +381,14 @@ class RegistrationTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "web" / "multi_primitive.js").read_text(
             encoding="utf-8",
         )
-        self.assertIn('const NODE_TYPE = "WyslMultiPrimitive";', source)
+        self.assertIn('const NODE_TYPE = "QQMultiPrimitive";', source)
+        self.assertIn('title: "QQ-多值输入"', source)
         self.assertIn('function liveComboValues(widget)', source)
-        self.assertIn('name: "Wysl.MultiPrimitive"', source)
-        self.assertIn('category: "Wysl/工具"', source)
+        self.assertIn('name: "QQ.MultiPrimitive"', source)
+        self.assertIn('category: "QQ/工具"', source)
 
     def test_media_auto_splitter_contract(self):
-        splitter = self.package.NODE_CLASS_MAPPINGS["WyslMediaAutoSplitter"]
+        splitter = self.package.NODE_CLASS_MAPPINGS["QQMediaAutoSplitter"]
         self.assertEqual(splitter.RETURN_NAMES, ("图像", "音频", "视频", "图片组合"))
         self.assertEqual(splitter.OUTPUT_IS_LIST, (True, True, True, False))
         self.assertTrue(splitter.INPUT_IS_LIST)
@@ -407,14 +414,14 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('if media_bundle is not None:', source)
 
     def test_media_loader_contract_and_three_separate_outputs(self):
-        loader = self.package.NODE_CLASS_MAPPINGS["WyslMediaLoader"]
+        loader = self.package.NODE_CLASS_MAPPINGS["QQMediaLoader"]
         self.assertEqual(loader.RETURN_TYPES, ("IMAGE", "AUDIO", "VIDEO", "MINIMAX_H3_MEDIA_BUNDLE"))
         self.assertEqual(loader.RETURN_NAMES, ("multi output", "audio output", "video output", "media_bundle"))
         self.assertEqual(loader.OUTPUT_IS_LIST, (True, True, True, False))
         empty_outputs = loader.load("")
         self.assertEqual(empty_outputs[:3], ([], [], []))
         self.assertEqual(empty_outputs[3].items, ())
-        splitter = self.package.NODE_CLASS_MAPPINGS["WyslMediaAutoSplitter"]
+        splitter = self.package.NODE_CLASS_MAPPINGS["QQMediaAutoSplitter"]
         self.assertEqual(splitter.INPUT_TYPES()["optional"]["media_bundle"][0], loader.RETURN_TYPES[3])
         media = importlib.import_module("Wysl_ComfyUI_Tools.node_modules.media")
         self.assertEqual(media._media_loader_kind("folder/a.png"), "image")
@@ -425,7 +432,7 @@ class RegistrationTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "web" / "media_loader.js").read_text(
             encoding="utf-8",
         )
-        self.assertIn('const NODE_TYPE = "WyslMediaLoader";', source)
+        self.assertIn('const NODE_TYPE = "QQMediaLoader";', source)
         self.assertIn('makeButton("添加媒体", "wysl-media-add"', source)
         self.assertIn('makeButton("选择文件夹", "wysl-media-modal-folder"', source)
         self.assertIn("当前目录全选", source)
@@ -451,7 +458,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("wysl-media-hover-preview", source)
 
     def test_media_index_output_splits_image_lists_and_bundles(self):
-        node = self.package.NODE_CLASS_MAPPINGS["WyslMediaIndexOutput"]
+        node = self.package.NODE_CLASS_MAPPINGS["QQMediaIndexOutput"]
         self.assertTrue(node.INPUT_IS_LIST)
         self.assertEqual(len(node.RETURN_TYPES), 64)
         self.assertEqual(node.INPUT_TYPES()["required"]["media"][0], "*")
@@ -500,7 +507,7 @@ class RegistrationTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "web" / "media_index_output.js").read_text(
             encoding="utf-8",
         )
-        self.assertIn('const NODE_TYPE = "WyslMediaIndexOutput";', source)
+        self.assertIn('const NODE_TYPE = "QQMediaIndexOutput";', source)
         self.assertIn('const MEDIA_BUNDLE_TYPE = "MINIMAX_H3_MEDIA_BUNDLE";', source)
         self.assertIn("function descriptorsForConnection(connection)", source)
         self.assertIn("function syncOutputs(node, force = false)", source)
@@ -539,7 +546,7 @@ class RegistrationTests(unittest.TestCase):
             media,
             "_media_index_resize_image",
             side_effect=lambda value, target_width, target_height, *_args: (target_width, target_height),
-        ):
+        ), patch.object(media.torch, "Tensor", FakeTensor):
             scaled = media._media_index_scale_items(
                 [("image", landscape), ("image", portrait)],
                 "按宽高比缩放",

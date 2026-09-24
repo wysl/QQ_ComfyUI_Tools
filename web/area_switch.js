@@ -1,6 +1,6 @@
 import { app } from "../../../scripts/app.js";
 
-const NODE_TYPE = "WyslMiniMaxH3EasyAreaSwitch";
+const NODE_TYPE = "QQMiniMaxH3EasyAreaSwitch";
 const IGNORE_NODE_TYPES = new Set(["忽略多组孤海", "goohaitools.ignore_groups"]);
 const SYNC_INTERVAL_MS = 250;
 
@@ -78,7 +78,7 @@ function syncAllRouteNodes() {
 }
 
 app.registerExtension({
-    name: "Wysl.AreaSwitch",
+    name: "QQ.AreaSwitch",
 
     setup() {
         if (!globalThis.__wslAreaSwitchTimer) {

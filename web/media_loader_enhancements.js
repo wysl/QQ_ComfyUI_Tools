@@ -74,23 +74,23 @@ function setup(node, retries = 0) {
 }
 
 app.registerExtension({
-    name: "Wysl.MediaLoaderEnhancements",
+    name: "QQ.MediaLoaderEnhancements",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name !== NODE_TYPE) return;
         const originalCreated = nodeType.prototype.onNodeCreated;
-        nodeType.prototype.onNodeCreated = function onNodeCreatedWyslMediaLoaderEnhancements() {
+        nodeType.prototype.onNodeCreated = function onNodeCreatedQQMediaLoaderEnhancements() {
             const result = originalCreated?.apply(this, arguments);
             setup(this);
             return result;
         };
         const originalAdded = nodeType.prototype.onAdded;
-        nodeType.prototype.onAdded = function onAddedWyslMediaLoaderEnhancements() {
+        nodeType.prototype.onAdded = function onAddedQQMediaLoaderEnhancements() {
             const result = originalAdded?.apply(this, arguments);
             setup(this);
             return result;
         };
         const originalConfigured = nodeType.prototype.onConfigure;
-        nodeType.prototype.onConfigure = function onConfigureWyslMediaLoaderEnhancements() {
+        nodeType.prototype.onConfigure = function onConfigureQQMediaLoaderEnhancements() {
             const result = originalConfigured?.apply(this, arguments);
             setup(this);
             return result;

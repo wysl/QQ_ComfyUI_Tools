@@ -1,7 +1,7 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-const NODE_TYPE = "WyslMediaLoader";
+const NODE_TYPE = "QQMediaLoader";
 const STATE_WIDGET = "media_state";
 const THUMB_TILE = 128;
 // 128px webp is already 2x a 56px tile at devicePixelRatio 2, and requesting a
@@ -1468,23 +1468,23 @@ function teardown(node) {
 }
 
 app.registerExtension({
-    name: "Wysl.MediaLoader",
+    name: "QQ.MediaLoader",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name !== NODE_TYPE) return;
         const originalCreated = nodeType.prototype.onNodeCreated;
-        nodeType.prototype.onNodeCreated = function onNodeCreatedWyslMediaLoader() {
+        nodeType.prototype.onNodeCreated = function onNodeCreatedQQMediaLoader() {
             const result = originalCreated?.apply(this, arguments);
             setup(this);
             return result;
         };
         const originalAdded = nodeType.prototype.onAdded;
-        nodeType.prototype.onAdded = function onAddedWyslMediaLoader() {
+        nodeType.prototype.onAdded = function onAddedQQMediaLoader() {
             const result = originalAdded?.apply(this, arguments);
             setup(this);
             return result;
         };
         const originalConfigured = nodeType.prototype.onConfigure;
-        nodeType.prototype.onConfigure = function onConfigureWyslMediaLoader() {
+        nodeType.prototype.onConfigure = function onConfigureQQMediaLoader() {
             const result = originalConfigured?.apply(this, arguments);
             // Must run before setup(): its first auto-fit pass would otherwise
             // shrink a box the user had arranged taller in the saved workflow.
@@ -1494,12 +1494,12 @@ app.registerExtension({
             return result;
         };
         const originalRemoved = nodeType.prototype.onRemoved;
-        nodeType.prototype.onRemoved = function onRemovedWyslMediaLoader() {
+        nodeType.prototype.onRemoved = function onRemovedQQMediaLoader() {
             teardown(this);
             return originalRemoved?.apply(this, arguments);
         };
         const originalResized = nodeType.prototype.onResize;
-        nodeType.prototype.onResize = function onResizeWyslMediaLoader() {
+        nodeType.prototype.onResize = function onResizeQQMediaLoader() {
             const result = originalResized?.apply(this, arguments);
             if (pointerHeld && !this.__wyslMediaLoaderLayoutBusy) this.__wyslMediaLoaderUserResized = true;
             return result;

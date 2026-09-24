@@ -37,7 +37,7 @@ class PollingSwitchTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.module = load_module()
-        cls.node = cls.module.WyslPollingSwitch
+        cls.node = cls.module.QQPollingSwitch
 
     # ---------- _is_blank ----------
 
@@ -112,10 +112,10 @@ class PollingSwitchTests(unittest.TestCase):
             self.assertEqual(spec[0], "IMAGE", msg=f"{name} 应为 IMAGE")
 
     def test_registered_in_both_mappings(self):
-        self.assertIn("WyslPollingSwitch", self.module.NODE_CLASS_MAPPINGS)
+        self.assertIn("QQPollingSwitch", self.module.NODE_CLASS_MAPPINGS)
         self.assertEqual(
-            self.module.NODE_DISPLAY_NAME_MAPPINGS["WyslPollingSwitch"],
-            "Wysl-图像轮询切换",
+            self.module.NODE_DISPLAY_NAME_MAPPINGS["QQPollingSwitch"],
+            "QQ-图像轮询切换",
         )
 
 
@@ -134,7 +134,7 @@ class PollingSwitchFrontendTests(unittest.TestCase):
         self.assertIn("const MAX_INPUTS = 8;", self.source)
 
     def test_targets_the_right_node(self):
-        self.assertIn('const NODE_TYPE = "WyslPollingSwitch";', self.source)
+        self.assertIn('const NODE_TYPE = "QQPollingSwitch";', self.source)
 
     def test_has_dynamic_helpers(self):
         for name in ("function inputName", "function targetCount",

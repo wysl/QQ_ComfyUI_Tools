@@ -2,7 +2,7 @@
  * Regression tests for the media loader clipboard paste support.
  *
  * 规则：
- *   1. 只有选中了「WyslMediaLoader」节点时才响应 Ctrl+V
+ *   1. 只有选中了「QQMediaLoader」节点时才响应 Ctrl+V
  *   2. 剪贴板里没有媒体文件时不拦截（普通文本粘贴、节点复制粘贴不受影响）
  *   3. 焦点在输入框/文本域时不拦截
  *   4. 剪贴板 blob 没名字时能按 MIME 合成扩展名
@@ -37,7 +37,7 @@ const helperEnd = src.indexOf('function mediaUrl(path)')
 const block = src.slice(helperStart, helperEnd)
 
 const factory = new Function(`
-  const NODE_TYPE = "WyslMediaLoader";
+  const NODE_TYPE = "QQMediaLoader";
   const app = { graph: { _nodes: [] } };
   ${typeBlock}
   ${block}
@@ -47,7 +47,7 @@ const factory = new Function(`
 const api = factory()
 
 const makeNode = (selected = false) => ({
-  comfyClass: 'WyslMediaLoader',
+  comfyClass: 'QQMediaLoader',
   is_selected: selected,
   __wyslMediaLoaderSetup: true,
 })
@@ -86,7 +86,7 @@ console.log('== 1. 只有选中节点时才响应（核心规则）==')
   graph = { _nodes: [{ comfyClass: 'KSampler', is_selected: true }] }
   const notMine = (function look(g) {
     for (const n of g._nodes) {
-      if (n.comfyClass !== 'WyslMediaLoader' && n.type !== 'WyslMediaLoader') continue
+      if (n.comfyClass !== 'QQMediaLoader' && n.type !== 'QQMediaLoader') continue
       if (n.is_selected || n.selected) return n
     }
     return null

@@ -100,7 +100,7 @@ class MixedAspectCompositionTests(unittest.TestCase):
             )
         )
 
-        _images, _audios, _videos, output = MEDIA.WyslMediaAutoSplitter.split(
+        _images, _audios, _videos, output = MEDIA.QQMediaAutoSplitter.split(
             media_bundle=[upstream_bundle],
             组合图片长边=[1920],
             组合排列=["从左向右"],
@@ -115,13 +115,13 @@ class MixedAspectCompositionTests(unittest.TestCase):
         portrait_two = _solid_image(1920, 1080, 0.2)
         landscape = _solid_image(1080, 1920, 0.3)
 
-        images, _audios, _videos, output = MEDIA.WyslMediaAutoSplitter.split(
+        images, _audios, _videos, output = MEDIA.QQMediaAutoSplitter.split(
             image=[portrait_one, portrait_two, landscape],
             组合图片长边=[1920],
             组合排列=["从左向右"],
         )
 
-        self.assertTrue(MEDIA.WyslMediaAutoSplitter.INPUT_IS_LIST)
+        self.assertTrue(MEDIA.QQMediaAutoSplitter.INPUT_IS_LIST)
         self.assertEqual(len(images), 3)
         self.assertEqual(tuple(output.shape), (1, 1920, 4100, 3))
         torch.testing.assert_close(output[:, :1080, 2180:4100, :], landscape)

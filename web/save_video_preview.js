@@ -1,6 +1,6 @@
 import { app } from "../../../scripts/app.js";
 
-const NODE_TYPE = "WyslSaveVideo";
+const NODE_TYPE = "QQSaveVideo";
 const VIDEO_WIDGET_NAME = "video-preview";
 const MIN_LAYOUT_HEIGHT = 64;
 const PATCH_RETRIES = 24;
@@ -157,7 +157,7 @@ function patchNodeMethods(nodeType) {
 }
 
 app.registerExtension({
-    name: "Wysl.SaveVideoPreview",
+    name: "QQ.SaveVideoPreview",
 
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name !== NODE_TYPE) return;

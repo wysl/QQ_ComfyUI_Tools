@@ -1,6 +1,6 @@
 import { app } from "../../../scripts/app.js";
 
-const NODE_TYPE = "WyslMultiSet";
+const NODE_TYPE = "QQMultiSet";
 const GET_NODE_TYPE = "GetNode";
 const SET_NODE_TYPE = "SetNode";
 const MIN_PAIRS = 2;
@@ -9,10 +9,10 @@ const ZH_BROWSER = /^(zh)(?:[-_]|$)/i.test(
     String(globalThis.navigator?.language || globalThis.navigator?.languages?.[0] || ""),
 );
 const TEXT = {
-    title: "Multi Set",
+    title: "QQ-多值设置",
     variable: ZH_BROWSER ? "变量" : "Variable",
     empty: ZH_BROWSER ? "接入值" : "Connect value",
-    category: "Wysl/工具",
+    category: "QQ/工具",
 };
 
 function graphLink(graph, linkId) {
@@ -509,7 +509,7 @@ function installMultiSetNode(nodeType) {
 }
 
 app.registerExtension({
-    name: "Wysl.MultiSet",
+    name: "QQ.MultiSet",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name !== NODE_TYPE) return;
         installMultiSetNode(nodeType);

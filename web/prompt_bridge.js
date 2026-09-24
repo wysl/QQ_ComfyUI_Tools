@@ -1,7 +1,7 @@
 import { app } from "../../../scripts/app.js";
 
-const PROMPT_NODE = "WyslMiniMaxH3EasyPrompt";
-const AREA_SWITCH_NODE = "WyslMiniMaxH3EasyAreaSwitch";
+const PROMPT_NODE = "QQMiniMaxH3EasyPrompt";
+const AREA_SWITCH_NODE = "QQMiniMaxH3EasyAreaSwitch";
 const H3_NODE = "MiniMaxH3Easy";
 const H3_CONTEXT_NODE = "MiniMaxH3EasyContextSegments";
 const H3_SELECTED_VIDEO_CONTEXT_NODE = "MiniMaxH3EasySelectedVideoContext";
@@ -9,7 +9,7 @@ const H3_MEDIA_LOADER_NODE = "MiniMaxH3EasyMediaLoader";
 const H3_PROMPT_TARGETS = new Set([H3_NODE, H3_CONTEXT_NODE, H3_SELECTED_VIDEO_CONTEXT_NODE]);
 const REF_PATTERN = /@<?(picture|image|图片|图像|图|video|视频|audio|音频)\s*(\d+)>?/giu;
 const LINKS_PROP = "minimax_h3_virtual_media_links";
-const BRIDGE_MARKER = Symbol.for("Wysl.PromptBridge.graphToPrompt");
+const BRIDGE_MARKER = Symbol.for("QQ.PromptBridge.graphToPrompt");
 const INSTALL_RECHECKS = 40;
 
 let installGeneration = 0;
@@ -151,7 +151,7 @@ function installBridge() {
 }
 
 app.registerExtension({
-    name: "Wysl.PromptBridge",
+    name: "QQ.PromptBridge",
     setup() {
         installBridge();
     },

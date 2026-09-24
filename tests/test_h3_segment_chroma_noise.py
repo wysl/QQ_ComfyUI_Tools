@@ -81,7 +81,7 @@ class H3SegmentChromaNoiseTests(unittest.TestCase):
         sample = FakeSample(source.clone(), audio, head_frames=2, delivery_frames=4, output_frames=4)
         segments = FakeSegments({"bundle": FakeBundle(FakeVAE())}, (sample,))
 
-        output = self.module.WyslH3SegmentChromaNoise.add_chroma_noise(
+        output = self.module.QQH3SegmentChromaNoise.add_chroma_noise(
             segments,
             start_alpha=0.4,
             end_alpha=0.0,
@@ -100,7 +100,7 @@ class H3SegmentChromaNoiseTests(unittest.TestCase):
 
     def test_zero_strength_is_a_noop_without_vae_work(self):
         marker = object()
-        output = self.module.WyslH3SegmentChromaNoise.add_chroma_noise(
+        output = self.module.QQH3SegmentChromaNoise.add_chroma_noise(
             marker,
             start_alpha=0.0,
             end_alpha=0.0,

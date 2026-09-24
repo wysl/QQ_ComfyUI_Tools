@@ -53,7 +53,7 @@ class IgnoreRuleTests(unittest.TestCase):
         self.assertTrue(self.module.any_rule_matches(exclude, ["图像1"]))
 
     def test_inputs_have_node_and_group_boxes(self):
-        inputs = self.module.WyslIgnoreRules.INPUT_TYPES()["required"]
+        inputs = self.module.QQIgnoreRules.INPUT_TYPES()["required"]
         self.assertIn("节点", inputs)
         self.assertIn("组", inputs)
         self.assertNotIn("multiline", inputs["节点"][1])

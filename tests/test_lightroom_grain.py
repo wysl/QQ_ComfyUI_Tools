@@ -1,9 +1,10 @@
-"""Behavior checks for the `WyslLightroomGrain` node (Lightroom Effects -> Grain)."""
+"""Behavior checks for the `QQLightroomGrain` node (Lightroom Effects -> Grain)."""
 
 from __future__ import annotations
 
 import importlib
 import sys
+import types
 import unittest
 from pathlib import Path
 
@@ -15,6 +16,30 @@ PACKAGE_PARENT = Path(__file__).resolve().parents[2]
 
 def load_lightroom_module():
     """Load `Wysl_ComfyUI_Tools.node_modules.lightroom` without ComfyUI install."""
+    folder_paths = types.ModuleType("folder_paths")
+    folder_paths.get_output_directory = lambda: ""
+    sys.modules.setdefault("folder_paths", folder_paths)
+
+    comfy_nodes = types.ModuleType("nodes")
+    comfy_nodes.MAX_RESOLUTION = 16384
+    comfy_nodes.NODE_CLASS_MAPPINGS = {}
+    sys.modules.setdefault("nodes", comfy_nodes)
+
+    comfy = types.ModuleType("comfy")
+    comfy.__path__ = []
+    sys.modules.setdefault("comfy", comfy)
+    cli_args = types.ModuleType("comfy.cli_args")
+    cli_args.args = types.SimpleNamespace(disable_metadata=False)
+    sys.modules.setdefault("comfy.cli_args", cli_args)
+
+    comfy_api = types.ModuleType("comfy_api")
+    comfy_api.__path__ = []
+    sys.modules.setdefault("comfy_api", comfy_api)
+    latest = types.ModuleType("comfy_api.latest")
+    latest.InputImpl = types.SimpleNamespace()
+    latest.Types = types.SimpleNamespace()
+    sys.modules.setdefault("comfy_api.latest", latest)
+
     if str(PACKAGE_PARENT) not in sys.path:
         sys.path.insert(0, str(PACKAGE_PARENT))
     package = importlib.import_module("Wysl_ComfyUI_Tools")
@@ -52,12 +77,14 @@ class LightroomGrainTests(unittest.TestCase):
         self.assertTrue((out <= 1.0).all(), msg="输出有 >1 的像素")
 
     def test_larger_size_reduces_high_frequency_noise(self):
-        # size=0 锐利，size=100 应该是大斑块 → 与原图差异的方差更小
+        # 整体方差经归一化后近似相同，比较相邻像素才能衡量高频噪声。
         rgb = torch.full((2, 3, 48, 48), 0.5, dtype=torch.float32)
         sharp = self.lr._apply_grain(rgb, amount=80.0, size=0.0, roughness=100.0)
         coarse = self.lr._apply_grain(rgb, amount=80.0, size=100.0, roughness=0.0)
-        # sharp 的局部方差应明显大于 coarse
-        self.assertGreater(sharp.var().item(), coarse.var().item())
+        self.assertGreater(
+            sharp.diff(dim=-1).abs().mean().item(),
+            coarse.diff(dim=-1).abs().mean().item(),
+        )
 
     def test_kernel_size_helper_is_always_odd_and_at_least_one(self):
         for v in (0.0, 25.0, 50.0, 75.0, 100.0):
@@ -68,8 +95,8 @@ class LightroomGrainTests(unittest.TestCase):
     # --- node class metadata ---
 
     def test_node_class_metadata(self):
-        cls = self.lr.WyslLightroomGrain
-        self.assertEqual(cls.CATEGORY, "Wysl/Lightroom 调色")
+        cls = self.lr.QQLightroomGrain
+        self.assertEqual(cls.CATEGORY, "QQ/LR 调色")
         self.assertEqual(cls.RETURN_TYPES, ("IMAGE",))
         self.assertEqual(cls.RETURN_NAMES, ("图像",))
         self.assertEqual(cls.FUNCTION, "apply_grain")
@@ -82,7 +109,7 @@ class LightroomGrainTests(unittest.TestCase):
             self.assertEqual(inputs[name][1]["max"], 100.0)
 
     def test_node_apply_grain_returns_tuple_of_image(self):
-        cls = self.lr.WyslLightroomGrain
+        cls = self.lr.QQLightroomGrain
         # ComfyUI IMAGE: [B, H, W, C]，默认三通道
         image = torch.full((1, 8, 8, 3), 0.5, dtype=torch.float32)
         out = cls.apply_grain(image, amount=50.0, size=25.0, roughness=100.0)
@@ -91,7 +118,7 @@ class LightroomGrainTests(unittest.TestCase):
         self.assertEqual(out[0].shape, image.shape)
 
     def test_node_preserves_alpha_channel(self):
-        cls = self.lr.WyslLightroomGrain
+        cls = self.lr.QQLightroomGrain
         image = torch.full((1, 8, 8, 4), 0.5, dtype=torch.float32)
         image[..., 3] = 0.7  # alpha 通道
         out = cls.apply_grain(image, amount=80.0, size=50.0, roughness=50.0)[0]
@@ -100,7 +127,7 @@ class LightroomGrainTests(unittest.TestCase):
         self.assertTrue(torch.allclose(out[..., 3], image[..., 3]))
 
     def test_node_rejects_wrong_input_shape(self):
-        cls = self.lr.WyslLightroomGrain
+        cls = self.lr.QQLightroomGrain
         with self.assertRaises(TypeError):
             cls.apply_grain(torch.rand(3, 16, 16), 50.0, 25.0, 100.0)
         with self.assertRaises(ValueError):
