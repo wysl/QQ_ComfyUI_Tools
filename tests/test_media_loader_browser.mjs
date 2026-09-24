@@ -89,7 +89,7 @@ const fileRow = source.slice(source.indexOf('function createFileRow('), source.i
 assert.match(fileRow, /attachModalImageHoverPreview\(node, thumb, reference\)/)
 assert.match(source, /const MODAL_HOVER_PREVIEW_DELAY = 100/)
 assert.match(source, /const MODAL_HOVER_PREVIEW_MAX_EDGE = 336/)
-assert.match(source, /document\.addEventListener\("pointermove", cancelOnMove, true\)/)
+assert.doesNotMatch(source, /document\.addEventListener\("pointermove", cancelOnMove, true\)/)
 assert.match(source, /function openModal\(node\)\s*\{\s*registerModalCleanup\(\);\s*closeHoverPreview\(node\);/)
 assert.match(source, /data-layout="3"\] \.wysl-media-file-list\{[^}]*--wysl-file-thumb-size:200px/)
 assert.match(source, /\.wysl-media-file-list\{[^}]*--wysl-file-thumb-size:128px/)
