@@ -18,7 +18,7 @@ const AUTOFIT_RETRIES = 3;
 const MODAL_WATCH_INTERVAL = 400;
 const HOVER_PREVIEW_SIZE = 384;
 const MODAL_HOVER_PREVIEW_MAX_EDGE = 336;
-const MODAL_HOVER_PREVIEW_DELAY = 100;
+const MODAL_HOVER_PREVIEW_DELAY = 150;
 const HOVER_PREVIEW_CLOSE_DELAY = 180;
 const GROUPS = [
     { key: "images", type: "image", label: "图片" },
@@ -416,9 +416,9 @@ function attachModalImageHoverPreview(node, anchor, path) {
     };
     // Debounce the hover: every movement inside the same thumbnail restarts
     // the timer, and only a stationary pointer for 100ms opens the preview.
-    anchor.addEventListener("pointerenter", schedule);
-    anchor.addEventListener("pointermove", schedule);
-    anchor.addEventListener("pointerleave", () => closeHoverPreview(node));
+    anchor.addEventListener("mouseenter", schedule);
+    anchor.addEventListener("mousemove", schedule);
+    anchor.addEventListener("mouseleave", () => closeHoverPreview(node));
 }
 
 function formatBytes(value) {
