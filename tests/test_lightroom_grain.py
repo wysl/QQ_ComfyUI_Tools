@@ -15,7 +15,7 @@ PACKAGE_PARENT = Path(__file__).resolve().parents[2]
 
 
 def load_lightroom_module():
-    """Load `Wysl_ComfyUI_Tools.node_modules.lightroom` without ComfyUI install."""
+    """Load `QQ_ComfyUI_Tools.node_modules.lightroom` without ComfyUI install."""
     folder_paths = types.ModuleType("folder_paths")
     folder_paths.get_output_directory = lambda: ""
     sys.modules.setdefault("folder_paths", folder_paths)
@@ -42,7 +42,7 @@ def load_lightroom_module():
 
     if str(PACKAGE_PARENT) not in sys.path:
         sys.path.insert(0, str(PACKAGE_PARENT))
-    package = importlib.import_module("Wysl_ComfyUI_Tools")
+    package = importlib.import_module("QQ_ComfyUI_Tools")
     return package.node_modules.lightroom
 
 

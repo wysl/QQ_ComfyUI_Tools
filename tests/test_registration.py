@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib
+import json
+import os
 import sys
 import tempfile
 import types
@@ -58,7 +60,7 @@ class RegistrationTests(unittest.TestCase):
     def setUpClass(cls):
         install_comfy_stubs()
         sys.path.insert(0, str(Path(__file__).resolve().parents[1].parent))
-        cls.package = importlib.import_module("Wysl_ComfyUI_Tools")
+        cls.package = importlib.import_module("QQ_ComfyUI_Tools")
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
@@ -95,8 +97,24 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(controls["model"][0], ["grok-imagine-image-2.0"])
         self.assertEqual(node.RETURN_TYPES, ("IMAGE",))
 
+    def test_grok_config_prefers_renamed_directory_with_legacy_fallback(self):
+        from QQ_ComfyUI_Tools.core.grok_config import config_candidates
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"QQ_GROK_IMAGE_CONFIG": "", "WYSL_GROK_IMAGE_CONFIG": ""}
+        ), patch.object(
+            sys.modules["folder_paths"], "get_user_directory", return_value=directory, create=True
+        ):
+            candidates = config_candidates()
+            self.assertEqual(candidates[0], Path(directory) / "QQ_ComfyUI_Tools" / "grok_image_endpoints.json")
+            self.assertEqual(candidates[1], Path(directory) / "Wysl_ComfyUI_Tools" / "grok_image_endpoints.json")
+
+            configured = Path(directory) / "custom.json"
+            with patch.dict(os.environ, {"QQ_GROK_IMAGE_CONFIG": str(configured)}):
+                self.assertEqual(config_candidates()[0], configured)
+
     def test_grok_image_payload_omits_auto_quality(self):
-        from Wysl_ComfyUI_Tools.node_modules.grok_image import _build_payload
+        from QQ_ComfyUI_Tools.node_modules.grok_image import _build_payload
 
         payload = _build_payload(
             "grok-imagine-image-2.0",
@@ -117,7 +135,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertFalse(payload["enable_nsfw"])
 
     def test_grok_image_ratio_wins_over_conflicting_legacy_size(self):
-        from Wysl_ComfyUI_Tools.node_modules.grok_image import _build_payload
+        from QQ_ComfyUI_Tools.node_modules.grok_image import _build_payload
 
         payload = _build_payload(
             "grok-imagine-image-2.0",
@@ -136,7 +154,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertNotIn("size", payload)
 
     def test_grok_image_legacy_size_still_controls_ratio_when_ratio_is_auto(self):
-        from Wysl_ComfyUI_Tools.node_modules.grok_image import _build_payload
+        from QQ_ComfyUI_Tools.node_modules.grok_image import _build_payload
 
         payload = _build_payload(
             "grok-imagine-image-2.0",
@@ -253,12 +271,12 @@ class RegistrationTests(unittest.TestCase):
             timing.calculate("nan,6", 24)
 
     def test_video_sampling_uses_the_first_frame_of_each_second(self):
-        video = importlib.import_module("Wysl_ComfyUI_Tools.node_modules.video")
+        video = importlib.import_module("QQ_ComfyUI_Tools.node_modules.video")
         self.assertEqual(video._frame_indices(3.0, 24.0, 100), [0, 24, 48])
         self.assertEqual(video._frame_indices(3.0, 30.0, 50), [0, 30])
 
     def test_video_sampling_supports_custom_frame_positions(self):
-        video = importlib.import_module("Wysl_ComfyUI_Tools.node_modules.video")
+        video = importlib.import_module("QQ_ComfyUI_Tools.node_modules.video")
         self.assertEqual(video._custom_frame_indices("48, 0,48，120", 100), [48, 0])
         self.assertEqual(video._custom_frame_indices("", 100), [])
         self.assertEqual(video._custom_frame_indices("100,101", 100), [])
@@ -274,7 +292,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(controls["自定义帧位置"][1]["default"], "")
 
     def test_vfi_chunks_overlap_once_and_cover_every_frame_pair(self):
-        video = importlib.import_module("Wysl_ComfyUI_Tools.node_modules.video")
+        video = importlib.import_module("QQ_ComfyUI_Tools.node_modules.video")
         ranges = video._vfi_chunk_ranges(12, 5)
         self.assertEqual(ranges, [(0, 5), (4, 9), (8, 12)])
         pairs = [pair for start, stop in ranges for pair in range(start, stop - 1)]
@@ -303,7 +321,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertNotIn('"wsl_saved_video"', source)
 
     def test_save_video_time_format_defaults_to_the_existing_counter_name(self):
-        video = importlib.import_module("Wysl_ComfyUI_Tools.node_modules.video")
+        video = importlib.import_module("QQ_ComfyUI_Tools.node_modules.video")
         controls = video.QQSaveVideo.INPUT_TYPES()["required"]
         self.assertEqual(
             controls["time_format"][1]["default"],
@@ -315,7 +333,7 @@ class RegistrationTests(unittest.TestCase):
         )
 
     def test_save_video_supports_selectable_local_time_formats(self):
-        video = importlib.import_module("Wysl_ComfyUI_Tools.node_modules.video")
+        video = importlib.import_module("QQ_ComfyUI_Tools.node_modules.video")
         now = datetime(2026, 9, 4, 8, 7, 6)
         expected = {
             video.SAVE_TIME_DATE_TIME: "Wsl_2026-09-04_08-07-06_00003_.mp4",
@@ -331,7 +349,7 @@ class RegistrationTests(unittest.TestCase):
                 )
 
     def test_save_video_supports_compact_minute_time_with_collision_only_suffix(self):
-        video = importlib.import_module("Wysl_ComfyUI_Tools.node_modules.video")
+        video = importlib.import_module("QQ_ComfyUI_Tools.node_modules.video")
         now = datetime(2026, 1, 2, 17, 30, 59)
         controls = video.QQSaveVideo.INPUT_TYPES()["required"]
         self.assertIn(video.SAVE_TIME_MINUTE, controls["time_format"][0])
@@ -423,7 +441,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(empty_outputs[3].items, ())
         splitter = self.package.NODE_CLASS_MAPPINGS["QQMediaAutoSplitter"]
         self.assertEqual(splitter.INPUT_TYPES()["optional"]["media_bundle"][0], loader.RETURN_TYPES[3])
-        media = importlib.import_module("Wysl_ComfyUI_Tools.node_modules.media")
+        media = importlib.import_module("QQ_ComfyUI_Tools.node_modules.media")
         self.assertEqual(media._media_loader_kind("folder/a.png"), "image")
         self.assertEqual(media._media_loader_kind("folder/a.mp3"), "audio")
         self.assertEqual(media._media_loader_kind("folder/a.mp4"), "video")
@@ -434,7 +452,11 @@ class RegistrationTests(unittest.TestCase):
         )
         self.assertIn('const NODE_TYPE = "QQMediaLoader";', source)
         self.assertIn('makeButton("添加媒体", "wysl-media-add"', source)
-        self.assertIn('makeButton("选择文件夹", "wysl-media-modal-folder"', source)
+        self.assertIn('makeButton("选择媒体文件", "wysl-media-modal-files"', source)
+        self.assertIn('makeButton("output 根目录"', source)
+        self.assertIn('[["list", "列表"], ["3", "3 列"], ["4", "4 列"], ["5", "5 列"]]', source)
+        self.assertIn('const layout = searching ? "4"', source)
+        self.assertNotIn('input.webkitdirectory = true', source)
         self.assertIn("当前目录全选", source)
         self.assertIn("wysl-media-modal-overlay", source)
         self.assertIn("is-reorder-target", source)
@@ -456,6 +478,44 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("pointer-events:auto", source)
         self.assertIn("section.hidden = group.type !== \"image\"", source)
         self.assertIn("wysl-media-hover-preview", source)
+
+    def test_media_loader_output_directory_and_legacy_input_references(self):
+        media = importlib.import_module("QQ_ComfyUI_Tools.node_modules.media")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_root = root / "input"
+            output_root = root / "custom-output"
+            input_root.mkdir()
+            (output_root / "sub").mkdir(parents=True)
+            (input_root / "same.png").write_bytes(b"input")
+            (output_root / "same.png").write_bytes(b"output")
+            (output_root / "sub" / "clip.mp4").write_bytes(b"video")
+            (output_root / "sub" / "ignore.txt").write_bytes(b"text")
+            with patch.object(sys.modules["folder_paths"], "get_input_directory", return_value=str(input_root), create=True), patch.object(
+                sys.modules["folder_paths"], "get_output_directory", return_value=str(output_root)
+            ):
+                state = media._media_loader_normalize_state(
+                    '{"images":["same.png","output::same.png"],"videos":["output::sub/clip.mp4"]}'
+                )
+                self.assertEqual(state["images"], ["same.png", "output::same.png"])
+                self.assertEqual(media._media_loader_input_path("same.png"), str(input_root / "same.png"))
+                self.assertEqual(media._media_loader_input_path("output::same.png"), str(output_root / "same.png"))
+                self.assertEqual(media.QQMediaLoader.VALIDATE_INPUTS(json.dumps(state)), True)
+                self.assertIn("output::same.png", media.QQMediaLoader.IS_CHANGED(json.dumps(state)))
+                folder, directories, files = media._media_loader_list_folder("", "output")
+                self.assertEqual(folder, "")
+                self.assertEqual(directories, [{"name": "sub", "path": "sub"}])
+                self.assertEqual([item["name"] for item in files], ["same.png"])
+                self.assertEqual(
+                    [item["name"] for item in media._media_loader_list_folder("sub", "output")[2]],
+                    ["clip.mp4"],
+                )
+                with self.assertRaises(ValueError):
+                    media._media_loader_list_folder("../input", "output")
+                with self.assertRaises(ValueError):
+                    media._media_loader_input_path("output::../input/same.png")
+                with self.assertRaises(ValueError):
+                    media._media_loader_list_folder("", "invalid")
 
     def test_media_index_output_splits_image_lists_and_bundles(self):
         node = self.package.NODE_CLASS_MAPPINGS["QQMediaIndexOutput"]
@@ -519,7 +579,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("compact legacy oversized nodes", source)
 
     def test_media_index_scaling_matches_v2_target_size_rules(self):
-        media = importlib.import_module("Wysl_ComfyUI_Tools.node_modules.media")
+        media = importlib.import_module("QQ_ComfyUI_Tools.node_modules.media")
         self.assertEqual(
             media._media_index_target_size(640, 480, "16:9", 1, 1, "长边", 1024, "不对齐"),
             (1024, 576),

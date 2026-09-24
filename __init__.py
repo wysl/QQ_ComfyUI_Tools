@@ -1,4 +1,4 @@
-"""Wysl ComfyUI Tools.
+"""QQ ComfyUI Tools.
 
 This package contains utility nodes that can be installed alongside the
 upstream MiniMax H3 node package.  It deliberately does not register or

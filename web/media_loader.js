@@ -13,7 +13,7 @@ const FALLBACK_CHROME_HEIGHT = 30;
 const PANEL_PADDING = 7;
 const PANEL_GAP = 6;
 const GROUP_GAP = 4;
-const MODAL_RENDER_CHUNK = 60;
+const MODAL_RENDER_CHUNK = 24;
 const AUTOFIT_RETRIES = 3;
 const MODAL_WATCH_INTERVAL = 400;
 const HOVER_PREVIEW_SIZE = 384;
@@ -53,6 +53,22 @@ function normalizePath(value) {
         .filter((part) => part && part !== "." && part !== "..").join("/");
 }
 
+function splitReference(value) {
+    const raw = String(value || "");
+    const source = raw.startsWith("output::") ? "output" : "input";
+    return { source, path: normalizePath(source === "output" ? raw.slice(8) : raw) };
+}
+
+function mediaReference(source, path) {
+    const filename = normalizePath(path);
+    return source === "output" ? `output::${filename}` : filename;
+}
+
+function normalizeReference(value) {
+    const { source, path } = splitReference(value);
+    return path ? mediaReference(source, path) : "";
+}
+
 function splitPath(path) {
     const normalized = normalizePath(path);
     const slash = normalized.lastIndexOf("/");
@@ -68,7 +84,7 @@ function readState(node) {
         const state = emptyState();
         for (const group of GROUPS) {
             const values = Array.isArray(parsed?.[group.key]) ? parsed[group.key] : [];
-            state[group.key] = [...new Set(values.map((entry) => normalizePath(
+            state[group.key] = [...new Set(values.map((entry) => normalizeReference(
                 typeof entry === "string" ? entry : entry?.filename,
             )).filter(Boolean))];
         }
@@ -86,7 +102,7 @@ function readState(node) {
 function writeState(node, state) {
     const normalized = emptyState();
     for (const group of GROUPS) normalized[group.key] = [...new Set(
-        (state[group.key] || []).map(normalizePath).filter(Boolean),
+        (state[group.key] || []).map(normalizeReference).filter(Boolean),
     )];
     const value = JSON.stringify(normalized);
     const stateWidget = widget(node, STATE_WIDGET);
@@ -184,16 +200,15 @@ function canReadClipboardDirectly() {
 }
 
 function mediaUrl(path) {
-    // /view resolves `filename` against the input root after taking its
-    // basename, so a nested file must travel through `subfolder`.
-    const { filename, subfolder } = splitPath(path);
-    const params = new URLSearchParams({ filename, type: "input" });
+    const reference = splitReference(path);
+    const { filename, subfolder } = splitPath(reference.path);
+    const params = new URLSearchParams({ filename, type: reference.source });
     if (subfolder) params.set("subfolder", subfolder);
     return `/view?${params.toString()}`;
 }
 
 function thumbnailUrl(path, size) {
-    const params = new URLSearchParams({ filename: normalizePath(path), size: String(size) });
+    const params = new URLSearchParams({ filename: normalizeReference(path), size: String(size) });
     return `/wysl/media-loader/thumbnail?${params.toString()}`;
 }
 
@@ -206,6 +221,11 @@ function closeHoverPreview(node) {
     if (!preview) return;
     preview.remove();
     node.__wyslMediaLoaderHoverPreview = null;
+}
+
+function closeDetachedHoverPreview(node) {
+    const preview = node?.__wyslMediaLoaderHoverPreview;
+    if (preview && !preview.__wyslMediaLoaderHoverAnchor?.isConnected) closeHoverPreview(node);
 }
 
 function cancelHoverPreviewClose(node) {
@@ -317,8 +337,8 @@ function formatBytes(value) {
     return `${scaled >= 100 ? Math.round(scaled) : scaled.toFixed(1)} ${units[unit]}`;
 }
 
-async function listFolder(folder) {
-    const params = new URLSearchParams({ folder: String(folder || "") });
+async function listFolder(folder, source = "input") {
+    const params = new URLSearchParams({ folder: String(folder || ""), source });
     const response = await api.fetchApi(`/wysl/media-loader/list?${params.toString()}`);
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
@@ -424,7 +444,8 @@ function selectedCount(state) {
 }
 
 function cardTitle(path) {
-    return path.split(/[\\/]/).pop() || path;
+    const filename = splitReference(path).path;
+    return filename.split("/").pop() || filename;
 }
 
 function measurePanelHeight(node) {
@@ -734,6 +755,7 @@ function render(node) {
             section.hidden = group.type !== "image" && state[group.key].length === 0;
         }
     }
+    closeDetachedHoverPreview(node);
     if (groups) groups.scrollTop = scrollTop;
     panel.classList.toggle("is-empty", selectedCount(state) === 0);
     renderStatus(node);
@@ -749,18 +771,35 @@ function modalMessage(text, isError = false) {
 
 function renderListChunked(container, items, create, token, onDone) {
     let index = 0;
+    const sentinel = document.createElement("button");
+    sentinel.type = "button";
+    sentinel.className = "wysl-media-load-more";
     const step = () => {
         if (token.cancelled || !container.isConnected) return;
+        sentinel.remove();
         const fragment = document.createDocumentFragment();
         const end = Math.min(items.length, index + MODAL_RENDER_CHUNK);
         for (; index < end; index += 1) fragment.append(create(items[index]));
         container.append(fragment);
-        if (index < items.length) {
-            requestAnimationFrame(step);
-            return;
-        }
         onDone?.();
+        if (index < items.length) {
+            sentinel.textContent = `继续加载（剩余 ${items.length - index}）`;
+            container.append(sentinel);
+        } else {
+            observer?.disconnect();
+        }
     };
+    const observer = typeof IntersectionObserver === "function"
+        ? new IntersectionObserver((entries) => {
+            if (entries.some((entry) => entry.isIntersecting)) step();
+        }, { root: container.closest(".wysl-media-modal-body"), rootMargin: "180px" })
+        : null;
+    if (observer) {
+        observer.observe(sentinel);
+        token.observers ||= [];
+        token.observers.push(observer);
+    }
+    sentinel.addEventListener("click", step);
     step();
 }
 
@@ -779,12 +818,13 @@ function syncModalChecks(node) {
     }
 }
 
-function createFileRow(node, group, item, state) {
+function createFileRow(node, group, item, state, source) {
+    const reference = mediaReference(source, item.path);
     const row = document.createElement("label");
     row.className = "wysl-media-file-row";
-    row.dataset.path = item.path;
+    row.dataset.path = reference;
     row.dataset.group = group.key;
-    const checked = state[group.key].includes(item.path);
+    const checked = state[group.key].includes(reference);
     row.classList.toggle("is-checked", checked);
 
     const checkbox = document.createElement("input");
@@ -793,8 +833,8 @@ function createFileRow(node, group, item, state) {
     checkbox.addEventListener("change", () => {
         const next = readState(node);
         const values = next[group.key];
-        const index = values.indexOf(item.path);
-        if (checkbox.checked && index < 0) values.push(item.path);
+        const index = values.indexOf(reference);
+        if (checkbox.checked && index < 0) values.push(reference);
         if (!checkbox.checked && index >= 0) values.splice(index, 1);
         writeState(node, next);
         row.classList.toggle("is-checked", checkbox.checked);
@@ -803,19 +843,23 @@ function createFileRow(node, group, item, state) {
 
     const thumb = document.createElement("span");
     thumb.className = "wysl-media-file-thumb";
-    thumb.append(filePreview(item.path, group.type, THUMB_TILE));
-    if (group.type === "image") attachImageHoverPreview(node, thumb, item.path);
+    thumb.append(filePreview(reference, group.type, THUMB_TILE));
+    if (group.type === "image") attachImageHoverPreview(node, thumb, reference);
 
     const meta = document.createElement("span");
     meta.className = "wysl-media-file-meta";
     const name = document.createElement("span");
     name.className = "wysl-media-file-name";
     name.textContent = item.name;
-    name.title = `input/${item.path}`;
+    name.title = `${source}/${item.path}`;
+    const format = document.createElement("span");
+    format.className = "wysl-media-file-format";
+    format.textContent = extension(item.name).slice(1) || group.type;
     const size = document.createElement("span");
     size.className = "wysl-media-file-size";
     size.textContent = formatBytes(item.size);
-    meta.append(name, size);
+    meta.append(name, format, size);
+    row.title = `${source}/${item.path}`;
 
     row.append(checkbox, thumb, meta);
     return row;
@@ -823,7 +867,10 @@ function createFileRow(node, group, item, state) {
 
 function refreshModal(node, modal) {
     if (!modal?.isConnected) return;
-    if (modal.__wyslRenderToken) modal.__wyslRenderToken.cancelled = true;
+    if (modal.__wyslRenderToken) {
+        modal.__wyslRenderToken.cancelled = true;
+        modal.__wyslRenderToken.observers?.forEach((observer) => observer.disconnect());
+    }
     const token = { cancelled: false };
     modal.__wyslRenderToken = token;
 
@@ -833,16 +880,33 @@ function refreshModal(node, modal) {
     const path = modal.querySelector(".wysl-media-modal-path");
     const selectAll = modal.querySelector(".wysl-media-modal-select-all");
     const up = modal.querySelector(".wysl-media-modal-up");
+    const searchInput = modal.querySelector(".wysl-media-modal-search-input");
     if (!body || !path) return;
 
-    path.textContent = `input/${data.folder || ""}`;
+    const displaySource = node.__wyslMediaLoaderFolderLoading
+        ? (node.__wyslMediaLoaderSource || "input") : (data.source || "input");
+    const displayFolder = node.__wyslMediaLoaderFolderLoading
+        ? (node.__wyslMediaLoaderFolder || "") : (data.folder || "");
+    path.textContent = `${displaySource}/${displayFolder}`;
     path.title = path.textContent;
-    if (up) up.disabled = !data.folder;
+    if (up) up.disabled = node.__wyslMediaLoaderFolderLoading || !data.folder;
+    if (searchInput) searchInput.placeholder = "搜索当前目录文件名";
+    const searching = Boolean(node.__wyslMediaLoaderSearch);
+    const layout = searching ? "4" : (node.__wyslMediaLoaderLayout || "4");
+    modal.dataset.layout = layout;
+    for (const button of modal.querySelectorAll(".wysl-media-layout button")) {
+        button.classList.toggle("is-active", button.dataset.layout === layout);
+        button.setAttribute("aria-pressed", String(button.dataset.layout === layout));
+        button.disabled = searching;
+    }
     body.replaceChildren();
+    closeDetachedHoverPreview(node);
     body.scrollTop = 0;
 
-    const files = data.files || [];
-    if (selectAll) selectAll.disabled = !files.length;
+    const files = searching
+        ? (data.files || []).filter((item) => item.name.toLocaleLowerCase().includes(node.__wyslMediaLoaderSearch))
+        : (data.files || []);
+    if (selectAll) selectAll.disabled = node.__wyslMediaLoaderFolderLoading || Boolean(data.error) || !files.length;
     if (node.__wyslMediaLoaderFolderLoading) {
         body.append(modalMessage("正在读取当前目录…"));
         return;
@@ -856,13 +920,13 @@ function refreshModal(node, modal) {
         folders.className = "wysl-media-modal-folders";
         for (const directory of data.directories) {
             const button = makeButton(`📁 ${directory.name}`, "wysl-media-folder-chip", () => loadFolder(node, directory.path));
-            button.title = `input/${directory.path}`;
+            button.title = `${data.source || "input"}/${directory.path}`;
             folders.append(button);
         }
         body.append(folders);
     }
     if (!files.length) {
-        body.append(modalMessage("当前目录没有可用媒体文件"));
+        body.append(modalMessage(searching ? "当前目录没有匹配的媒体文件" : "当前目录没有可用媒体文件"));
         return;
     }
     for (const group of GROUPS) {
@@ -879,38 +943,53 @@ function refreshModal(node, modal) {
         renderListChunked(
             list,
             groupFiles,
-            (item) => createFileRow(node, group, item, state),
+            (item) => createFileRow(node, group, item, state, data.source || "input"),
             token,
             () => syncModalChecks(node),
         );
     }
 }
 
-async function loadFolder(node, folder = "") {
+async function loadFolder(node, folder = "", source = node.__wyslMediaLoaderSource || "input") {
+    node.__wyslMediaLoaderSource = source;
     node.__wyslMediaLoaderFolder = normalizePath(folder);
+    node.__wyslMediaLoaderSearch = "";
+    const modal = node.__wyslMediaLoaderModal;
+    const input = modal?.querySelector(".wysl-media-modal-search-input");
+    if (input) input.value = "";
+    const requestId = (node.__wyslMediaLoaderFolderRequestId || 0) + 1;
+    node.__wyslMediaLoaderFolderRequestId = requestId;
     node.__wyslMediaLoaderFolderLoading = true;
-    refreshModal(node, node.__wyslMediaLoaderModal);
+    refreshModal(node, modal);
     try {
-        node.__wyslMediaLoaderFolderData = await listFolder(node.__wyslMediaLoaderFolder);
+        const data = await listFolder(node.__wyslMediaLoaderFolder, source);
+        if (requestId !== node.__wyslMediaLoaderFolderRequestId) return;
+        node.__wyslMediaLoaderFolderData = data;
     } catch (error) {
+        if (requestId !== node.__wyslMediaLoaderFolderRequestId) return;
         node.__wyslMediaLoaderFolderData = {
             error: error?.message || String(error),
+            source,
             folder: node.__wyslMediaLoaderFolder,
             directories: [],
             files: [],
         };
     } finally {
+        if (requestId !== node.__wyslMediaLoaderFolderRequestId) return;
         node.__wyslMediaLoaderFolderLoading = false;
-        refreshModal(node, node.__wyslMediaLoaderModal);
+        refreshModal(node, modal);
     }
 }
 
 function selectCurrentFolder(node) {
+    if (node.__wyslMediaLoaderFolderLoading) return;
     const data = node.__wyslMediaLoaderFolderData || {};
+    if (data.error) return;
     const state = readState(node);
     for (const item of data.files || []) {
         const group = GROUPS.find((entry) => entry.type === item.type);
-        if (group && !state[group.key].includes(item.path)) state[group.key].push(item.path);
+        const reference = mediaReference(data.source || "input", item.path);
+        if (group && !state[group.key].includes(reference)) state[group.key].push(reference);
     }
     writeState(node, state);
     render(node);
@@ -1016,18 +1095,17 @@ function trapFocus(modal, event) {
     }
 }
 
-function pickFolderInto(node) {
+function pickFilesInto(node) {
     const input = document.createElement("input");
     input.type = "file";
     input.multiple = true;
-    input.accept = "image/*,audio/*,video/*";
-    input.webkitdirectory = true;
+    input.accept = "image/*,audio/*,video/*,.heic,.tif,.tiff,.flac,.mkv,.avi,.wmv";
     input.addEventListener("change", () => {
         const files = Array.from(input.files || []).filter((file) => typeForFile(file));
         if (files.length) {
-            setModalStatus(node, `正在导入文件夹，共 ${files.length} 个文件…`);
+            setModalStatus(node, `正在导入 ${files.length} 个媒体文件…`);
             addDroppedFiles(node, files).catch((error) => {
-                console.error("Wysl folder import failed", error);
+                console.error("QQ media file import failed", error);
                 setModalStatus(node, `导入失败：${error?.message || error}`, true);
             });
         }
@@ -1068,11 +1146,47 @@ function openModal(node) {
     controls.className = "wysl-media-modal-controls";
     const path = document.createElement("span");
     path.className = "wysl-media-modal-path";
-    const choose = makeButton("选择文件夹", "wysl-media-modal-folder", () => pickFolderInto(node));
+    const choose = makeButton("选择媒体文件", "wysl-media-modal-files", () => pickFilesInto(node));
     const up = makeButton("上级", "wysl-media-modal-up", () => loadFolder(node, node.__wyslMediaLoaderFolderData?.parent || ""));
-    const root = makeButton("input 根目录", "wysl-media-modal-root", () => loadFolder(node, ""));
+    const outputRoot = makeButton("output 根目录", "wysl-media-modal-root", () => loadFolder(node, "", "output"));
+    const inputRoot = makeButton("input 根目录", "wysl-media-modal-root", () => loadFolder(node, "", "input"));
     const selectAll = makeButton("当前目录全选", "wysl-media-modal-select-all", () => selectCurrentFolder(node));
-    controls.append(path, root, up, choose, selectAll);
+    controls.append(path, outputRoot, inputRoot, up, choose, selectAll);
+
+    const options = document.createElement("div");
+    options.className = "wysl-media-modal-options";
+    const layout = document.createElement("div");
+    layout.className = "wysl-media-layout";
+    layout.setAttribute("role", "group");
+    layout.setAttribute("aria-label", "媒体排列方式");
+    for (const [value, label] of [["list", "列表"], ["3", "3 列"], ["4", "4 列"], ["5", "5 列"]]) {
+        const button = makeButton(label, "wysl-media-layout-button", () => {
+            node.__wyslMediaLoaderLayout = value;
+            refreshModal(node, modal);
+        });
+        button.dataset.layout = value;
+        layout.append(button);
+    }
+    const search = document.createElement("form");
+    search.className = "wysl-media-modal-search";
+    const searchInput = document.createElement("input");
+    searchInput.className = "wysl-media-modal-search-input";
+    searchInput.type = "search";
+    searchInput.setAttribute("aria-label", "搜索当前目录文件名");
+    searchInput.placeholder = "搜索当前目录文件名";
+    const searchButton = makeButton("搜索", "wysl-media-modal-search-button", () => search.requestSubmit());
+    const clearSearch = makeButton("清除", "wysl-media-modal-search-clear", () => {
+        searchInput.value = "";
+        node.__wyslMediaLoaderSearch = "";
+        refreshModal(node, modal);
+    });
+    search.addEventListener("submit", (event) => {
+        event.preventDefault();
+        node.__wyslMediaLoaderSearch = searchInput.value.trim().toLocaleLowerCase();
+        refreshModal(node, modal);
+    });
+    search.append(searchInput, searchButton, clearSearch);
+    options.append(layout, search);
 
     const body = document.createElement("div");
     body.className = "wysl-media-modal-body";
@@ -1083,7 +1197,7 @@ function openModal(node) {
     footerStatus.className = "wysl-media-modal-status";
     footer.append(footerStatus, makeButton("完成", "wysl-media-modal-done", () => closeModal(node)));
 
-    dialog.append(header, controls, body, footer);
+    dialog.append(header, controls, options, body, footer);
     modal.append(dialog);
     modal.addEventListener("pointerdown", (event) => {
         if (event.target === modal) closeModal(node);
@@ -1105,7 +1219,7 @@ function openModal(node) {
     refreshModal(node, modal);
     watchModal(node, modal);
     close.focus();
-    if (!node.__wyslMediaLoaderFolderData) loadFolder(node, "");
+    loadFolder(node, node.__wyslMediaLoaderFolder || "", node.__wyslMediaLoaderSource || "input");
 }
 
 function closeModal(node, restoreFocus = true) {
@@ -1115,9 +1229,13 @@ function closeModal(node, restoreFocus = true) {
     if (!modal) return;
     if (modal.__wyslWatchTimer) clearInterval(modal.__wyslWatchTimer);
     modal.__wyslWatchTimer = null;
-    if (modal.__wyslRenderToken) modal.__wyslRenderToken.cancelled = true;
+    if (modal.__wyslRenderToken) {
+        modal.__wyslRenderToken.cancelled = true;
+        modal.__wyslRenderToken.observers?.forEach((observer) => observer.disconnect());
+    }
     if (modal.__wyslEscapeHandler) document.removeEventListener("keydown", modal.__wyslEscapeHandler, true);
     modal.remove();
+    closeDetachedHoverPreview(node);
     if (restoreFocus && node.__wyslMediaLoaderModalReturnFocus?.isConnected) {
         node.__wyslMediaLoaderModalReturnFocus.focus?.();
     }
@@ -1189,26 +1307,44 @@ const CSS_TEXT = `
 .wysl-media-loader-panel.is-drop-target{border-color:var(--p-primary-color,#86abc7);box-shadow:inset 0 0 0 1px rgba(134,171,199,.28)}
 .wysl-media-loader-panel.is-drop-target::after{content:"释放以自动分类";position:absolute;inset:7px;z-index:10;display:flex;align-items:center;justify-content:center;border:1px dashed rgba(159,195,222,.7);border-radius:5px;background:rgba(28,35,40,.92);color:#d8e7f1;font-size:12px;font-weight:650;pointer-events:none}
 .wysl-media-modal-overlay{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.58)}
-.wysl-media-modal{display:flex;flex-direction:column;width:min(760px,calc(100vw - 40px));max-height:min(680px,calc(100vh - 40px));border:1px solid var(--border-color,#4b545b);border-radius:7px;background:var(--comfy-menu-bg,#25292d);box-shadow:0 18px 55px rgba(0,0,0,.5);color:var(--fg-color,#e3e7ea);font:12px/1.35 sans-serif}
+.wysl-media-modal{display:flex;flex-direction:column;width:min(900px,calc(100vw - 40px));max-height:min(720px,calc(100vh - 40px));border:1px solid var(--border-color,#4b545b);border-radius:7px;background:var(--comfy-menu-bg,#25292d);box-shadow:0 18px 55px rgba(0,0,0,.5);color:var(--fg-color,#e3e7ea);font:12px/1.35 sans-serif}
 .wysl-media-modal-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border-color,rgba(255,255,255,.1))}
 .wysl-media-modal-header strong{font-size:13px}
 .wysl-media-modal-close{width:24px;height:24px;padding:0!important;font-size:18px!important;line-height:1}
 .wysl-media-modal-controls{display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:8px 10px;border-bottom:1px solid var(--border-color,rgba(255,255,255,.08))}
-.wysl-media-modal-path{min-width:120px;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--content-fg,#aebbc4)}
+.wysl-media-modal-path{min-width:140px;flex:1 1 100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--content-fg,#aebbc4)}
 .wysl-media-modal-controls button{flex:0 0 auto;font-size:11px}
-.wysl-media-modal-body{min-height:100px;overflow:auto;padding:10px}
+.wysl-media-modal-options{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border-color,rgba(255,255,255,.08))}
+.wysl-media-layout{display:flex;align-items:center;gap:0;flex:0 0 auto}
+.wysl-media-layout button{border-radius:0;padding:4px 9px;font-size:11px}
+.wysl-media-layout button:first-child{border-radius:4px 0 0 4px}
+.wysl-media-layout button:last-child{border-radius:0 4px 4px 0}
+.wysl-media-layout button+button{border-left:0}
+.wysl-media-layout button.is-active{background:var(--p-primary-color,#4d728c);color:#fff}
+.wysl-media-modal-search{display:flex;align-items:center;gap:5px;min-width:0;flex:1 1 260px;justify-content:flex-end}
+.wysl-media-modal-search-input{box-sizing:border-box;width:min(240px,100%);min-width:90px;height:27px;border:1px solid var(--border-color,#535d66);border-radius:4px;background:var(--comfy-input-bg,#22282d);color:var(--fg-color,#e3e7ea);padding:3px 8px;font:inherit}
+.wysl-media-modal-search-input:focus-visible{outline:2px solid var(--p-primary-color,#4b86b4);outline-offset:1px}
+.wysl-media-modal-body{min-height:100px;overflow:auto;padding:10px;scrollbar-width:thin}
 .wysl-media-modal-folders{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:9px}
 .wysl-media-folder-chip{font-size:11px!important}
 .wysl-media-modal-group-title{margin:9px 0 4px;color:var(--content-fg,#9eb7c9);font-size:11px;font-weight:650}
-.wysl-media-file-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 8px}
-.wysl-media-file-row{display:flex;align-items:center;min-width:0;gap:7px;padding:3px 4px;border:1px solid transparent;border-radius:4px;cursor:pointer}
+.wysl-media-file-list{display:grid;grid-template-columns:repeat(4,minmax(156px,1fr));gap:5px 7px;min-width:690px}
+.wysl-media-modal-overlay[data-layout="3"] .wysl-media-file-list{grid-template-columns:repeat(3,minmax(178px,1fr));min-width:560px}
+.wysl-media-modal-overlay[data-layout="5"] .wysl-media-file-list{grid-template-columns:repeat(5,minmax(152px,1fr));min-width:790px}
+.wysl-media-modal-overlay[data-layout="list"] .wysl-media-file-list{grid-template-columns:minmax(0,1fr);min-width:0}
+.wysl-media-file-row{display:flex;align-items:center;min-width:0;min-height:76px;gap:6px;padding:3px 5px;border:1px solid var(--border-color,rgba(255,255,255,.08));border-radius:4px;cursor:pointer}
 .wysl-media-file-row:hover{background:var(--comfy-menu-hover-bg,rgba(255,255,255,.07))}
 .wysl-media-file-row.is-checked{border-color:var(--p-primary-color,rgba(116,169,207,.55));background:rgba(116,169,207,.12)}
 .wysl-media-file-row input{margin:0;flex:0 0 auto;accent-color:var(--p-primary-color,#74a9cf)}
-.wysl-media-file-thumb{position:relative;flex:0 0 42px;width:42px;height:42px;border:1px solid var(--border-color,#444b50);border-radius:4px;overflow:hidden;background:var(--comfy-input-bg,#16191c)}
-.wysl-media-file-meta{display:flex;flex-direction:column;min-width:0;gap:1px}
-.wysl-media-file-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wysl-media-file-thumb{position:relative;flex:0 0 68px;width:68px;height:68px;border:1px solid var(--border-color,#444b50);border-radius:4px;overflow:hidden;background:var(--comfy-input-bg,#16191c)}
+.wysl-media-file-thumb .wysl-media-thumb img{object-fit:contain}
+.wysl-media-file-meta{display:flex;flex-direction:column;justify-content:center;min-width:0;gap:3px;overflow:hidden}
+.wysl-media-file-name{display:none;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wysl-media-file-format{color:var(--fg-color,#dbe3e9);font-size:11px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wysl-media-file-size{color:var(--content-fg,#89949d);font-size:10px;opacity:.8;font-variant-numeric:tabular-nums}
+.wysl-media-modal-overlay[data-layout="list"] .wysl-media-file-name{display:block;white-space:normal;overflow:visible;overflow-wrap:anywhere}
+.wysl-media-modal-overlay[data-layout="list"] .wysl-media-file-format{display:none}
+.wysl-media-load-more{grid-column:1/-1;justify-self:stretch;color:var(--content-fg,#aebbc4)!important;background:transparent!important;border-style:dashed!important}
 .wysl-media-file-icon{display:grid;place-items:center;width:100%;height:100%;border-radius:3px;background:#344451;color:#bed2df;font-size:8px;font-weight:700;letter-spacing:.03em}
 .wysl-media-file-icon.is-audio{background:#294d48;color:#8ee3d4}
 .wysl-media-file-icon.is-video{background:#493f51;color:#d1bfe1}
@@ -1218,6 +1354,7 @@ const CSS_TEXT = `
 .wysl-media-modal-status{min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--content-fg,#aebbc4);font-size:11px}
 .wysl-media-modal-status.is-error{color:var(--error-color,#d39b9b)}
 .wysl-media-modal-done{background:var(--p-primary-color,#3f657f)!important}
+@media (max-width:600px){.wysl-media-modal-options{align-items:stretch}.wysl-media-modal-search{justify-content:stretch}.wysl-media-modal-search-input{flex:1 1 auto;width:auto}.wysl-media-modal-controls{gap:4px}.wysl-media-modal-controls button{padding:4px 6px}}
 `;
 
 function installStyles() {

@@ -1,6 +1,6 @@
 [project]
-name = "wsl-comfyui-tool"
+name = "qq-comfyui-tools"
 version = "0.1.0"
-description = "Standalone Wsl utility nodes for ComfyUI"
+description = "Standalone QQ utility nodes for ComfyUI"
 requires-python = ">=3.10"
 dependencies = []

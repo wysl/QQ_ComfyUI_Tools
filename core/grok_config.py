@@ -29,7 +29,10 @@ def _repository_root() -> Path:
 
 def config_candidates() -> tuple[Path, ...]:
     candidates: list[Path] = []
-    configured = os.environ.get("WYSL_GROK_IMAGE_CONFIG", "").strip()
+    configured = (
+        os.environ.get("QQ_GROK_IMAGE_CONFIG", "").strip()
+        or os.environ.get("WYSL_GROK_IMAGE_CONFIG", "").strip()
+    )
     if configured:
         candidates.append(Path(configured).expanduser())
 
@@ -38,7 +41,9 @@ def config_candidates() -> tuple[Path, ...]:
 
         user_directory = getattr(folder_paths, "get_user_directory", None)
         if callable(user_directory):
-            candidates.append(Path(user_directory()) / "Wysl_ComfyUI_Tools" / "grok_image_endpoints.json")
+            user_root = Path(user_directory())
+            candidates.append(user_root / "QQ_ComfyUI_Tools" / "grok_image_endpoints.json")
+            candidates.append(user_root / "Wysl_ComfyUI_Tools" / "grok_image_endpoints.json")
     except Exception:
         pass
 
