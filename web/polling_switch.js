@@ -24,7 +24,7 @@ function targetCount(node) {
 function ensureInputs(node, requestedCount) {
     const count = Math.min(MAX_INPUTS, Math.max(MIN_INPUTS, requestedCount));
     while ((node.inputs?.length || 0) < count) {
-        node.addInput(inputName(node.inputs?.length || 0), "*");
+        node.addInput(inputName(node.inputs?.length || 0), "IMAGE");
     }
 }
 

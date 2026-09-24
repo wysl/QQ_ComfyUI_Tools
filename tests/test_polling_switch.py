@@ -100,10 +100,16 @@ class PollingSwitchTests(unittest.TestCase):
         self.assertIn("input1", inputs["optional"])
         self.assertIn(f"input{self.module.MAX_POLL_INPUTS}", inputs["optional"])
 
-    def test_single_wildcard_output(self):
+    def test_single_image_output(self):
         self.assertEqual(len(self.node.RETURN_TYPES), 1)
-        self.assertEqual(str(self.node.RETURN_TYPES[0]), "*")
-        self.assertEqual(self.node.RETURN_NAMES, ("输出",))
+        # 必须是具体类型：通配 "*" 会让被绕过节点的解析走到不安全的短路分支
+        self.assertEqual(self.node.RETURN_TYPES, ("IMAGE",))
+        self.assertEqual(self.node.RETURN_NAMES, ("图像",))
+
+    def test_inputs_are_typed_image(self):
+        inputs = self.node.INPUT_TYPES()["optional"]
+        for name, spec in inputs.items():
+            self.assertEqual(spec[0], "IMAGE", msg=f"{name} 应为 IMAGE")
 
     def test_registered_in_both_mappings(self):
         self.assertIn("WyslPollingSwitch", self.module.NODE_CLASS_MAPPINGS)
@@ -139,6 +145,8 @@ class PollingSwitchFrontendTests(unittest.TestCase):
     def test_input_names_match_backend(self):
         # 与后端 f"input{index + 1}" 一致
         self.assertIn("return `input${slot + 1}`;", self.source)
+        # 前端补的口也必须是 IMAGE，保持与后端一致
+        self.assertIn('node.addInput(inputName(node.inputs?.length || 0), "IMAGE");', self.source)
 
     def test_hooks_connection_and_configure(self):
         self.assertIn("prototype.onConnectionsChange", self.source)
