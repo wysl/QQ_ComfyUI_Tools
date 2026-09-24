@@ -150,6 +150,13 @@ console.log('== 4. 源码结构约束 ==')
   check('不再用 MIME 兜底放行非媒体', !src.includes('typeForFile(file) || extensionFromMime(file.type)'))
   check('跳过 text/uri-list', src.includes('text/uri-list'))
   check('getType 失败有兜底', src.includes('读取剪贴板条目失败'))
+  check('按钮读不到时转为等待粘贴', src.includes('armPasteWait(node)'))
+  check('存在等待粘贴状态', src.includes('armedPasteNode'))
+  check('等待态优先于选中态', src.includes('armedPasteNode || selectedMediaLoaderNode()'))
+  check('粘贴成功后解除等待', src.includes('disarmPasteWait();'))
+  check('等待有超时提示', src.includes('等待粘贴超时'))
+  check('节点移除时解除等待', src.includes('if (armedPasteNode === node) disarmPasteWait()'))
+  check('等待态有视觉样式', src.includes('is-paste-armed'))
 
   check('粘贴按钮已定义', src.includes('wysl-media-paste'))
   // 显示在「添加媒体」左侧 —— 由 toolbar.append 的参数顺序决定

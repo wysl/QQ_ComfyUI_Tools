@@ -1184,6 +1184,8 @@ const CSS_TEXT = `
 .wysl-media-status{flex:0 0 auto;padding:4px 5px;border:1px dashed var(--border-color,rgba(142,171,194,.32));border-radius:4px;color:var(--content-fg,#94a6b3);font-size:10px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wysl-media-status.is-error{border-color:var(--error-color,#9b4d4d);color:var(--error-color,#d7afb0)}
 .wysl-media-loader-panel.is-empty .wysl-media-status{border-color:var(--border-color,rgba(255,255,255,.12));opacity:.8}
+.wysl-media-loader-panel.is-paste-armed{border-color:#d9a13b;box-shadow:inset 0 0 0 1px rgba(217,161,59,.35)}
+.wysl-media-loader-panel.is-paste-armed .wysl-media-status{color:#f0c274;font-weight:650}
 .wysl-media-loader-panel.is-drop-target{border-color:var(--p-primary-color,#86abc7);box-shadow:inset 0 0 0 1px rgba(134,171,199,.28)}
 .wysl-media-loader-panel.is-drop-target::after{content:"释放以自动分类";position:absolute;inset:7px;z-index:10;display:flex;align-items:center;justify-content:center;border:1px dashed rgba(159,195,222,.7);border-radius:5px;background:rgba(28,35,40,.92);color:#d8e7f1;font-size:12px;font-weight:650;pointer-events:none}
 .wysl-media-modal-overlay{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.58)}
@@ -1252,8 +1254,11 @@ async function pasteFromClipboardDirect(node) {
             .map((blob, index) => fileFromBlob(blob, index))
             .filter((file) => typeForFile(file));
         if (!files.length) {
+            // 读不到内容通常是文件管理器复制的文件：浏览器只允许通过
+            // paste 事件读取，这里自动转为「等待粘贴」，不让按钮落空。
             const detail = seen.length ? seen.join(", ") : "空";
-            setStatus(node, `剪贴板里没有可导入的媒体（类型：${detail}）；若文件来自文件管理器，请改用 选中节点后 Ctrl+V`, true, 9000);
+            console.warn("[Wysl media] 剪贴板无法直接读取，转为等待粘贴。类型:", detail);
+            armPasteWait(node);
             return;
         }
         await addDroppedFiles(node, files);
@@ -1267,6 +1272,37 @@ async function pasteFromClipboardDirect(node) {
     }
 }
 
+// ------ 「等待粘贴」状态 ------
+// 按钮读不到剪贴板内容时（典型情况：剪贴板里是文件管理器复制的文件，
+// 浏览器不允许异步剪贴板 API 读取），转入此状态：
+// 只等这个节点的一次 Ctrl+V，拿到真实文件后立刻退出。
+let armedPasteNode = null;
+let armedPasteTimer = null;
+
+function disarmPasteWait() {
+    if (armedPasteTimer) {
+        clearTimeout(armedPasteTimer);
+        armedPasteTimer = null;
+    }
+    const node = armedPasteNode;
+    armedPasteNode = null;
+    node?.__wyslMediaLoaderPanel?.classList.remove("is-paste-armed");
+    return node;
+}
+
+function armPasteWait(node) {
+    if (!node) return;
+    const previous = disarmPasteWait();
+    if (previous && previous !== node) setStatus(previous, "");
+    armedPasteNode = node;
+    node.__wyslMediaLoaderPanel?.classList.add("is-paste-armed");
+    setStatus(node, "已就绪：请按 Ctrl+V 粘贴剪贴板里的文件", false, 0);
+    armedPasteTimer = setTimeout(() => {
+        const expired = disarmPasteWait();
+        if (expired) setStatus(expired, "等待粘贴超时，请重新点击「粘贴」", true, 6000);
+    }, 20000);
+}
+
 function installPasteHandling() {
     if (globalThis.__wyslMediaLoaderPasteInstalled) return;
     globalThis.__wyslMediaLoaderPasteInstalled = true;
@@ -1277,7 +1313,8 @@ function installPasteHandling() {
             if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
             if (target?.isContentEditable) return;
 
-            const node = selectedMediaLoaderNode();
+            // 优先用「按钮进入的等待粘贴」节点；否则要求节点当前被选中
+            const node = armedPasteNode || selectedMediaLoaderNode();
             if (!node) return;
 
             const files = filesFromClipboardItems(event.clipboardData?.items);
@@ -1286,6 +1323,7 @@ function installPasteHandling() {
             event.preventDefault();
             event.stopPropagation();
             event.stopImmediatePropagation?.();
+            disarmPasteWait();
             addDroppedFiles(node, files).catch((error) => {
                 console.error("Wysl media paste failed", error);
                 setStatus(node, `粘贴失败：${error?.message || error}`, true, 8000);
@@ -1418,6 +1456,7 @@ function setup(node) {
 }
 
 function teardown(node) {
+    if (armedPasteNode === node) disarmPasteWait();
     closeModal(node, false);
     closeHoverPreview(node);
     node.__wyslMediaLoaderResizeObserver?.disconnect?.();
