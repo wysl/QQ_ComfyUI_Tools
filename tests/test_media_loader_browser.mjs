@@ -12,6 +12,13 @@ const titleHelper = source.slice(source.indexOf('function cardTitle('), source.i
 const { cardTitle } = new Function(`${pathHelpers}\n${titleHelper}\nreturn { cardTitle }`)()
 const hoverHelpers = source.slice(source.indexOf('function closeHoverPreview('), source.indexOf('function cancelHoverPreviewClose('))
 const { closeDetachedHoverPreview } = new Function(`${hoverHelpers}\nreturn { closeDetachedHoverPreview }`)()
+const previewSizing = source.slice(source.indexOf('function hoverPreviewDimensions('), source.indexOf('function attachImageHoverPreview('))
+const { hoverPreviewDimensions } = new Function(`${previewSizing}\nreturn { hoverPreviewDimensions }`)()
+const modalSizing = source.slice(source.indexOf('function modalThumbnailSize('), source.indexOf('function updateModalThumbnails('))
+const { modalThumbnailSize } = new Function('THUMB_TILE', 'window', `${modalSizing}\nreturn { modalThumbnailSize }`)(128, { devicePixelRatio: 1.5 })
+const layoutHelper = source.slice(source.indexOf('function setModalLayout('), source.indexOf('function selectedCount('))
+let thumbnailUpdates = 0
+const { setModalLayout } = new Function('updateModalThumbnails', `${layoutHelper}\nreturn { setModalLayout }`)(() => { thumbnailUpdates += 1 })
 
 assert.deepEqual(helpers.splitReference('folder/picture.png'), { source: 'input', path: 'folder/picture.png' })
 assert.deepEqual(helpers.splitReference('output::sub/clip.mp4'), { source: 'output', path: 'sub/clip.mp4' })
@@ -48,8 +55,35 @@ closeDetachedHoverPreview(attachedNode)
 assert.equal(removed, 1)
 assert.equal(attachedNode.__wyslMediaLoaderHoverPreview, attachedPreview)
 
+assert.deepEqual(hoverPreviewDimensions(1600, 900, 1200, 900), { width: 420, height: 236 })
+assert.deepEqual(hoverPreviewDimensions(900, 1600, 1200, 900), { width: 304, height: 540 })
+const narrowPreview = hoverPreviewDimensions(900, 1600, 375, 667)
+assert.ok(narrowPreview.width <= 375 * .7)
+assert.ok(narrowPreview.height <= 667 * .7)
+assert.equal(modalThumbnailSize({ clientWidth: 860 }, '3'), 384)
+assert.equal(modalThumbnailSize({ clientWidth: 860 }, '4'), 256)
+assert.equal(modalThumbnailSize({ clientWidth: 860 }, '5'), 256)
+assert.equal(modalThumbnailSize({ clientWidth: 860 }, 'list'), 128)
+const modal = { dataset: { layout: '4' }, __wyslSearching: false }
+const anchor = { getBoundingClientRect: () => ({ top: modal.dataset.layout === '3' ? 110 : 60, bottom: 120 }) }
+const body = { scrollTop: 200, getBoundingClientRect: () => ({ top: 50 }), querySelectorAll: () => [anchor] }
+const buttons = ['3', '4'].map((layout) => ({ dataset: { layout }, classList: { toggle() {} }, setAttribute() {} }))
+modal.querySelector = () => body
+modal.querySelectorAll = () => buttons
+setModalLayout(modal, '3')
+assert.equal(modal.dataset.layout, '3')
+assert.equal(body.scrollTop, 250)
+assert.equal(thumbnailUpdates, 1)
+assert.equal(buttons[0].disabled, false)
+setModalLayout(modal, '4', false)
+assert.equal(thumbnailUpdates, 1)
+
 assert.match(source, /search\.addEventListener\("submit"/)
 assert.match(source, /const layout = searching \? "4"/)
+assert.match(source, /node\.__wyslMediaLoaderLayout = value;\s*setModalLayout\(modal, value\);/)
+assert.match(source, /\.wysl-media-file-thumb \.wysl-media-thumb img\{object-fit:contain\}/)
+assert.match(source, /\.wysl-media-file-meta\{[^}]*flex:0 0 50px/)
+assert.doesNotMatch(source, /\.wysl-media-file-thumb\{[^}]*border:1px/)
 assert.match(source, /new IntersectionObserver\(/)
 assert.match(source, /const MODAL_RENDER_CHUNK = 24;/)
 assert.match(source, /loadFolder\(node, node\.__wyslMediaLoaderFolder \|\| "", node\.__wyslMediaLoaderSource \|\| "input"\);/)

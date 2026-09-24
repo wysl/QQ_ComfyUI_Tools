@@ -446,6 +446,8 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(media._media_loader_kind("folder/a.mp3"), "audio")
         self.assertEqual(media._media_loader_kind("folder/a.mp4"), "video")
         self.assertEqual(media._media_loader_kind("folder/a.txt"), None)
+        self.assertEqual(media._media_loader_thumbnail_max_edge(230), 256)
+        self.assertEqual(media._media_loader_thumbnail_max_edge(350), 384)
 
         source = (Path(__file__).resolve().parents[1] / "web" / "media_loader.js").read_text(
             encoding="utf-8",
@@ -466,7 +468,9 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("addDroppedFiles(node, files)", source)
         self.assertIn("/wysl/media-loader/list", source)
         self.assertNotIn("currentFolderFiles(node", source)
-        self.assertIn("const HOVER_PREVIEW_SCALE = 3", source)
+        self.assertIn("function hoverPreviewDimensions(width, height, viewportWidth, viewportHeight)", source)
+        self.assertIn("const maxWidth = Math.min(420", source)
+        self.assertIn("const maxHeight = Math.min(540", source)
         self.assertIn("const HOVER_PREVIEW_CLOSE_DELAY = 180", source)
         self.assertIn("function attachImageHoverPreview(node, anchor, path)", source)
         self.assertIn("function scheduleHoverPreviewClose(node, preview)", source)
