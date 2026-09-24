@@ -115,6 +115,73 @@ function typeForFile(file) {
     return "";
 }
 
+// MIME -> 扩展名，用于剪贴板文件没有名字时合成一个可识别的名字。
+const MIME_EXTENSION = {
+    "image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg",
+    "image/webp": ".webp", "image/bmp": ".bmp", "image/gif": ".gif",
+    "image/tiff": ".tiff", "image/avif": ".avif", "image/heic": ".heic",
+    "audio/wav": ".wav", "audio/x-wav": ".wav", "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3", "audio/flac": ".flac", "audio/ogg": ".ogg",
+    "audio/mp4": ".m4a", "audio/aac": ".aac", "audio/opus": ".opus",
+    "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov",
+    "video/x-matroska": ".mkv", "video/x-msvideo": ".avi", "video/mpeg": ".mpeg",
+};
+
+function extensionFromMime(mime) {
+    const key = String(mime || "").toLowerCase().split(";")[0].trim();
+    if (MIME_EXTENSION[key]) return MIME_EXTENSION[key];
+    const slash = key.indexOf("/");
+    if (slash < 0) return "";
+    const sub = key.slice(slash + 1).replace(/[^a-z0-9]/g, "");
+    return sub && sub !== "octet-stream" ? `.${sub}` : "";
+}
+
+// 剪贴板里的 blob 常常没有文件名，这里合成一个；有名字就原样保留。
+function fileFromBlob(blob, index) {
+    const type = String(blob?.type || "");
+    const ext = extensionFromMime(type);
+    const stamp = Date.now().toString(36);
+    const name = `paste-${stamp}-${index + 1}${ext || ".bin"}`;
+    try {
+        return new File([blob], name, { type });
+    } catch (error) {
+        // 极少数环境构造 File 失败，退化为带 name/type 的 Blob
+        blob.name = name;
+        return blob;
+    }
+}
+
+// 从粘贴事件的 items 里取出所有媒体文件（图片/音频/视频）
+function filesFromClipboardItems(items) {
+    const files = [];
+    for (const item of Array.from(items || [])) {
+        if (item?.kind !== "file") continue;
+        const file = item.getAsFile?.();
+        if (!file) continue;
+        if (!typeForFile(file) && !extensionFromMime(file.type)) continue;
+        files.push(file);
+    }
+    return files;
+}
+
+// 当前画布上被选中的「多媒体加载」节点。
+// 只在被选中时返回，未选中一律返回 null —— 这是「仅选中时响应 Ctrl+V」的前提。
+function selectedMediaLoaderNode() {
+    const graph = app?.graph || app?.canvas?.graph;
+    const nodes = Array.isArray(graph?._nodes) ? graph._nodes : [];
+    for (const node of nodes) {
+        if (node?.comfyClass !== NODE_TYPE && node?.type !== NODE_TYPE) continue;
+        if (!node.__wyslMediaLoaderSetup) continue;
+        if (node.is_selected || node.selected) return node;
+    }
+    return null;
+}
+
+// 只在 127.0.0.1 / localhost 等安全上下文下，浏览器才提供剪贴板读取
+function canReadClipboardDirectly() {
+    return Boolean(globalThis.navigator?.clipboard?.read && globalThis.isSecureContext);
+}
+
 function mediaUrl(path) {
     // /view resolves `filename` against the input root after taking its
     // basename, so a nested file must travel through `subfolder`.
@@ -1158,11 +1225,72 @@ function installStyles() {
     document.head.append(style);
 }
 
+// 选中本节点时，Ctrl+V 直接导入剪贴板里的媒体。
+// 用捕获阶段：确保比其它点击/粘贴逻辑更早拿到事件，便于决定是否拦截。
+// 「粘贴」按钮：直接读取剪贴板（仅安全上下文可用，内网 IP 不会显示该按钮）
+async function pasteFromClipboardDirect(node) {
+    try {
+        const items = await globalThis.navigator.clipboard.read();
+        const blobs = [];
+        for (const item of items) {
+            for (const type of item.types) {
+                if (type === "text/plain" || type === "text/html") continue;
+                blobs.push(await item.getType(type));
+            }
+        }
+        const files = blobs
+            .map((blob, index) => fileFromBlob(blob, index))
+            .filter((file) => typeForFile(file) || extensionFromMime(file.type));
+        if (!files.length) {
+            setStatus(node, "剪贴板里没有可导入的媒体", true, 6000);
+            return;
+        }
+        await addDroppedFiles(node, files);
+    } catch (error) {
+        const name = String(error?.name || "");
+        const message = name === "NotAllowedError"
+            ? "浏览器拒绝了剪贴板读取，请在弹窗中选择允许"
+            : `读取剪贴板失败：${error?.message || error}`;
+        setStatus(node, message, true, 8000);
+        console.error("Wysl media clipboard read failed", error);
+    }
+}
+
+function installPasteHandling() {
+    if (globalThis.__wyslMediaLoaderPasteInstalled) return;
+    globalThis.__wyslMediaLoaderPasteInstalled = true;
+    document.addEventListener("paste", (event) => {
+        try {
+            // 焦点在输入框/文本域里时不抢，保证正常文本粘贴
+            const target = event.target;
+            if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
+            if (target?.isContentEditable) return;
+
+            const node = selectedMediaLoaderNode();
+            if (!node) return;
+
+            const files = filesFromClipboardItems(event.clipboardData?.items);
+            if (!files.length) return;   // 不是媒体，交给 ComfyUI 原有逻辑
+
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation?.();
+            addDroppedFiles(node, files).catch((error) => {
+                console.error("Wysl media paste failed", error);
+                setStatus(node, `粘贴失败：${error?.message || error}`, true, 8000);
+            });
+        } catch (error) {
+            console.error("Wysl media paste handler failed", error);
+        }
+    }, { capture: true });
+}
+
 function setup(node) {
     if (!node || node.__wyslMediaLoaderSetup || typeof node.addDOMWidget !== "function") return;
     node.__wyslMediaLoaderSetup = true;
     installPointerTracking();
     installStyles();
+    installPasteHandling();
     hideWidget(node);
 
     const panel = document.createElement("div");
@@ -1209,11 +1337,16 @@ function setup(node) {
     const count = document.createElement("span");
     count.className = "wysl-media-count";
     const add = makeButton("添加媒体", "wysl-media-add", () => openModal(node));
+    // 「粘贴」按钮只在浏览器允许直接读剪贴板时出现（127.0.0.1 / localhost）。
+    // 内网 IP 下不显示，改用「选中节点后 Ctrl+V」的方式。
+    const paste = canReadClipboardDirectly()
+        ? makeButton("粘贴", "wysl-media-paste", () => pasteFromClipboardDirect(node))
+        : null;
     const clear = makeButton("清空", "wysl-media-clear", () => {
         writeState(node, emptyState());
         render(node);
     });
-    toolbar.append(title, count, add, clear);
+    toolbar.append(...[title, count, paste, add, clear].filter(Boolean));
 
     const groups = document.createElement("div");
     groups.className = "wysl-media-groups";
