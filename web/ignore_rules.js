@@ -1,29 +1,38 @@
 import { app } from "../../scripts/app.js";
 
 // Wysl-绕过规则
-// 用「文字」或「正则」匹配 节点标题 或 组名，把匹配到的节点设为 ComfyUI 的「绕过(Bypass)」。
+// 用「文字」或「正则」匹配 节点标题 或 组名，把匹配到的节点设为「绕过(Bypass)」。
 //
-// 规则语法：
+// 规则语法（节点 / 组 两个输入框各自独立）：
 //   - 多条规则用逗号分隔（也支持中文逗号、分号、换行）
-//   - 普通文字 = 包含匹配；含正则符号（^ $ * . + ? ( ) [ ] { } |）时按正则匹配
-//   - 规则前加 ! 表示「排除」：即使被其它规则命中也不会被绕过（排除优先）
-//
-// 示例：
-//   节点: ^Get_图片, !Get_图片 1
-//   组:   ^预处理, !保留组
+//   - 普通文字 = 包含匹配；含正则符号（^ $ * . + ? ( ) [ ] { } |）时按正则
+//   - 规则前加 ! = 排除，优先级最高
 //
 // 依据官方 ComfyUI_frontend 源码：
 //   src/lib/litegraph/src/types/globalEnums.ts
 //     LGraphEventMode = { ALWAYS:0, ON_EVENT:1, NEVER:2, ON_TRIGGER:3, BYPASS:4 }
+//   src/lib/litegraph/src/LGraphNode.ts
+//     mode 是 getter/setter，真实状态存在 _state；node.properties 会随工作流序列化
 //   src/composables/graph/useGroupMenuOptions.ts
-//     官方组操作：groupNodes.forEach(n => n.mode = mode) → canvas.setDirty() → graph.change()
+//     官方组操作：foreach(n => n.mode = mode) -> setDirty -> graph.change()
+//
+// 恢复策略（上一版失效的根因）：
+//   旧版把原状态记在 node._wyslPrevMode，但它不参与序列化，
+//   工作流保存再加载就丢失，导致「关闭」无法恢复。
+//   现改为记进 node.properties（官方序列化字段），并兜底恢复为 ALWAYS。
 
 const NODE_TYPE = "WyslIgnoreRules";
 const TAG = "[Wysl-绕过规则]";
 const EXCLUDE_PREFIX = "!";
+const PROP_PREV_MODE = "wyslPrevMode";
 
-function bypassMode() {
-    return globalThis.LiteGraph?.LGraphEventMode?.BYPASS ?? 4;
+function enums() {
+    const e = globalThis.LiteGraph?.LGraphEventMode;
+    return {
+        ALWAYS: e?.ALWAYS ?? 0,
+        NEVER: e?.NEVER ?? 2,
+        BYPASS: e?.BYPASS ?? 4,
+    };
 }
 
 function currentGraph() {
@@ -38,15 +47,38 @@ function currentGraph() {
     return null;
 }
 
+// 收集所有图（含子图）中的节点
 function allNodes(graph) {
-    if (!graph) return [];
-    if (Array.isArray(graph._nodes)) return graph._nodes.slice();
-    if (graph._nodes_by_id) return Object.values(graph._nodes_by_id);
-    return [];
+    const found = [];
+    const seen = new Set();
+    const visit = (g, depth = 0) => {
+        if (!g || depth > 8) return;
+        const list = Array.isArray(g._nodes)
+            ? g._nodes
+            : (g._nodes_by_id ? Object.values(g._nodes_by_id) : []);
+        for (const node of list) {
+            if (!node || seen.has(node)) continue;
+            seen.add(node);
+            found.push(node);
+            if (node.subgraph) visit(node.subgraph, depth + 1);
+        }
+    };
+    visit(graph);
+    return found;
 }
 
+// 收集所有图（含子图）中的组
 function allGroups(graph) {
-    return Array.isArray(graph?._groups) ? graph._groups.slice() : [];
+    const out = [];
+    const visit = (g, depth = 0) => {
+        if (!g || depth > 8) return;
+        if (Array.isArray(g._groups)) out.push(...g._groups);
+        for (const node of (g._nodes || [])) {
+            if (node && node.subgraph) visit(node.subgraph, depth + 1);
+        }
+    };
+    visit(graph);
+    return out;
 }
 
 function getWidget(node, name) {
@@ -59,19 +91,18 @@ function isEnabled(node) {
     return value === true || value === 1 || value === "true" || value === "启用";
 }
 
-// 规则前加 ! = 排除
 function isExclusion(rule) {
     return String(rule ?? "").trim().startsWith(EXCLUDE_PREFIX);
 }
 
 function stripExclusion(rule) {
     const text = String(rule ?? "").trim();
-    return isExclusion(text) ? text.slice(EXCLUDE_PREFIX.length).trim() : text;
+    return text.startsWith(EXCLUDE_PREFIX) ? text.slice(EXCLUDE_PREFIX.length).trim() : text;
 }
 
 function patterns(node, name) {
     const raw = String(getWidget(node, name)?.value ?? "");
-    return raw.split(/[,，;；\n]+/).map((item) => item.trim()).filter(Boolean);
+    return raw.split(/[,，;；\n]+/).map((s) => s.trim()).filter(Boolean);
 }
 
 function textMatches(pattern, value) {
@@ -83,10 +114,10 @@ function textMatches(pattern, value) {
     return text.includes(pattern);
 }
 
-function hitAny(patternList, values) {
-    for (const pattern of patternList) {
-        for (const value of values) {
-            if (textMatches(pattern, value)) return true;
+function hitAny(list, values) {
+    for (const p of list) {
+        for (const v of values) {
+            if (textMatches(p, v)) return true;
         }
     }
     return false;
@@ -112,32 +143,58 @@ function nodesInGroup(group) {
     return [];
 }
 
-function setBypassed(node, bypass) {
-    const BYPASS = bypassMode();
-    if (bypass) {
-        if (node.mode === BYPASS) return false;
-        if (node._wyslPrevMode === undefined) node._wyslPrevMode = node.mode ?? 0;
-        node.mode = BYPASS;
-        return true;
-    }
-    if (node._wyslPrevMode !== undefined) {
-        node.mode = node._wyslPrevMode;
-        delete node._wyslPrevMode;
-        return true;
-    }
-    return false;
-}
-
-// 把规则分成 命中(include) / 排除(exclude) 两组，! 前缀进入排除组
 function splitRules(entries) {
     const include = [];
     const exclude = [];
     for (const entry of entries) {
-        const target = isExclusion(entry) ? exclude : include;
         const pattern = stripExclusion(entry);
-        if (pattern) target.push(pattern);
+        if (!pattern) continue;
+        (isExclusion(entry) ? exclude : include).push(pattern);
     }
     return { include, exclude };
+}
+
+// 读取原状态：优先 node.properties（会随工作流保存），兼容旧版 _wyslPrevMode
+function readPrevMode(node) {
+    const fromProps = node?.properties?.[PROP_PREV_MODE];
+    if (typeof fromProps === "number") return fromProps;
+    const legacy = node?._wyslPrevMode;
+    if (typeof legacy === "number") return legacy;
+    return undefined;
+}
+
+function writePrevMode(node, mode) {
+    try {
+        if (node.properties) node.properties[PROP_PREV_MODE] = mode;
+    } catch { /* 忽略 */ }
+    node._wyslPrevMode = mode;
+}
+
+function clearPrevMode(node) {
+    try {
+        if (node.properties) delete node.properties[PROP_PREV_MODE];
+    } catch { /* 忽略 */ }
+    delete node._wyslPrevMode;
+}
+
+function setBypassed(node, bypass) {
+    const { ALWAYS, BYPASS } = enums();
+    const prev = readPrevMode(node);
+
+    if (bypass) {
+        if (node.mode === BYPASS) return false;
+        if (prev === undefined) writePrevMode(node, node.mode ?? ALWAYS);
+        node.mode = BYPASS;
+        return true;
+    }
+
+    if (node.mode !== BYPASS) {
+        if (prev !== undefined) clearPrevMode(node);
+        return false;
+    }
+    node.mode = prev !== undefined ? prev : ALWAYS;
+    clearPrevMode(node);
+    return true;
 }
 
 function applyRules(graph) {
@@ -145,7 +202,7 @@ function applyRules(graph) {
     if (!nodes.length) return null;
 
     const groups = allGroups(graph);
-    const active = nodes.filter((node) => isRuleNode(node) && isEnabled(node));
+    const active = nodes.filter((n) => isRuleNode(n) && isEnabled(n));
 
     const nodeEntry = [];
     const groupEntry = [];
@@ -156,7 +213,6 @@ function applyRules(graph) {
     const nodeRules = splitRules(nodeEntry);
     const groupRules = splitRules(groupEntry);
 
-    // 1) 命中集合（节点规则 + 组规则）
     const targets = new Set();
     for (const node of nodes) {
         if (isRuleNode(node)) continue;
@@ -169,7 +225,6 @@ function applyRules(graph) {
         }
     }
 
-    // 2) 排除集合（! 规则的节点 + ! 规则命中的组内节点），排除优先
     const excluded = new Set();
     if (nodeRules.exclude.length) {
         for (const node of nodes) {
@@ -233,9 +288,10 @@ function start() {
             lastLog = now;
             console.log(
                 TAG,
-                `规则 ${result.ruleCount} 条 | 节点 ${result.nodeInclude}/排除 ${result.nodeExclude}`
+                `规则 ${result.ruleCount} | 节点 ${result.nodeInclude}/排除 ${result.nodeExclude}`
                 + ` | 组 ${result.groupInclude}/排除 ${result.groupExclude}`
-                + ` | 已绕过 ${result.bypassed} | 被排除 ${result.excluded} | 本轮变更: ${result.changed}`,
+                + ` | 已绕过 ${result.bypassed} | 被排除 ${result.excluded}`
+                + ` | 本轮变更 ${result.changed}`,
             );
         }
     };
@@ -245,9 +301,7 @@ function start() {
 
 app.registerExtension({
     name: "Wysl.IgnoreRules",
-    setup() {
-        start();
-    },
+    setup() { start(); },
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name === NODE_TYPE) start();
     },
