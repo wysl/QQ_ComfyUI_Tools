@@ -216,6 +216,10 @@ function closeHoverPreview(node) {
         clearTimeout(node.__wyslMediaLoaderModalHoverTimer);
         node.__wyslMediaLoaderModalHoverTimer = null;
     }
+    if (node?.__wyslMediaLoaderModalHoverMoveAttachTimer) {
+        clearTimeout(node.__wyslMediaLoaderModalHoverMoveAttachTimer);
+        node.__wyslMediaLoaderModalHoverMoveAttachTimer = null;
+    }
     if (node?.__wyslMediaLoaderModalHoverMoveHandler) {
         document.removeEventListener("pointermove", node.__wyslMediaLoaderModalHoverMoveHandler, true);
         node.__wyslMediaLoaderModalHoverMoveHandler = null;
@@ -370,7 +374,15 @@ function attachModalImageHoverPreview(node, anchor, path) {
     anchor.addEventListener("pointerenter", () => {
         closeHoverPreview(node);
         node.__wyslMediaLoaderModalHoverMoveHandler = cancelOnMove;
-        document.addEventListener("pointermove", cancelOnMove, true);
+        // Browsers commonly emit an initial pointermove immediately after
+        // pointerenter. Register after that event so entering the thumbnail
+        // does not cancel the 100ms stationary-hover timer.
+        node.__wyslMediaLoaderModalHoverMoveAttachTimer = setTimeout(() => {
+            node.__wyslMediaLoaderModalHoverMoveAttachTimer = null;
+            if (node.__wyslMediaLoaderModalHoverTimer) {
+                document.addEventListener("pointermove", cancelOnMove, true);
+            }
+        }, 0);
         node.__wyslMediaLoaderModalHoverTimer = setTimeout(() => {
             node.__wyslMediaLoaderModalHoverTimer = null;
             if (!anchor.matches?.(":hover")) {
