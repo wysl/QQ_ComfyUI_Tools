@@ -362,7 +362,7 @@ function modalHoverPreviewDimensions(width, height, viewportWidth, viewportHeigh
 function attachModalImageHoverPreview(node, anchor, path) {
     if (!node || !anchor || !path || anchor.__wyslModalHoverPreviewAttached) return;
     anchor.__wyslModalHoverPreviewAttached = true;
-    anchor.addEventListener("pointerenter", () => {
+    const schedule = () => {
         closeHoverPreview(node);
         node.__wyslMediaLoaderModalHoverTimer = setTimeout(() => {
             node.__wyslMediaLoaderModalHoverTimer = null;
@@ -413,7 +413,11 @@ function attachModalImageHoverPreview(node, anchor, path) {
             positionHoverPreview(preview, anchor);
             requestAnimationFrame(() => preview.classList.add("is-visible"));
         }, MODAL_HOVER_PREVIEW_DELAY);
-    });
+    };
+    // Debounce the hover: every movement inside the same thumbnail restarts
+    // the timer, and only a stationary pointer for 100ms opens the preview.
+    anchor.addEventListener("pointerenter", schedule);
+    anchor.addEventListener("pointermove", schedule);
     anchor.addEventListener("pointerleave", () => closeHoverPreview(node));
 }
 
