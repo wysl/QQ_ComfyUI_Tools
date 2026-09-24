@@ -113,5 +113,46 @@ class PollingSwitchTests(unittest.TestCase):
         )
 
 
+JS_PATH = Path(__file__).resolve().parents[1] / "web" / "polling_switch.js"
+
+
+class PollingSwitchFrontendTests(unittest.TestCase):
+    """前端只负责「显示几个输入口」：初始 2 个，接一个加一个。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.source = JS_PATH.read_text(encoding="utf-8")
+
+    def test_min_and_max(self):
+        self.assertIn("const MIN_INPUTS = 2;", self.source)
+        self.assertIn("const MAX_INPUTS = 8;", self.source)
+
+    def test_targets_the_right_node(self):
+        self.assertIn('const NODE_TYPE = "WyslPollingSwitch";', self.source)
+
+    def test_has_dynamic_helpers(self):
+        for name in ("function inputName", "function targetCount",
+                     "function ensureInputs", "function normalizeInputs",
+                     "function initializeSwitch"):
+            self.assertIn(name, self.source)
+
+    def test_input_names_match_backend(self):
+        # 与后端 f"input{index + 1}" 一致
+        self.assertIn("return `input${slot + 1}`;", self.source)
+
+    def test_hooks_connection_and_configure(self):
+        self.assertIn("prototype.onConnectionsChange", self.source)
+        self.assertIn("prototype.onConfigure", self.source)
+        self.assertIn("prototype.onAfterGraphConfigured", self.source)
+        self.assertIn("prototype.onNodeCreated", self.source)
+
+    def test_never_removes_connected_inputs(self):
+        # 回收前必须检查 link，避免删掉已连线的口
+        self.assertIn("if (last?.link != null) break;", self.source)
+
+    def test_skips_while_graph_is_configuring(self):
+        self.assertIn("app?.configuringGraph", self.source)
+
+
 if __name__ == "__main__":
     unittest.main()
