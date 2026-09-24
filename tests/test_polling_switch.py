@@ -115,7 +115,7 @@ class PollingSwitchTests(unittest.TestCase):
         self.assertIn("WyslPollingSwitch", self.module.NODE_CLASS_MAPPINGS)
         self.assertEqual(
             self.module.NODE_DISPLAY_NAME_MAPPINGS["WyslPollingSwitch"],
-            "Wysl-轮询切换",
+            "Wysl-图像轮询切换",
         )
 
 

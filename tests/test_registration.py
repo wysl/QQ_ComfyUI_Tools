@@ -79,7 +79,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(display["WyslGrokImagineImage"], "Wysl-Grok Imagine Image")
         self.assertEqual(display["WyslLightroomGrain"], "Wysl-LightroomGrain")
         self.assertEqual(display["WyslLatentSwitch"], "Wysl-LatentSwitch")
-        self.assertEqual(display["WyslPollingSwitch"], "Wysl-轮询切换")
+        self.assertEqual(display["WyslPollingSwitch"], "Wysl-图像轮询切换")
         self.assertEqual(display["WyslIgnoreRules"], "Wysl-绕过规则")
 
     def test_grok_image_node_has_profile_only_endpoint_selector(self):
