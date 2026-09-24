@@ -17,6 +17,8 @@ const MODAL_RENDER_CHUNK = 24;
 const AUTOFIT_RETRIES = 3;
 const MODAL_WATCH_INTERVAL = 400;
 const HOVER_PREVIEW_SIZE = 384;
+const MODAL_HOVER_PREVIEW_MAX_EDGE = 336;
+const MODAL_HOVER_PREVIEW_DELAY = 100;
 const HOVER_PREVIEW_CLOSE_DELAY = 180;
 const GROUPS = [
     { key: "images", type: "image", label: "图片" },
@@ -210,6 +212,14 @@ function thumbnailUrl(path, size) {
 }
 
 function closeHoverPreview(node) {
+    if (node?.__wyslMediaLoaderModalHoverTimer) {
+        clearTimeout(node.__wyslMediaLoaderModalHoverTimer);
+        node.__wyslMediaLoaderModalHoverTimer = null;
+    }
+    if (node?.__wyslMediaLoaderModalHoverMoveHandler) {
+        document.removeEventListener("pointermove", node.__wyslMediaLoaderModalHoverMoveHandler, true);
+        node.__wyslMediaLoaderModalHoverMoveHandler = null;
+    }
     if (node?.__wyslMediaLoaderHoverPreviewCloseTimer) {
         clearTimeout(node.__wyslMediaLoaderHoverPreviewCloseTimer);
         node.__wyslMediaLoaderHoverPreviewCloseTimer = null;
@@ -336,6 +346,82 @@ function attachImageHoverPreview(node, anchor, path) {
             scheduleHoverPreviewClose(node, preview);
         }
     });
+}
+
+function modalHoverPreviewDimensions(width, height, viewportWidth, viewportHeight) {
+    const safeWidth = Math.max(1, Number(width) || 1);
+    const safeHeight = Math.max(1, Number(height) || 1);
+    const scale = Math.min(
+        1,
+        MODAL_HOVER_PREVIEW_MAX_EDGE / Math.max(safeWidth, safeHeight),
+        (viewportWidth - 16) / safeWidth,
+        (viewportHeight - 16) / safeHeight,
+    );
+    return {
+        width: Math.max(1, Math.round(safeWidth * scale)),
+        height: Math.max(1, Math.round(safeHeight * scale)),
+    };
+}
+
+function attachModalImageHoverPreview(node, anchor, path) {
+    if (!node || !anchor || !path || anchor.__wyslModalHoverPreviewAttached) return;
+    anchor.__wyslModalHoverPreviewAttached = true;
+    const cancelOnMove = () => closeHoverPreview(node);
+    anchor.addEventListener("pointerenter", () => {
+        closeHoverPreview(node);
+        node.__wyslMediaLoaderModalHoverMoveHandler = cancelOnMove;
+        document.addEventListener("pointermove", cancelOnMove, true);
+        node.__wyslMediaLoaderModalHoverTimer = setTimeout(() => {
+            node.__wyslMediaLoaderModalHoverTimer = null;
+            if (!anchor.matches?.(":hover")) {
+                closeHoverPreview(node);
+                return;
+            }
+            const preview = document.createElement("a");
+            preview.className = "wysl-media-hover-preview";
+            preview.href = mediaUrl(path);
+            preview.target = "_blank";
+            preview.rel = "noopener noreferrer";
+            preview.title = "点击查看原图";
+            preview.setAttribute("aria-label", `查看原图：${cardTitle(path)}`);
+            preview.__wyslMediaLoaderHoverAnchor = anchor;
+            const image = document.createElement("img");
+            image.alt = "";
+            image.decoding = "async";
+            image.src = thumbnailUrl(path, HOVER_PREVIEW_SIZE);
+            const resize = () => {
+                const dimensions = modalHoverPreviewDimensions(
+                    image.naturalWidth || MODAL_HOVER_PREVIEW_MAX_EDGE,
+                    image.naturalHeight || MODAL_HOVER_PREVIEW_MAX_EDGE,
+                    window.innerWidth,
+                    window.innerHeight,
+                );
+                preview.style.width = `${dimensions.width}px`;
+                preview.style.height = `${dimensions.height}px`;
+                positionHoverPreview(preview, anchor);
+            };
+            image.addEventListener("load", resize, { once: true });
+            image.addEventListener("error", () => {
+                if (node.__wyslMediaLoaderHoverPreview === preview) closeHoverPreview(node);
+            }, { once: true });
+            preview.append(image);
+            const dimensions = modalHoverPreviewDimensions(
+                MODAL_HOVER_PREVIEW_MAX_EDGE,
+                MODAL_HOVER_PREVIEW_MAX_EDGE,
+                window.innerWidth,
+                window.innerHeight,
+            );
+            preview.style.width = `${dimensions.width}px`;
+            preview.style.height = `${dimensions.height}px`;
+            preview.addEventListener("pointerdown", (event) => event.stopPropagation());
+            preview.addEventListener("click", (event) => event.stopPropagation());
+            document.body.append(preview);
+            node.__wyslMediaLoaderHoverPreview = preview;
+            positionHoverPreview(preview, anchor);
+            requestAnimationFrame(() => preview.classList.add("is-visible"));
+        }, MODAL_HOVER_PREVIEW_DELAY);
+    });
+    anchor.addEventListener("pointerleave", () => closeHoverPreview(node));
 }
 
 function formatBytes(value) {
@@ -896,6 +982,7 @@ function createFileRow(node, group, item, state, source, thumbSize) {
     const thumb = document.createElement("span");
     thumb.className = "wysl-media-file-thumb";
     thumb.append(filePreview(reference, group.type, thumbSize));
+    if (group.type === "image") attachModalImageHoverPreview(node, thumb, reference);
 
     const meta = document.createElement("span");
     meta.className = "wysl-media-file-meta";
