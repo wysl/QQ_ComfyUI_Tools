@@ -112,6 +112,16 @@ function configType(config) {
     return Array.isArray(config?.[0]) ? "COMBO" : String(config?.[0] || "*");
 }
 
+function inputDisplayName(info, fallback) {
+    const displayName = String(
+        info?.input?.localized_name
+        || info?.input?.label
+        || info?.input?.name
+        || fallback,
+    ).trim();
+    return !displayName || /^value_\d+$/i.test(displayName) ? fallback : displayName;
+}
+
 function outputHasLink(output) {
     return Boolean(output?.links?.length);
 }
@@ -246,6 +256,9 @@ app.registerExtension({
                 }
                 if (!widget) return null;
 
+                // Keep value_N as the serialized/internal key, but expose the
+                // connected input's readable label instead of leaking it into the UI.
+                widget.label = inputDisplayName(info, `输入 ${slot + 1}`);
                 if (previousValues.has(name)) {
                     widget.value = previousValues.get(name);
                 } else if (info.targetWidget) {

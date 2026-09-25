@@ -428,6 +428,10 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('function liveComboValues(widget)', source)
         self.assertIn('name: "QQ.MultiPrimitive"', source)
         self.assertIn('category: "QQ/工具"', source)
+        self.assertIn('const name = `value_${slot + 1}`;', source)
+        self.assertIn('function inputDisplayName(info, fallback)', source)
+        self.assertIn('/^value_\\d+$/i.test(displayName)', source)
+        self.assertIn('widget.label = inputDisplayName(info, `输入 ${slot + 1}`);', source)
 
     def test_media_auto_splitter_contract(self):
         splitter = self.package.NODE_CLASS_MAPPINGS["QQMediaAutoSplitter"]
