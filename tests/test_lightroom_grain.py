@@ -76,6 +76,13 @@ class LightroomGrainTests(unittest.TestCase):
         self.assertTrue((out >= 0.0).all(), msg="输出有 <0 的像素")
         self.assertTrue((out <= 1.0).all(), msg="输出有 >1 的像素")
 
+    def test_grain_does_not_create_black_boundary(self):
+        rgb = torch.full((1, 3, 32, 32), 0.5, dtype=torch.float32)
+        out = self.lr._apply_grain(rgb, amount=80.0, size=100.0, roughness=0.0, seed=7)
+        border = torch.cat((out[..., 0, :], out[..., -1, :], out[..., :, 0], out[..., :, -1]), dim=-1)
+        self.assertGreater(border.mean().item(), 0.35)
+        self.assertLess(border.mean().item(), 0.65)
+
     def test_larger_size_reduces_high_frequency_noise(self):
         # 整体方差经归一化后近似相同，比较相邻像素才能衡量高频噪声。
         rgb = torch.full((2, 3, 48, 48), 0.5, dtype=torch.float32)
