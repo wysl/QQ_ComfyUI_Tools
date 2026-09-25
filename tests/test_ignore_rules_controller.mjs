@@ -34,8 +34,8 @@ function check(name, condition) {
   console.log(`ok   ${name}`);
 }
 
-check("new node creates exactly two complete rows", created.widgets.length === 4);
-check("new node starts at expected compact height", created.size[1] === 110);
+check("new node starts without nonexistent rule rows", created.widgets.length === 0);
+check("new node starts at header-only height", created.size[1] === 42);
 
 const restored = new NodeType();
 restored.onNodeCreated();
@@ -61,10 +61,24 @@ check("third row does not shift into first slot", restored.widgets[4].value === 
 check("fourth saved enabled state restores", restored.widgets[7].value === false);
 check("node height is derived from exactly four rows", restored.size[1] === 178);
 
+const rule = (id, title) => ({
+  id,
+  comfyClass: "QQIgnoreRules",
+  title,
+  widgets: [{ name: "启用", value: false }, { name: "节点", value: title }, { name: "组", value: "" }],
+});
+restored.graph = { _nodes: [rule("11", "A"), rule("12", "B"), rule("13", "C")] };
 restored.onAfterGraphConfigured();
 const rowNames = restored.widgets.filter((widget) => widget.name.startsWith("规则名称_"));
-check("refresh keeps saved rows in order and adds one empty slot", rowNames.map((widget) => widget.value).join(",") === "A,B,C,D,");
-check("refresh adds only the expected empty slot", restored.size[1] === 212);
+check("refresh keeps only rules that still exist", rowNames.map((widget) => widget.value).join(",") === "A,B,C");
+check("refresh removes nonexistent fourth row", restored.size[1] === 144);
+
+const empty = new NodeType();
+empty.onNodeCreated();
+empty.graph = { _nodes: [] };
+empty.onAfterGraphConfigured();
+check("empty graph has no placeholder rows", empty.widgets.length === 0);
+check("empty graph keeps header-only height", empty.size[1] === 42);
 
 const legacy = new NodeType();
 legacy.onNodeCreated();

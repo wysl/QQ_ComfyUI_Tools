@@ -2,7 +2,7 @@ import { app } from "../../../scripts/app.js";
 
 const NODE_TYPE = "QQIgnoreRulesController";
 const RULE_NODE_TYPE = "QQIgnoreRules";
-const MIN_ROWS = 2;
+const MIN_ROWS = 0;
 const MAX_ROWS = 32;
 const ROW_HEIGHT = 34;
 const NODE_WIDTH = 280;
@@ -220,12 +220,34 @@ function ensureRows(node, count) {
 }
 
 function targetRowCount(node) {
-    let lastFilled = 0;
-    for (let index = 0; index < rowCount(node); index += 1) {
-        if (rowName(node, index)) lastFilled = index + 1;
-    }
     const rules = allRuleNodes(node?.graph || currentGraph());
-    return clampRows(Math.max(MIN_ROWS, lastFilled + 1, rules.length));
+    return clampRows(rules.length);
+}
+
+function sameRow(left, right) {
+    return String(left?.name || "") === String(right?.name || "")
+        && enabledValue(left?.enabled) === enabledValue(right?.enabled);
+}
+
+function alignRowsToRules(node, rules) {
+    const oldRows = rowRecords(node);
+    const oldBindings = ruleBindings(node);
+    const existing = new Map();
+    for (let index = 0; index < oldRows.length; index += 1) {
+        const binding = oldBindings[index];
+        if (binding && !existing.has(binding)) existing.set(binding, oldRows[index]);
+    }
+
+    const nextBindings = rules.map(ruleId).filter(Boolean);
+    const nextRows = nextBindings.map((binding) => existing.get(binding) || ({ name: "", enabled: false }));
+    const changed = rowCount(node) !== nextRows.length
+        || oldBindings.length !== nextBindings.length
+        || oldBindings.some((value, index) => value !== nextBindings[index])
+        || oldRows.some((row, index) => !sameRow(row, nextRows[index]));
+
+    if (changed) rebuildRows(node, nextRows, nextRows.length);
+    saveRuleBindings(node, nextBindings);
+    return changed;
 }
 
 function ensureRuleBindings(node, rules) {
@@ -285,8 +307,9 @@ function syncController(node) {
     const graph = node?.graph || currentGraph();
     if (!graph || app?.loading_graph || app?.configuringGraph) return;
     const rules = allRuleNodes(graph);
+    alignRowsToRules(node, rules);
     if (!rules.length) return;
-    const bindings = ensureRuleBindings(node, rules);
+    const bindings = ruleBindings(node);
     fillDiscoveredNames(node, rules, bindings);
     let changed = false;
     for (let index = 0; index < rowCount(node); index += 1) {
@@ -301,8 +324,6 @@ function syncController(node) {
 
 function refresh(node) {
     if (!node || app?.configuringGraph || app?.loading_graph) return;
-    const desired = targetRowCount(node);
-    if (desired !== rowCount(node)) ensureRows(node, desired);
     syncController(node);
     setControllerSize(node);
     node.setDirtyCanvas?.(true, true);
