@@ -4,8 +4,14 @@ const NODE_TYPE = "QQIgnoreRulesController";
 const RULE_NODE_TYPE = "QQIgnoreRules";
 const MIN_ROWS = 2;
 const MAX_ROWS = 32;
+const ROW_HEIGHT = 34;
+const NODE_WIDTH = 280;
+const NODE_TOP_HEIGHT = 42;
 const NAME_PREFIX = "规则名称_";
 const ENABLE_PREFIX = "启用_";
+const ROWS_PROP = "qqIgnoreRuleRows";
+const BINDINGS_PROP = "qqIgnoreRuleBindings";
+const COUNT_PROP = "qqIgnoreRuleRowCount";
 const TEXT = {
     title: "QQ-绕过规则开关",
     name: "规则名称",
@@ -45,15 +51,6 @@ function allRuleNodes(graph) {
     return graphNodes(graph).filter(isRuleNode);
 }
 
-function ruleSearchText(rule) {
-    return [
-        rule?.title,
-        rule?.properties?.name,
-        widgetValue(rule, "节点"),
-        widgetValue(rule, "组"),
-    ].map((value) => String(value || "").trim()).filter(Boolean);
-}
-
 function discoveredRuleName(rule, index) {
     const title = String(rule?.title || "").trim();
     if (title && title !== RULE_NODE_TYPE && title !== TEXT.title) return title;
@@ -64,87 +61,162 @@ function discoveredRuleName(rule, index) {
     return `${TEXT.unnamed} ${index + 1}`;
 }
 
-function rowName(node, index) {
-    return String(node?.widgets?.find((widget) => widget?.name === `${NAME_PREFIX}${index + 1}`)?.value || "").trim();
-}
-
-function rowEnabled(node, index) {
-    return enabledValue(node?.widgets?.find((widget) => widget?.name === `${ENABLE_PREFIX}${index + 1}`)?.value);
-}
-
 function ruleId(rule) {
     const value = rule?.id;
     return value === undefined || value === null ? "" : String(value);
 }
 
-function ruleBindings(node) {
-    const raw = node?.properties?.qqIgnoreRuleBindings;
-    if (!Array.isArray(raw)) return [];
-    return raw.map((value) => (value === undefined || value === null ? "" : String(value)));
+function clampRows(value) {
+    const count = Number(value);
+    if (!Number.isFinite(count)) return MIN_ROWS;
+    return Math.max(MIN_ROWS, Math.min(MAX_ROWS, Math.floor(count)));
+}
+
+function rowWidgets(node) {
+    return (node?.widgets || []).filter((widget) => widget?.__qqIgnoreRuleRow);
+}
+
+function rowCount(node) {
+    const marked = Math.floor(rowWidgets(node).length / 2);
+    const saved = Number(node?.properties?.[COUNT_PROP]);
+    return clampRows(Math.max(marked, Number.isFinite(saved) ? saved : 0));
+}
+
+function rowName(node, index) {
+    return String(getWidget(node, `${NAME_PREFIX}${index + 1}`)?.value || "").trim();
+}
+
+function rowEnabled(node, index) {
+    return enabledValue(getWidget(node, `${ENABLE_PREFIX}${index + 1}`)?.value);
+}
+
+function rowRecords(node) {
+    const count = rowCount(node);
+    return Array.from({ length: count }, (_, index) => ({
+        name: rowName(node, index),
+        enabled: rowEnabled(node, index),
+    }));
+}
+
+function saveRows(node) {
+    node.properties ||= {};
+    node.properties[ROWS_PROP] = rowRecords(node);
+    node.properties[COUNT_PROP] = rowCount(node);
 }
 
 function saveRuleBindings(node, bindings) {
     node.properties ||= {};
-    node.properties.qqIgnoreRuleBindings = bindings.map((value) => String(value || ""));
+    node.properties[BINDINGS_PROP] = bindings.map((value) => String(value || ""));
 }
 
-function rowCount(node) {
-    const markedCount = Math.floor((node?.widgets || []).filter((widget) => widget?.__qqIgnoreRuleRow).length / 2);
-    const savedCount = Number(node?.properties?.qqIgnoreRuleRowCount);
-    return Math.max(
-        MIN_ROWS,
-        Math.min(MAX_ROWS, Math.max(markedCount, Number.isFinite(savedCount) ? Math.floor(savedCount) : 0)),
+function ruleBindings(node) {
+    const raw = node?.properties?.[BINDINGS_PROP];
+    if (!Array.isArray(raw)) return [];
+    return raw.map((value) => (value === undefined || value === null ? "" : String(value)));
+}
+
+function nodeSize(node, count = rowCount(node)) {
+    const width = Math.max(NODE_WIDTH, Number(node?.size?.[0]) || NODE_WIDTH);
+    return [width, NODE_TOP_HEIGHT + count * ROW_HEIGHT];
+}
+
+function setControllerSize(node) {
+    node.setSize?.(nodeSize(node));
+}
+
+function makeNameWidget(node, index, value = "") {
+    const widget = node.addWidget(
+        "text",
+        `${NAME_PREFIX}${index}`,
+        String(value || ""),
+        () => {
+            saveRows(node);
+            syncController(node);
+        },
+        { serialize: true, multiline: false, placeholder: `${TEXT.name} ${index}` },
     );
+    widget.label = `${TEXT.name} ${index}`;
+    widget.__qqIgnoreRuleRow = true;
+    return widget;
+}
+
+function makeEnabledWidget(node, index, value = false) {
+    const widget = node.addWidget(
+        "toggle",
+        `${ENABLE_PREFIX}${index}`,
+        Boolean(value),
+        () => {
+            saveRows(node);
+            syncController(node);
+        },
+        { serialize: true, on: "启用", off: "关闭" },
+    );
+    widget.label = "启用";
+    widget.__qqIgnoreRuleRow = true;
+    return widget;
+}
+
+function removeRowWidgets(node) {
+    if (!Array.isArray(node?.widgets)) return;
+    const oldRows = rowWidgets(node);
+    for (const widget of oldRows) {
+        try { widget.onRemove?.(); } catch { /* 兼容旧版 LiteGraph */ }
+    }
+    node.widgets = node.widgets.filter((widget) => !widget?.__qqIgnoreRuleRow);
+}
+
+function normalizeSavedRows(node, info) {
+    const stored = node?.properties?.[ROWS_PROP];
+    const values = Array.isArray(info?.widgets_values) ? info.widgets_values : [];
+    const legacyHasContent = values.some((value, index) => (
+        index % 2 === 0 ? String(value || "").trim() !== "" : enabledValue(value)
+    ));
+    const storedHasContent = Array.isArray(stored) && stored.some((row) => (
+        String(row?.name || "").trim() !== "" || enabledValue(row?.enabled)
+    ));
+    if (Array.isArray(stored) && stored.length && (!legacyHasContent || storedHasContent)) {
+        return stored.slice(0, MAX_ROWS).map((row) => ({
+            name: String(row?.name || ""),
+            enabled: enabledValue(row?.enabled),
+        }));
+    }
+
+    // 旧版本只把动态控件按顺序写入 widgets_values。仅在迁移时读取一次，
+    // 后续始终使用 qqIgnoreRuleRows，避免 LiteGraph 恢复顺序再次污染控件。
+    const savedCount = Number(node?.properties?.[COUNT_PROP]);
+    const count = clampRows(Math.max(
+        Number.isFinite(savedCount) ? savedCount : 0,
+        Math.ceil(values.length / 2),
+        MIN_ROWS,
+    ));
+    return Array.from({ length: count }, (_, index) => ({
+        name: String(values[index * 2] || ""),
+        enabled: enabledValue(values[index * 2 + 1]),
+    }));
+}
+
+function rebuildRows(node, records, count = records.length) {
+    const wanted = clampRows(count);
+    const rows = Array.from({ length: wanted }, (_, index) => records[index] || ({ name: "", enabled: false }));
+    removeRowWidgets(node);
+    rows.forEach((row, offset) => {
+        const index = offset + 1;
+        makeNameWidget(node, index, row.name);
+        makeEnabledWidget(node, index, row.enabled);
+    });
+    node.properties ||= {};
+    node.properties[COUNT_PROP] = wanted;
+    saveRows(node);
+    setControllerSize(node);
 }
 
 function ensureRows(node, count) {
-    const want = Math.max(MIN_ROWS, Math.min(MAX_ROWS, count));
-    let current = rowCount(node);
-    while (current < want) {
-        const index = current + 1;
-        const nameWidget = node.addWidget(
-            "text",
-            `${NAME_PREFIX}${index}`,
-            "",
-            (value) => {
-                node._qqIgnoreRulesDirty = true;
-                syncController(node);
-            },
-            { serialize: true, multiline: false, placeholder: `${TEXT.name} ${index}` },
-        );
-        const enabledWidget = node.addWidget(
-            "toggle",
-            `${ENABLE_PREFIX}${index}`,
-            false,
-            (value) => {
-                node._qqIgnoreRulesDirty = true;
-                syncController(node);
-            },
-            { serialize: true, on: "启用", off: "关闭" },
-        );
-        nameWidget.label = `${TEXT.name} ${index}`;
-        enabledWidget.label = "启用";
-        nameWidget.__qqIgnoreRuleRow = true;
-        enabledWidget.__qqIgnoreRuleRow = true;
-        current += 1;
+    const wanted = clampRows(count);
+    if (rowCount(node) === wanted && rowWidgets(node).length === wanted * 2) {
+        setControllerSize(node);
+        return;
     }
-    node.properties ||= {};
-    node.properties.qqIgnoreRuleRowCount = want;
-}
-
-function trimRows(node, count) {
-    const want = Math.max(MIN_ROWS, Math.min(MAX_ROWS, count));
-    ensureRows(node, want);
-    while (rowCount(node) > want) {
-        const lastIndex = rowCount(node);
-        for (const name of [`${ENABLE_PREFIX}${lastIndex}`, `${NAME_PREFIX}${lastIndex}`]) {
-            const position = node.widgets?.findIndex((widget) => widget?.name === name) ?? -1;
-            if (position >= 0) node.widgets.splice(position, 1);
-        }
-    }
-    node.properties ||= {};
-    node.properties.qqIgnoreRuleRowCount = want;
-    node.setSize?.([node.size?.[0] || 280, Math.max(120, 42 + want * 34)]);
+    rebuildRows(node, rowRecords(node), wanted);
 }
 
 function targetRowCount(node) {
@@ -153,12 +225,13 @@ function targetRowCount(node) {
         if (rowName(node, index)) lastFilled = index + 1;
     }
     const rules = allRuleNodes(node?.graph || currentGraph());
-    return Math.min(MAX_ROWS, Math.max(MIN_ROWS, lastFilled + 1, rules.length));
+    return clampRows(Math.max(MIN_ROWS, lastFilled + 1, rules.length));
 }
 
 function ensureRuleBindings(node, rules) {
     const bindings = ruleBindings(node);
     while (bindings.length < rowCount(node)) bindings.push("");
+    bindings.length = rowCount(node);
     const available = new Set(rules.map(ruleId).filter(Boolean));
     for (let index = 0; index < bindings.length; index += 1) {
         if (bindings[index] && !available.has(bindings[index])) bindings[index] = "";
@@ -176,9 +249,7 @@ function ensureRuleBindings(node, rules) {
         known.add(bindings[index]);
         changed = true;
     }
-    if (changed || !Array.isArray(node?.properties?.qqIgnoreRuleBindings)) {
-        saveRuleBindings(node, bindings);
-    }
+    if (changed || !Array.isArray(node?.properties?.[BINDINGS_PROP])) saveRuleBindings(node, bindings);
     return bindings;
 }
 
@@ -190,13 +261,14 @@ function boundRule(node, index, rules, bindings) {
 function fillDiscoveredNames(node, rules, bindings) {
     let changed = false;
     for (let index = 0; index < rowCount(node); index += 1) {
-        const widget = node.widgets?.find((entry) => entry?.name === `${NAME_PREFIX}${index + 1}`);
+        const widget = getWidget(node, `${NAME_PREFIX}${index + 1}`);
         if (!widget || String(widget.value || "").trim()) continue;
         const rule = boundRule(node, index, rules, bindings);
         if (!rule) continue;
         widget.value = discoveredRuleName(rule, index);
         changed = true;
     }
+    if (changed) saveRows(node);
     return changed;
 }
 
@@ -228,65 +300,70 @@ function syncController(node) {
 }
 
 function refresh(node) {
-    if (!node || app?.configuringGraph) return;
-    trimRows(node, targetRowCount(node));
+    if (!node || app?.configuringGraph || app?.loading_graph) return;
+    const desired = targetRowCount(node);
+    if (desired !== rowCount(node)) ensureRows(node, desired);
     syncController(node);
-    // Names may be auto-discovered during sync; keep one empty row ready for
-    // the next rule without growing the node on every canvas redraw.
-    trimRows(node, targetRowCount(node));
-    const computed = node.computeSize?.();
-    if (computed) {
-        node.setSize?.([Math.max(280, computed[0]), Math.max(110, computed[1])]);
-    }
+    setControllerSize(node);
     node.setDirtyCanvas?.(true, true);
 }
 
 function install(nodeType) {
     const prototype = nodeType?.prototype;
     if (!prototype || prototype.__qqIgnoreRulesControllerInstalled) return;
+
     const originalCreated = prototype.onNodeCreated;
     prototype.onNodeCreated = function onQQIgnoreRulesControllerCreated() {
         const result = originalCreated?.apply(this, arguments);
         this.title = TEXT.title;
         this.serialize_widgets = true;
         this.properties ||= {};
-        ensureRows(this, MIN_ROWS);
-        this.setSize?.([280, 42 + MIN_ROWS * 34]);
+        rebuildRows(this, [], MIN_ROWS);
         return result;
     };
+
     const originalConfigure = prototype.onConfigure;
     prototype.onConfigure = function onQQIgnoreRulesControllerConfigured(info) {
         const result = originalConfigure?.apply(this, arguments);
-        const savedCount = Number(info?.properties?.qqIgnoreRuleRowCount);
-        const widgetCount = Array.isArray(info?.widgets_values)
-            ? Math.ceil(info.widgets_values.length / 2)
-            : 0;
-        ensureRows(this, Math.max(MIN_ROWS, Number.isFinite(savedCount) ? savedCount : 0, widgetCount, rowCount(this)));
+        this.title = TEXT.title;
+        this.serialize_widgets = true;
+        this.properties ||= {};
+        const rows = normalizeSavedRows(this, info);
+        const savedCount = Number(info?.properties?.[COUNT_PROP]);
+        const count = clampRows(Math.max(rows.length, Number.isFinite(savedCount) ? savedCount : 0, MIN_ROWS));
+        rebuildRows(this, rows, count);
         return result;
     };
+
     const originalAfter = prototype.onAfterGraphConfigured;
     prototype.onAfterGraphConfigured = function onQQIgnoreRulesControllerAfterConfigured() {
         const result = originalAfter?.apply(this, arguments);
         refresh(this);
         return result;
     };
+
     const originalDraw = prototype.onDrawForeground;
     prototype.onDrawForeground = function onQQIgnoreRulesControllerDrawForeground() {
         const result = originalDraw?.apply(this, arguments);
+        // 绘制阶段只同步已有控件；结构变化通过 refresh 的行数检查处理，
+        // 不再按时间反复删除/添加 widget。
         if (!this._qqIgnoreRulesLastRefresh || Date.now() - this._qqIgnoreRulesLastRefresh > 400) {
             this._qqIgnoreRulesLastRefresh = Date.now();
             refresh(this);
         }
         return result;
     };
+
     const originalWidgetChanged = prototype.onWidgetChanged;
     prototype.onWidgetChanged = function onQQIgnoreRulesControllerWidgetChanged(name, value) {
         const result = originalWidgetChanged?.apply(this, arguments);
         if (String(name || "").startsWith(NAME_PREFIX) || String(name || "").startsWith(ENABLE_PREFIX)) {
-            refresh(this);
+            saveRows(this);
+            syncController(this);
         }
         return result;
     };
+
     prototype.__qqIgnoreRulesControllerInstalled = true;
 }
 
@@ -296,4 +373,3 @@ app.registerExtension({
         if (nodeData?.name === NODE_TYPE) install(nodeType);
     },
 });
-
