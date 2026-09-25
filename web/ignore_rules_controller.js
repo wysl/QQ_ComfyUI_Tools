@@ -14,7 +14,7 @@ const BINDINGS_PROP = "qqIgnoreRuleBindings";
 const COUNT_PROP = "qqIgnoreRuleRowCount";
 const TEXT = {
     title: "QQ-绕过规则开关",
-    name: "规则名称",
+    name: "规则",
     unnamed: "绕过规则",
 };
 
@@ -116,7 +116,8 @@ function ruleBindings(node) {
 }
 
 function nodeSize(node, count = rowCount(node)) {
-    const width = Math.max(NODE_WIDTH, Number(node?.size?.[0]) || NODE_WIDTH);
+    const currentWidth = Number(node?.size?.[0]);
+    const width = Number.isFinite(currentWidth) && currentWidth > 0 ? currentWidth : NODE_WIDTH;
     return [width, NODE_TOP_HEIGHT + count * ROW_HEIGHT];
 }
 
@@ -133,9 +134,9 @@ function makeNameWidget(node, index, value = "") {
             saveRows(node);
             syncController(node);
         },
-        { serialize: true, multiline: false, placeholder: `${TEXT.name} ${index}` },
+        { serialize: true, multiline: false, placeholder: `${TEXT.name}${index}` },
     );
-    widget.label = `${TEXT.name} ${index}`;
+    widget.label = `${TEXT.name}${index}`;
     widget.__qqIgnoreRuleRow = true;
     return widget;
 }

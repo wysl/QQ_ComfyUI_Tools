@@ -55,6 +55,7 @@ const savedInfo = {
 restored.properties = structuredClone(savedInfo.properties);
 restored.onConfigure(savedInfo);
 check("saved row count restores all four rows", restored.widgets.length === 8);
+check("rule labels use compact numbering", restored.widgets[0].label === "规则1");
 check("custom saved rows take precedence over legacy widget values", restored.widgets[0].value === "A");
 check("second saved row remains in position", restored.widgets[2].value === "B");
 check("third row does not shift into first slot", restored.widgets[4].value === "C");
@@ -68,10 +69,12 @@ const rule = (id, title) => ({
   widgets: [{ name: "启用", value: false }, { name: "节点", value: title }, { name: "组", value: "" }],
 });
 restored.graph = { _nodes: [rule("11", "A"), rule("12", "B"), rule("13", "C")] };
+restored.size[0] = 160;
 restored.onAfterGraphConfigured();
 const rowNames = restored.widgets.filter((widget) => widget.name.startsWith("规则名称_"));
 check("refresh keeps only rules that still exist", rowNames.map((widget) => widget.value).join(",") === "A,B,C");
 check("refresh removes nonexistent fourth row", restored.size[1] === 144);
+check("refresh preserves manually narrowed width", restored.size[0] === 160);
 
 const empty = new NodeType();
 empty.onNodeCreated();
