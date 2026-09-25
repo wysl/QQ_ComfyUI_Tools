@@ -70,11 +70,13 @@ const rule = (id, title) => ({
 });
 restored.graph = { _nodes: [rule("11", "A"), rule("12", "B"), rule("13", "C")] };
 restored.size[0] = 160;
+restored.size[1] = 260;
 restored.onAfterGraphConfigured();
 const rowNames = restored.widgets.filter((widget) => widget.name.startsWith("规则名称_"));
 check("refresh keeps only rules that still exist", rowNames.map((widget) => widget.value).join(",") === "A,B,C");
-check("refresh removes nonexistent fourth row", restored.size[1] === 144);
+check("refresh removes nonexistent fourth row", restored.widgets.length === 6);
 check("refresh preserves manually narrowed width", restored.size[0] === 160);
+check("refresh preserves manually enlarged height", restored.size[1] === 260);
 
 const empty = new NodeType();
 empty.onNodeCreated();

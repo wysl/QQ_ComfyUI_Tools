@@ -115,14 +115,19 @@ function ruleBindings(node) {
     return raw.map((value) => (value === undefined || value === null ? "" : String(value)));
 }
 
-function nodeSize(node, count = rowCount(node)) {
+function nodeSize(node, count = rowCount(node), forceHeight = false) {
     const currentWidth = Number(node?.size?.[0]);
     const width = Number.isFinite(currentWidth) && currentWidth > 0 ? currentWidth : NODE_WIDTH;
-    return [width, NODE_TOP_HEIGHT + count * ROW_HEIGHT];
+    const requiredHeight = NODE_TOP_HEIGHT + count * ROW_HEIGHT;
+    const currentHeight = Number(node?.size?.[1]);
+    const height = forceHeight || !Number.isFinite(currentHeight) || currentHeight <= 0
+        ? requiredHeight
+        : Math.max(currentHeight, requiredHeight);
+    return [width, height];
 }
 
-function setControllerSize(node) {
-    node.setSize?.(nodeSize(node));
+function setControllerSize(node, forceHeight = false) {
+    node.setSize?.(nodeSize(node, rowCount(node), forceHeight));
 }
 
 function makeNameWidget(node, index, value = "") {
@@ -196,7 +201,7 @@ function normalizeSavedRows(node, info) {
     }));
 }
 
-function rebuildRows(node, records, count = records.length) {
+function rebuildRows(node, records, count = records.length, forceHeight = false) {
     const wanted = clampRows(count);
     const rows = Array.from({ length: wanted }, (_, index) => records[index] || ({ name: "", enabled: false }));
     removeRowWidgets(node);
@@ -208,7 +213,7 @@ function rebuildRows(node, records, count = records.length) {
     node.properties ||= {};
     node.properties[COUNT_PROP] = wanted;
     saveRows(node);
-    setControllerSize(node);
+    setControllerSize(node, forceHeight);
 }
 
 function ensureRows(node, count) {
@@ -340,7 +345,7 @@ function install(nodeType) {
         this.title = TEXT.title;
         this.serialize_widgets = true;
         this.properties ||= {};
-        rebuildRows(this, [], MIN_ROWS);
+        rebuildRows(this, [], MIN_ROWS, true);
         return result;
     };
 
