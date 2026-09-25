@@ -102,17 +102,19 @@ class LightroomGrainTests(unittest.TestCase):
         self.assertEqual(cls.FUNCTION, "apply_grain")
         inputs = cls.INPUT_TYPES()["required"]
         self.assertEqual(inputs["image"][0], "IMAGE")
-        for name, default in (("amount", 20.0), ("size", 0.0), ("roughness", 0.0)):
+        for name, default in (("amount", 0.0), ("size", 25.0), ("roughness", 50.0)):
             self.assertEqual(inputs[name][1]["default"], default,
                              msg=f"{name} default != Lightroom")
             self.assertEqual(inputs[name][1]["min"], 0.0)
             self.assertEqual(inputs[name][1]["max"], 100.0)
+        self.assertEqual(inputs["seed"][0], "INT")
+        self.assertEqual(inputs["seed"][1]["default"], 0)
 
     def test_node_apply_grain_returns_tuple_of_image(self):
         cls = self.lr.QQLightroomGrain
         # ComfyUI IMAGE: [B, H, W, C]，默认三通道
         image = torch.full((1, 8, 8, 3), 0.5, dtype=torch.float32)
-        out = cls.apply_grain(image, amount=50.0, size=25.0, roughness=100.0)
+        out = cls.apply_grain(image, amount=50.0, size=25.0, roughness=100.0, seed=12)
         self.assertIsInstance(out, tuple)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0].shape, image.shape)
@@ -125,6 +127,15 @@ class LightroomGrainTests(unittest.TestCase):
         self.assertEqual(out.shape[-1], 4)
         # alpha 通道应保持不变（_apply_grain 只对 RGB 加噪）
         self.assertTrue(torch.allclose(out[..., 3], image[..., 3]))
+
+    def test_seed_makes_grain_reproducible(self):
+        cls = self.lr.QQLightroomGrain
+        image = torch.full((1, 16, 16, 3), 0.5)
+        first = cls.apply_grain(image, 60.0, 25.0, 50.0, seed=123)[0]
+        second = cls.apply_grain(image, 60.0, 25.0, 50.0, seed=123)[0]
+        other = cls.apply_grain(image, 60.0, 25.0, 50.0, seed=124)[0]
+        self.assertTrue(torch.equal(first, second))
+        self.assertFalse(torch.equal(first, other))
 
     def test_node_rejects_wrong_input_shape(self):
         cls = self.lr.QQLightroomGrain

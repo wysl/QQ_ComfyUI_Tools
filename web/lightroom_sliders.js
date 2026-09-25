@@ -6,6 +6,7 @@ const NODE_TYPES = new Set([
     "QQLightroomDetail",
     "QQLightroomHSLWarm",
     "QQLightroomHSLCool",
+    "QQLightroomGrain",
 ]);
 
 const HSL_ZONES = [
@@ -17,6 +18,7 @@ const LABELS = {
     temperature: "色温", tint: "色调", exposure: "曝光度", contrast: "对比度",
     highlights: "高光", shadows: "阴影", whites: "白色色阶", blacks: "黑色色阶",
     texture: "纹理", clarity: "清晰度", dehaze: "去朦胧", vibrance: "鲜艳度", saturation: "饱和度",
+    amount: "数量", size: "大小", roughness: "粗糙度", seed: "随机种子",
     red: "红色", orange: "橙色", yellow: "黄色", green: "绿色",
     aqua: "青色", blue: "蓝色", purple: "紫色", magenta: "洋红",
 };
@@ -200,6 +202,11 @@ function drawLightroomWidget(context, node, width, y, height, lowQuality) {
 function styleWidgets(node) {
     for (const widget of node?.widgets || []) {
         if (!widget?.name || widget?.options?.min == null || widget?.options?.max == null) continue;
+        // Seed is a reproducibility control, not a Lightroom adjustment.
+        if (widget.name === "seed") {
+            widget.label = controlLabel(widget.name);
+            continue;
+        }
         widget.draw = drawLightroomWidget;
         widget.label = controlLabel(widget.name);
     }
