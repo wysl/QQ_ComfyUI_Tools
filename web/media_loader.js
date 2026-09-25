@@ -255,7 +255,7 @@ function keepHoverPreviewOpen(node, preview) {
     if (node?.__wyslMediaLoaderHoverPreview === preview) cancelHoverPreviewClose(node);
 }
 
-function positionHoverPreview(preview, anchor) {
+function positionHoverPreview(preview, anchor, forceAbove = false) {
     if (!preview?.isConnected || !anchor?.isConnected) return;
     const rect = anchor.getBoundingClientRect();
     const width = preview.offsetWidth || HOVER_PREVIEW_SIZE;
@@ -264,7 +264,7 @@ function positionHoverPreview(preview, anchor) {
     let left = rect.left + rect.width / 2;
     let top = rect.top - margin;
     let placement = "above";
-    if (top - height < margin) {
+    if (!forceAbove && top - height < margin) {
         if (window.innerHeight - rect.bottom - margin >= height || rect.bottom <= window.innerHeight / 2) {
             top = rect.bottom + margin;
             placement = "below";
@@ -391,7 +391,7 @@ function attachModalImageHoverPreview(node, anchor, path) {
                 );
                 preview.style.width = `${dimensions.width}px`;
                 preview.style.height = `${dimensions.height}px`;
-                positionHoverPreview(preview, anchor);
+                positionHoverPreview(preview, anchor, true);
             };
             image.addEventListener("load", resize, { once: true });
             image.addEventListener("error", () => {
@@ -408,9 +408,11 @@ function attachModalImageHoverPreview(node, anchor, path) {
             preview.style.height = `${dimensions.height}px`;
             preview.addEventListener("pointerdown", (event) => event.stopPropagation());
             preview.addEventListener("click", (event) => event.stopPropagation());
+            preview.addEventListener("pointerenter", () => keepHoverPreviewOpen(node, preview));
+            preview.addEventListener("pointerleave", () => scheduleHoverPreviewClose(node, preview));
             document.body.append(preview);
             node.__wyslMediaLoaderHoverPreview = preview;
-            positionHoverPreview(preview, anchor);
+            positionHoverPreview(preview, anchor, true);
             requestAnimationFrame(() => preview.classList.add("is-visible"));
         }, MODAL_HOVER_PREVIEW_DELAY);
     };
@@ -418,7 +420,14 @@ function attachModalImageHoverPreview(node, anchor, path) {
     // the timer, and only a stationary pointer for 100ms opens the preview.
     anchor.addEventListener("mouseenter", schedule);
     anchor.addEventListener("mousemove", schedule);
-    anchor.addEventListener("mouseleave", () => closeHoverPreview(node));
+    anchor.addEventListener("mouseleave", () => {
+        const preview = node.__wyslMediaLoaderHoverPreview;
+        if (preview?.__wyslMediaLoaderHoverAnchor === anchor) {
+            scheduleHoverPreviewClose(node, preview);
+        } else {
+            closeHoverPreview(node);
+        }
+    });
 }
 
 function formatBytes(value) {

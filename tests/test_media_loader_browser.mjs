@@ -16,6 +16,8 @@ const previewSizing = source.slice(source.indexOf('function hoverPreviewDimensio
 const { hoverPreviewDimensions } = new Function(`${previewSizing}\nreturn { hoverPreviewDimensions }`)()
 const modalPreviewSizing = source.slice(source.indexOf('function modalHoverPreviewDimensions('), source.indexOf('function attachModalImageHoverPreview('))
 const { modalHoverPreviewDimensions } = new Function('MODAL_HOVER_PREVIEW_MAX_EDGE', `${modalPreviewSizing}\nreturn { modalHoverPreviewDimensions }`)(336)
+const positioning = source.slice(source.indexOf('function positionHoverPreview('), source.indexOf('function hoverPreviewDimensions('))
+const { positionHoverPreview } = new Function('window', `${positioning}\nreturn { positionHoverPreview }`)({ innerWidth: 800, innerHeight: 800 })
 const modalSizing = source.slice(source.indexOf('function modalThumbnailSize('), source.indexOf('function updateModalThumbnails('))
 const { modalThumbnailSize } = new Function('THUMB_TILE', 'window', `${modalSizing}\nreturn { modalThumbnailSize }`)(128, { devicePixelRatio: 1.5 })
 const layoutHelper = source.slice(source.indexOf('function setModalLayout('), source.indexOf('function selectedCount('))
@@ -62,6 +64,19 @@ assert.deepEqual(hoverPreviewDimensions(56, 40, 1200, 900), { width: 168, height
 assert.deepEqual(hoverPreviewDimensions(56, 56, 160, 120), { width: 144, height: 104 })
 assert.deepEqual(modalHoverPreviewDimensions(1000, 500, 1200, 900), { width: 336, height: 168 })
 assert.deepEqual(modalHoverPreviewDimensions(500, 1000, 1200, 900), { width: 168, height: 336 })
+const positionPreview = { isConnected: true, offsetWidth: 336, offsetHeight: 336, dataset: {}, style: {} }
+const positionAnchor = {
+    isConnected: true,
+    getBoundingClientRect: () => ({ left: 400, top: 160, right: 500, bottom: 260, width: 100, height: 100 }),
+}
+positionHoverPreview(positionPreview, positionAnchor, true)
+assert.equal(positionPreview.dataset.placement, 'above')
+assert.equal(positionPreview.style.top, '344px')
+positionPreview.dataset = {}
+positionPreview.style = {}
+positionHoverPreview(positionPreview, positionAnchor)
+assert.equal(positionPreview.dataset.placement, 'below')
+assert.equal(positionPreview.style.top, '268px')
 assert.equal(modalThumbnailSize({ clientWidth: 860 }, '3'), 384)
 assert.equal(modalThumbnailSize({ clientWidth: 860 }, '4'), 256)
 assert.equal(modalThumbnailSize({ clientWidth: 860 }, '5'), 256)
@@ -89,6 +104,11 @@ const fileRow = source.slice(source.indexOf('function createFileRow('), source.i
 assert.match(fileRow, /attachModalImageHoverPreview\(node, thumb, reference\)/)
 assert.match(source, /const MODAL_HOVER_PREVIEW_DELAY = 150/)
 assert.match(source, /const MODAL_HOVER_PREVIEW_MAX_EDGE = 336/)
+assert.match(source, /function positionHoverPreview\(preview, anchor, forceAbove = false\)/)
+assert.match(source, /if \(!forceAbove && top - height < margin\)/)
+assert.match(source, /positionHoverPreview\(preview, anchor, true\)/)
+assert.match(source, /preview\.addEventListener\("pointerenter", \(\) => keepHoverPreviewOpen\(node, preview\)\)/)
+assert.match(source, /preview\.addEventListener\("pointerleave", \(\) => scheduleHoverPreviewClose\(node, preview\)\)/)
 assert.doesNotMatch(source, /document\.addEventListener\("pointermove", cancelOnMove, true\)/)
 assert.match(source, /anchor\.addEventListener\("mousemove", schedule\)/)
 assert.match(source, /function openModal\(node\)\s*\{\s*registerModalCleanup\(\);\s*closeHoverPreview\(node\);/)
