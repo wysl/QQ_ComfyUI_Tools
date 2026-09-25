@@ -12,6 +12,16 @@ const TEXT = {
     category: "QQ/工具",
 };
 
+// Frontend-only nodes are not present in the backend object_info mapping.
+// Keep the display metadata on the registered class so the node search index
+// does not fall back to the internal type id (QQMultiPrimitive).
+const NODE_METADATA = {
+    name: NODE_TYPE,
+    display_name: TEXT.title,
+    category: TEXT.category,
+    description: "将多个控件值集中输出，并根据连接目标自动匹配类型。",
+};
+
 function isInputSpec(value) {
     return Array.isArray(value)
         && value.length > 0
@@ -299,7 +309,12 @@ app.registerExtension({
 
         LiteGraph.registerNodeType(
             NODE_TYPE,
-            Object.assign(MultiPrimitiveNode, { title: TEXT.title }),
+            Object.assign(MultiPrimitiveNode, {
+                title: TEXT.title,
+                display_name: TEXT.title,
+                comfyClass: NODE_TYPE,
+                nodeData: NODE_METADATA,
+            }),
         );
         MultiPrimitiveNode.category = TEXT.category;
     },

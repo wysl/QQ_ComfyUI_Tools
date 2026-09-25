@@ -401,6 +401,8 @@ class RegistrationTests(unittest.TestCase):
         )
         self.assertIn('const NODE_TYPE = "QQMultiPrimitive";', source)
         self.assertIn('title: "QQ-多值输入"', source)
+        self.assertIn('display_name: TEXT.title', source)
+        self.assertIn('nodeData: NODE_METADATA', source)
         self.assertIn('function liveComboValues(widget)', source)
         self.assertIn('name: "QQ.MultiPrimitive"', source)
         self.assertIn('category: "QQ/工具"', source)
