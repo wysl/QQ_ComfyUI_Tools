@@ -412,7 +412,9 @@ class RegistrationTests(unittest.TestCase):
         preview = self.package.NODE_CLASS_MAPPINGS["QQPreviewNoBlackBorder"]
         self.assertEqual(preview.RETURN_TYPES, ("IMAGE",))
         controls = preview.INPUT_TYPES()["required"]
-        self.assertEqual(controls["保存格式"][0], ["png", "jpg", "webp"])
+        self.assertNotIn("保存格式", controls)
+        self.assertNotIn("filename_prefix", controls)
+        self.assertEqual(set(controls), {"image", "最长边"})
         self.assertEqual(controls["最长边"][1]["default"], 1024)
         self.assertEqual(controls["最长边"][1]["step"], 8)
         module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.preview")
@@ -425,6 +427,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('const NODE_TYPE = "QQPreviewNoBlackBorder";', source)
         self.assertIn("ctx.drawImage(image, x, y, drawWidth, drawHeight);", source)
         self.assertNotIn("originalDraw?.apply(this, arguments);\n    }\n};", source)
+        self.assertIn('"type": "temp"', (Path(__file__).resolve().parents[1] / "node_modules" / "preview.py").read_text(encoding="utf-8"))
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
