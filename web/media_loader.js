@@ -1023,6 +1023,7 @@ function refreshModal(node, modal) {
     const body = modal.querySelector(".wysl-media-modal-body");
     const path = modal.querySelector(".wysl-media-modal-path");
     const selectAll = modal.querySelector(".wysl-media-modal-select-all");
+    const clearSelected = modal.querySelector(".wysl-media-modal-clear-selection");
     const up = modal.querySelector(".wysl-media-modal-up");
     const searchInput = modal.querySelector(".wysl-media-modal-search-input");
     if (!body || !path) return;
@@ -1046,7 +1047,9 @@ function refreshModal(node, modal) {
     const files = searching
         ? (data.files || []).filter((item) => item.name.toLocaleLowerCase().includes(node.__wyslMediaLoaderSearch))
         : (data.files || []);
-    if (selectAll) selectAll.disabled = node.__wyslMediaLoaderFolderLoading || Boolean(data.error) || !files.length;
+    const folderUnavailable = node.__wyslMediaLoaderFolderLoading || Boolean(data.error) || !(data.files || []).length;
+    if (selectAll) selectAll.disabled = folderUnavailable;
+    if (clearSelected) clearSelected.disabled = folderUnavailable;
     if (node.__wyslMediaLoaderFolderLoading) {
         body.append(modalMessage("正在读取当前目录…"));
         return;
@@ -1131,6 +1134,28 @@ function selectCurrentFolder(node) {
         const group = GROUPS.find((entry) => entry.type === item.type);
         const reference = mediaReference(data.source || "input", item.path);
         if (group && !state[group.key].includes(reference)) state[group.key].push(reference);
+    }
+    writeState(node, state);
+    render(node);
+    syncModalChecks(node);
+}
+
+function clearCurrentFolder(node) {
+    if (node.__wyslMediaLoaderFolderLoading) return;
+    const data = node.__wyslMediaLoaderFolderData || {};
+    if (data.error) return;
+
+    const referencesByType = new Map();
+    for (const item of data.files || []) {
+        if (!referencesByType.has(item.type)) referencesByType.set(item.type, new Set());
+        referencesByType.get(item.type).add(mediaReference(data.source || "input", item.path));
+    }
+
+    const state = readState(node);
+    for (const group of GROUPS) {
+        const references = referencesByType.get(group.type);
+        if (!references?.size) continue;
+        state[group.key] = state[group.key].filter((reference) => !references.has(reference));
     }
     writeState(node, state);
     render(node);
@@ -1293,7 +1318,8 @@ function openModal(node) {
     const outputRoot = makeButton("output 根目录", "wysl-media-modal-root", () => loadFolder(node, "", "output"));
     const inputRoot = makeButton("input 根目录", "wysl-media-modal-root", () => loadFolder(node, "", "input"));
     const selectAll = makeButton("当前目录全选", "wysl-media-modal-select-all", () => selectCurrentFolder(node));
-    controls.append(path, outputRoot, inputRoot, up, choose, selectAll);
+    const clearSelected = makeButton("取消所选", "wysl-media-modal-clear-selection", () => clearCurrentFolder(node));
+    controls.append(path, outputRoot, inputRoot, up, choose, selectAll, clearSelected);
 
     const options = document.createElement("div");
     options.className = "wysl-media-modal-options";
