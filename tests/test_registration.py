@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 24)
+        self.assertEqual(len(mappings), 25)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -72,6 +72,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("QQ-多值输入", mappings)
         self.assertNotIn("QQMultiPrimitive", mappings)
         self.assertIn("QQIgnoreRulesController", mappings)
+        self.assertIn("QQPreviewNoBlackBorder", mappings)
 
     def test_display_names_match_requested_names(self):
         display = self.package.NODE_DISPLAY_NAME_MAPPINGS
@@ -406,6 +407,24 @@ class RegistrationTests(unittest.TestCase):
         self.assertNotIn("widget.computeSize =", source)
         self.assertNotIn("MIN_PREVIEW_WIDTH", source)
         self.assertNotIn("MIN_PREVIEW_HEIGHT", source)
+
+    def test_preview_no_black_border_contract(self):
+        preview = self.package.NODE_CLASS_MAPPINGS["QQPreviewNoBlackBorder"]
+        self.assertEqual(preview.RETURN_TYPES, ("IMAGE",))
+        controls = preview.INPUT_TYPES()["required"]
+        self.assertEqual(controls["保存格式"][0], ["png", "jpg", "webp"])
+        self.assertEqual(controls["最长边"][1]["default"], 1024)
+        self.assertEqual(controls["最长边"][1]["step"], 8)
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.preview")
+        self.assertEqual(module._preview_target_size(1920, 1080, 1024), (1024, 576))
+        self.assertEqual(module._preview_target_size(1080, 1920, 1024), (576, 1024))
+        self.assertEqual(module._preview_target_size(640, 480, 0), (640, 480))
+        source = (Path(__file__).resolve().parents[1] / "web" / "preview_no_black_border.js").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn('const NODE_TYPE = "QQPreviewNoBlackBorder";', source)
+        self.assertIn("ctx.drawImage(image, x, y, drawWidth, drawHeight);", source)
+        self.assertNotIn("originalDraw?.apply(this, arguments);\n    }\n};", source)
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]

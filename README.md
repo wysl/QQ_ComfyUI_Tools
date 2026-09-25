@@ -47,6 +47,13 @@
 - `QQ/图像生成`
   - `QQ-Grok图像生成`
 
+- `QQ/图像`
+  - `QQ-无黑边快速预览`
+
+`QQ-无黑边快速预览` 接收 `IMAGE`，按“最长边”保持原比例缩放后保存为 PNG、JPG 或 WebP，
+并输出同尺寸的 `IMAGE`。尺寸缩放时内部按 8 像素网格对齐（该对齐参数不显示在节点中），
+不会填充黑边或裁切画面；最长边设为 `0` 时保留原尺寸。
+
 `QQ-Grok图像生成` 使用 OpenAI-compatible 的 Grok2API 图片接口，默认模型为
 `grok-imagine-image-2.0`。它支持文生图，也支持将 ComfyUI `IMAGE` 批次作为参考图发送到
 `/v1/images/edits`，输出标准的 `IMAGE` 批次。节点只显示配置中的 `name`，不会在工作流中保存
