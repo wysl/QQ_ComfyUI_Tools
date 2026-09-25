@@ -64,13 +64,14 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 23)
+        self.assertEqual(len(mappings), 24)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
         self.assertNotIn("QQLightroomVideo", mappings)
         self.assertIn("QQ-多值输入", mappings)
         self.assertNotIn("QQMultiPrimitive", mappings)
+        self.assertIn("QQIgnoreRulesController", mappings)
 
     def test_display_names_match_requested_names(self):
         display = self.package.NODE_DISPLAY_NAME_MAPPINGS
@@ -92,6 +93,21 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(display["QQPollingSwitch"], "QQ-图像轮询切换")
         self.assertEqual(display["QQ-多值输入"], "QQ-多值输入")
         self.assertEqual(display["QQIgnoreRules"], "QQ-绕过规则")
+        self.assertEqual(display["QQIgnoreRulesController"], "QQ-绕过规则开关")
+
+    def test_ignore_rules_controller_is_frontend_only_and_keeps_stable_bindings(self):
+        controller = self.package.NODE_CLASS_MAPPINGS["QQIgnoreRulesController"]
+        self.assertEqual(controller.RETURN_TYPES, ())
+        self.assertEqual(controller.INPUT_TYPES(), {"optional": {}})
+        source = (Path(__file__).resolve().parents[1] / "web" / "ignore_rules_controller.js").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn('const NODE_TYPE = "QQIgnoreRulesController";', source)
+        self.assertIn('const RULE_NODE_TYPE = "QQIgnoreRules";', source)
+        self.assertIn("qqIgnoreRuleBindings", source)
+        self.assertIn("function ensureRuleBindings(node, rules)", source)
+        self.assertIn("function boundRule(node, index, rules, bindings)", source)
+        self.assertIn("不建立执行连线", controller.DESCRIPTION)
 
     def test_grok_image_node_has_profile_only_endpoint_selector(self):
         node = self.package.NODE_CLASS_MAPPINGS["QQGrokImagineImage"]
