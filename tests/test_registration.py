@@ -64,11 +64,13 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 22)
+        self.assertEqual(len(mappings), 23)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
         self.assertNotIn("QQLightroomVideo", mappings)
+        self.assertIn("QQ-多值输入", mappings)
+        self.assertNotIn("QQMultiPrimitive", mappings)
 
     def test_display_names_match_requested_names(self):
         display = self.package.NODE_DISPLAY_NAME_MAPPINGS
@@ -88,6 +90,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(display["QQLightroomGrain"], "QQ-LR-颗粒效果")
         self.assertEqual(display["QQLatentSwitch"], "QQ-潜空间切换")
         self.assertEqual(display["QQPollingSwitch"], "QQ-图像轮询切换")
+        self.assertEqual(display["QQ-多值输入"], "QQ-多值输入")
         self.assertEqual(display["QQIgnoreRules"], "QQ-绕过规则")
 
     def test_grok_image_node_has_profile_only_endpoint_selector(self):
@@ -399,10 +402,13 @@ class RegistrationTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "web" / "multi_primitive.js").read_text(
             encoding="utf-8",
         )
-        self.assertIn('const NODE_TYPE = "QQMultiPrimitive";', source)
+        self.assertIn('const NODE_TYPE = "QQ-多值输入";', source)
+        self.assertIn('const LEGACY_NODE_TYPE = "QQMultiPrimitive";', source)
         self.assertIn('title: "QQ-多值输入"', source)
-        self.assertIn('display_name: TEXT.title', source)
-        self.assertIn('nodeData: NODE_METADATA', source)
+        self.assertIn('beforeRegisterNodeDef(nodeType, nodeData)', source)
+        self.assertIn('installVirtualNode(existingNodeType)', source)
+        self.assertIn('multiPrimitiveSourcePrototype = MultiPrimitiveNode.prototype;', source)
+        self.assertIn('skip_list: true', source)
         self.assertIn('function liveComboValues(widget)', source)
         self.assertIn('name: "QQ.MultiPrimitive"', source)
         self.assertIn('category: "QQ/工具"', source)

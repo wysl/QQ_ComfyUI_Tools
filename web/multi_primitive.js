@@ -1,7 +1,8 @@
 import { app } from "../../../scripts/app.js";
 import { ComfyWidgets } from "../../../scripts/widgets.js";
 
-const NODE_TYPE = "QQMultiPrimitive";
+const NODE_TYPE = "QQ-多值输入";
+const LEGACY_NODE_TYPE = "QQMultiPrimitive";
 const MIN_OUTPUTS = 2;
 const ZH_BROWSER = /^(zh)(?:[-_]|$)/i.test(
     String(globalThis.navigator?.language || globalThis.navigator?.languages?.[0] || ""),
@@ -12,15 +13,15 @@ const TEXT = {
     category: "QQ/工具",
 };
 
-// Frontend-only nodes are not present in the backend object_info mapping.
-// Keep the display metadata on the registered class so the node search index
-// does not fall back to the internal type id (QQMultiPrimitive).
 const NODE_METADATA = {
     name: NODE_TYPE,
     display_name: TEXT.title,
     category: TEXT.category,
     description: "将多个控件值集中输出，并根据连接目标自动匹配类型。",
 };
+
+let multiPrimitiveSourcePrototype = null;
+const pendingNodeTypes = new Set();
 
 function isInputSpec(value) {
     return Array.isArray(value)
@@ -129,11 +130,62 @@ function chainWidgetCallback(node, slot, widget) {
     };
 }
 
+function installVirtualNode(nodeType) {
+    const prototype = nodeType?.prototype;
+    if (!prototype || prototype.__qqMultiPrimitiveInstalled) return;
+    if (!multiPrimitiveSourcePrototype) {
+        pendingNodeTypes.add(nodeType);
+        return;
+    }
+
+    for (const name of Object.getOwnPropertyNames(multiPrimitiveSourcePrototype)) {
+        if (name === "constructor") continue;
+        Object.defineProperty(
+            prototype,
+            name,
+            Object.getOwnPropertyDescriptor(multiPrimitiveSourcePrototype, name),
+        );
+    }
+
+    const originalCreated = prototype.onNodeCreated;
+    prototype.onNodeCreated = function onQQMultiPrimitiveCreated() {
+        const result = originalCreated?.apply(this, arguments);
+        this.title = TEXT.title;
+        this.serialize_widgets = true;
+        this.isVirtualNode = true;
+        this.properties ||= {};
+        this.ensureMinimumOutputs();
+        return result;
+    };
+    prototype.__qqMultiPrimitiveInstalled = true;
+    nodeType.title = TEXT.title;
+    nodeType.display_name = TEXT.title;
+    nodeType.comfyClass = NODE_TYPE;
+    nodeType.category = TEXT.category;
+}
+
+function registerLegacyNodeType(LiteGraph, BaseClass) {
+    if (LiteGraph.registered_node_types?.[LEGACY_NODE_TYPE]) return;
+    class LegacyMultiPrimitiveNode extends BaseClass {}
+    LiteGraph.registerNodeType(
+        LEGACY_NODE_TYPE,
+        Object.assign(LegacyMultiPrimitiveNode, {
+            title: TEXT.title,
+            skip_list: true,
+            comfyClass: NODE_TYPE,
+        }),
+    );
+    LegacyMultiPrimitiveNode.category = TEXT.category;
+}
+
 app.registerExtension({
     name: "QQ.MultiPrimitive",
+    async beforeRegisterNodeDef(nodeType, nodeData) {
+        if (nodeData?.name === NODE_TYPE) installVirtualNode(nodeType);
+    },
     registerCustomNodes() {
         const LiteGraph = globalThis.LiteGraph;
-        if (!LiteGraph?.LGraphNode || LiteGraph.registered_node_types?.[NODE_TYPE]) return;
+        if (!LiteGraph?.LGraphNode) return;
 
         class MultiPrimitiveNode extends LiteGraph.LGraphNode {
             constructor(title) {
@@ -307,6 +359,17 @@ app.registerExtension({
             }
         }
 
+        multiPrimitiveSourcePrototype = MultiPrimitiveNode.prototype;
+        for (const pendingNodeType of pendingNodeTypes) installVirtualNode(pendingNodeType);
+        pendingNodeTypes.clear();
+
+        const existingNodeType = LiteGraph.registered_node_types?.[NODE_TYPE];
+        if (existingNodeType) {
+            installVirtualNode(existingNodeType);
+            registerLegacyNodeType(LiteGraph, existingNodeType);
+            return;
+        }
+
         LiteGraph.registerNodeType(
             NODE_TYPE,
             Object.assign(MultiPrimitiveNode, {
@@ -317,6 +380,7 @@ app.registerExtension({
             }),
         );
         MultiPrimitiveNode.category = TEXT.category;
+        registerLegacyNodeType(LiteGraph, MultiPrimitiveNode);
     },
 });
 
