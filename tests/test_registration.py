@@ -711,6 +711,33 @@ class RegistrationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "请选择本地官方PE模型"):
                 node().enhance_prompt(**{**pe_base, "文生图PE模型": [module.MISSING_MODEL_PLACEHOLDER]})
 
+    def test_qwen_pe_longest_edge_scaling(self):
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
+        controls = module.QQQwenImage21PromptEnhancer.INPUT_TYPES()["required"]
+        spec = controls["最长边缩放"][1]
+        self.assertEqual(controls["最长边缩放"][0], "INT")
+        self.assertEqual(spec["default"], 1024)
+        self.assertEqual(spec["step"], 32)
+        self.assertEqual(spec["min"], 32)
+        self.assertEqual(module._round_to_multiple(1651.6), 1664)
+        self.assertEqual(module._round_to_multiple(10), 32)
+
+        class FakeImage:
+            def __init__(self, height, width):
+                self.shape = (1, height, width, 3)
+
+        small = FakeImage(64, 64)
+        # 低于阈值不执行任何操作
+        self.assertIs(module._scale_longest_edge(small, 1024), small)
+        with patch.object(module, "_resize_tensor_to", return_value="resized") as resize:
+            self.assertEqual(module._scale_longest_edge(FakeImage(2048, 2048), 1024), "resized")
+            self.assertEqual(resize.call_args.args[1:], (1664, 1664))
+            self.assertEqual(module._scale_longest_edge(FakeImage(1000, 2000), 1024), "resized")
+            self.assertEqual(resize.call_args.args[1:], (800, 1600))
+        # 阈值非法（<=0）时也不动
+        huge = FakeImage(4000, 4000)
+        self.assertIs(module._scale_longest_edge(huge, 0), huge)
+
     def test_qwen_pe_validate_inputs(self):
         module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
         node = self.package.NODE_CLASS_MAPPINGS["QQQwenImage21PromptEnhancer"]
