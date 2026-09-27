@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 26)
+        self.assertEqual(len(mappings), 27)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -450,6 +450,36 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(controls["输出语言"][0], ["中文", "英文"])
         self.assertNotIn("mmproj", " ".join(controls))
         self.assertIn("reference_images", node.INPUT_TYPES()["optional"])
+        api_node = self.package.NODE_CLASS_MAPPINGS["QQQwenImage21PromptEnhancerAPI"]
+        api_controls = api_node.INPUT_TYPES()["required"]
+        self.assertEqual(api_node.RETURN_TYPES, ("STRING",))
+        self.assertEqual(api_controls["任务模式"][0], ["自动", "文生图", "图生图"])
+        self.assertNotIn("增强方式", api_controls)
+        self.assertNotIn("文生图PE模型", api_controls)
+        self.assertNotIn("图生图PE模型", api_controls)
+        self.assertNotIn("上下文长度", api_controls)
+        self.assertIn("reference_images", api_node.INPUT_TYPES()["optional"])
+        self.assertEqual(
+            api_node.VALIDATE_INPUTS(**{"API地址": "", "API密钥": "key", "API模型名": "model"}),
+            "API 方式需要填写API地址",
+        )
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
+        with patch.object(module, "_request_api", return_value='{"rewritten_prompt":"api result"}') as request:
+            result = api_node().enhance(**{
+                "输入提示词": "两个人站在海边",
+                "任务模式": "自动",
+                "输出语言": "中文",
+                "API地址": "https://example.test/v1",
+                "API密钥": "key",
+                "API模型名": "qwen-image",
+                "最大生成token": 512,
+                "最大边长": 1024,
+                "增强方式": "本地官方PE",
+                "文生图PE模型": "should-not-be-used",
+            })
+            self.assertEqual(result, ("api result",))
+            self.assertEqual(request.call_args.args[0], "https://example.test/v1")
+            self.assertIn("两个人站在海边", request.call_args.args[4])
         module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
         self.assertIn("# Image Prompt Rewriting Expert", module.QWEN_T2I_SYSTEM_PROMPT)
         self.assertIn("# Edit Prompt Enhancer", module.QWEN_EDIT_SYSTEM_PROMPT)
