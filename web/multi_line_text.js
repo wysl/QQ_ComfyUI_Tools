@@ -1,16 +1,15 @@
 import { app } from "../../scripts/app.js";
 
 const NODE_TYPE = "QQMultiLineText";
+const TOGGLE_WIDGET = "隐藏提示词";
 const SYSTEM_WIDGET = "系统提示词";
-const TOGGLE_WIDTH = 88;
-const TOGGLE_HEIGHT = 24;
 
 function widget(node, name) {
     return (node?.widgets || []).find((item) => item?.name === name) || null;
 }
 
 function systemVisible(node) {
-    return node?.properties?.qq_system_visible !== false;
+    return widget(node, TOGGLE_WIDGET)?.value !== true;
 }
 
 function applySystemVisibility(node) {
@@ -30,45 +29,35 @@ function applySystemVisibility(node) {
     }
 }
 
-function toggleRect(node) {
-    // Sit in the spare strip above the first widget box (node-local coords).
-    const first = node.widgets?.[0];
-    const y = Math.max(30, (first?.y ?? 34) - TOGGLE_HEIGHT - 6);
-    return [8, y, TOGGLE_WIDTH, TOGGLE_HEIGHT];
-}
-
-function drawToggle(node, ctx) {
-    const [x, y, w, h] = toggleRect(node);
-    const visible = systemVisible(node);
-    ctx.save();
-    ctx.beginPath();
-    if (typeof ctx.roundRect === "function") ctx.roundRect(x, y, w, h, 4);
-    else ctx.rect(x, y, w, h);
-    ctx.fillStyle = "#3a4148";
-    ctx.fill();
-    ctx.strokeStyle = "#59616a";
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.fillStyle = "#e9edf0";
-    ctx.font = "11px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(visible ? "隐藏提示词" : "显示提示词", x + w / 2, y + h / 2 + 0.5);
-    ctx.restore();
-}
-
-function toggleSystemVisibility(node) {
-    node.properties ||= {};
-    node.properties.qq_system_visible = !systemVisible(node);
-    applySystemVisibility(node);
-    const size = node.computeSize?.();
-    if (size) node.setSize([node.size[0], Math.max(size[1], 60)]);
-    node.setDirtyCanvas?.(true, true);
+// Workflows saved by earlier iterations of this node stored widget values
+// without the leading boolean; shift them back into the current order.
+function repairWidgetOrder(node) {
+    const widgets = node.widgets || [];
+    if (widgets.length < 4) return;
+    if (typeof widgets[0]?.value === "boolean") return;
+    const [first, second, third] = widgets.map((item) => item.value);
+    widgets[0].value = false;
+    widgets[1].value = first;
+    widgets[2].value = second;
+    widgets[3].value = third;
 }
 
 function setup(node) {
     if (!node || node.__qqMultiLineTextSetup) return;
     node.__qqMultiLineTextSetup = true;
+    const toggle = widget(node, TOGGLE_WIDGET);
+    if (toggle && !toggle.__qqTogglePatched) {
+        toggle.__qqTogglePatched = true;
+        const original = toggle.callback;
+        toggle.callback = (value, ...rest) => {
+            const result = original?.apply(toggle, [value, ...rest]);
+            applySystemVisibility(node);
+            const size = node.computeSize?.();
+            if (size) node.setSize([node.size[0], Math.max(size[1], 60)]);
+            node.setDirtyCanvas?.(true, true);
+            return result;
+        };
+    }
     applySystemVisibility(node);
 }
 
@@ -91,24 +80,10 @@ app.registerExtension({
         const originalConfigured = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function onConfigureQQMultiLineText() {
             const result = originalConfigured?.apply(this, arguments);
+            repairWidgetOrder(this);
             setup(this);
             applySystemVisibility(this);
             return result;
-        };
-        const originalDraw = nodeType.prototype.onDrawForeground;
-        nodeType.prototype.onDrawForeground = function onDrawForegroundQQMultiLineText(ctx) {
-            const result = originalDraw?.apply(this, arguments);
-            drawToggle(this, ctx);
-            return result;
-        };
-        const originalMouseDown = nodeType.prototype.onMouseDown;
-        nodeType.prototype.onMouseDown = function onMouseDownQQMultiLineText(e, pos, ...rest) {
-            const [x, y, w, h] = toggleRect(this);
-            if (pos && pos[0] >= x && pos[0] <= x + w && pos[1] >= y && pos[1] <= y + h) {
-                toggleSystemVisibility(this);
-                return true;
-            }
-            return originalMouseDown ? originalMouseDown.apply(this, [e, pos, ...rest]) : false;
         };
     },
 });
