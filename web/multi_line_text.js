@@ -2,79 +2,73 @@ import { app } from "../../scripts/app.js";
 
 const NODE_TYPE = "QQMultiLineText";
 const SYSTEM_WIDGET = "系统提示词";
-const VISIBILITY_WIDGET = "显示系统提示词";
-const CSS_TEXT = `
-.qq-multi-line-text-toggle{width:100%;border:1px solid var(--border-color,rgba(255,255,255,.14));border-radius:4px;background:var(--comfy-input-bg,#343a40);color:var(--fg-color,#e9edf0);padding:4px 8px;cursor:pointer;font:inherit;font-size:11px}
-.qq-multi-line-text-toggle:hover{background:var(--comfy-menu-hover-bg,#46505a);border-color:var(--border-color,rgba(255,255,255,.26))}
-.qq-multi-line-text-toggle:focus-visible{outline:2px solid var(--p-primary-color,#4b86b4);outline-offset:1px}
-`;
-
-function installStyles() {
-    if (installStyles.installed) return;
-    installStyles.installed = true;
-    const style = document.createElement("style");
-    style.textContent = CSS_TEXT;
-    document.head.append(style);
-}
+const TOGGLE_WIDTH = 88;
+const TOGGLE_HEIGHT = 24;
 
 function widget(node, name) {
     return (node?.widgets || []).find((item) => item?.name === name) || null;
 }
 
+function systemVisible(node) {
+    return node?.properties?.qq_system_visible !== false;
+}
+
 function applySystemVisibility(node) {
     const target = widget(node, SYSTEM_WIDGET);
-    const visible = widget(node, VISIBILITY_WIDGET)?.value !== false;
-    if (target) {
-        if (visible) {
-            target.hidden = false;
-            delete target.computeSize;
-            target.options ||= {};
-            delete target.options.hidden;
-        } else {
-            target.hidden = true;
-            target.computeSize = () => [0, -4];
-            target.options ||= {};
-            target.options.hidden = true;
-        }
+    const visible = systemVisible(node);
+    if (!target) return;
+    if (visible) {
+        target.hidden = false;
+        delete target.computeSize;
+        target.options ||= {};
+        delete target.options.hidden;
+    } else {
+        target.hidden = true;
+        target.computeSize = () => [0, -4];
+        target.options ||= {};
+        target.options.hidden = true;
     }
-    const button = node.__qqMultiLineTextToggle;
-    if (button) button.textContent = visible ? "隐藏提示词" : "显示提示词";
+}
+
+function toggleRect(node) {
+    // Sit in the spare strip above the first widget box (node-local coords).
+    const first = node.widgets?.[0];
+    const y = Math.max(30, (first?.y ?? 34) - TOGGLE_HEIGHT - 6);
+    return [8, y, TOGGLE_WIDTH, TOGGLE_HEIGHT];
+}
+
+function drawToggle(node, ctx) {
+    const [x, y, w, h] = toggleRect(node);
+    const visible = systemVisible(node);
+    ctx.save();
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") ctx.roundRect(x, y, w, h, 4);
+    else ctx.rect(x, y, w, h);
+    ctx.fillStyle = "#3a4148";
+    ctx.fill();
+    ctx.strokeStyle = "#59616a";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = "#e9edf0";
+    ctx.font = "11px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(visible ? "隐藏提示词" : "显示提示词", x + w / 2, y + h / 2 + 0.5);
+    ctx.restore();
+}
+
+function toggleSystemVisibility(node) {
+    node.properties ||= {};
+    node.properties.qq_system_visible = !systemVisible(node);
+    applySystemVisibility(node);
+    const size = node.computeSize?.();
+    if (size) node.setSize([node.size[0], Math.max(size[1], 60)]);
+    node.setDirtyCanvas?.(true, true);
 }
 
 function setup(node) {
-    if (!node || node.__qqMultiLineTextSetup || typeof node.addDOMWidget !== "function") return;
+    if (!node || node.__qqMultiLineTextSetup) return;
     node.__qqMultiLineTextSetup = true;
-    installStyles();
-    const visibility = widget(node, VISIBILITY_WIDGET);
-    if (visibility) {
-        visibility.hidden = true;
-        visibility.type = "hidden";
-        visibility.computeSize = () => [0, -4];
-        visibility.options ||= {};
-        visibility.options.hidden = true;
-    }
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "qq-multi-line-text-toggle";
-    button.addEventListener("click", () => {
-        const vis = widget(node, VISIBILITY_WIDGET);
-        if (!vis) return;
-        vis.value = vis.value === false;
-        applySystemVisibility(node);
-        const size = node.computeSize?.();
-        if (size) node.setSize([node.size[0], Math.max(size[1], 60)]);
-        node.setDirtyCanvas?.(true, true);
-    });
-    // The button must stay at the end of node.widgets: reordering the widget
-    // array desyncs the frontend's widget value bindings and shifts text
-    // between boxes (system prompt into free text, everything into separator
-    // on clone).  A footer button keeps serialization order untouched.
-    const domWidget = node.addDOMWidget("qq_text_toggle", "qq_text_toggle", button, { serialize: false });
-    if (domWidget) {
-        domWidget.serialize = false;
-        domWidget.computeLayoutSize = () => ({ minHeight: 26, minWidth: 100 });
-    }
-    node.__qqMultiLineTextToggle = button;
     applySystemVisibility(node);
 }
 
@@ -100,6 +94,21 @@ app.registerExtension({
             setup(this);
             applySystemVisibility(this);
             return result;
+        };
+        const originalDraw = nodeType.prototype.onDrawForeground;
+        nodeType.prototype.onDrawForeground = function onDrawForegroundQQMultiLineText(ctx) {
+            const result = originalDraw?.apply(this, arguments);
+            drawToggle(this, ctx);
+            return result;
+        };
+        const originalMouseDown = nodeType.prototype.onMouseDown;
+        nodeType.prototype.onMouseDown = function onMouseDownQQMultiLineText(e, pos, ...rest) {
+            const [x, y, w, h] = toggleRect(this);
+            if (pos && pos[0] >= x && pos[0] <= x + w && pos[1] >= y && pos[1] <= y + h) {
+                toggleSystemVisibility(this);
+                return true;
+            }
+            return originalMouseDown ? originalMouseDown.apply(this, [e, pos, ...rest]) : false;
         };
     },
 });

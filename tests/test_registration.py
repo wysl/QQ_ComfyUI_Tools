@@ -412,26 +412,24 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(node.RETURN_TYPES, ("STRING",))
         self.assertEqual(node.RETURN_NAMES, ("文本",))
         controls = node.INPUT_TYPES()["required"]
-        self.assertEqual(
-            list(controls),
-            ["系统提示词", "自由文本", "分隔符", "显示系统提示词"],
-        )
+        self.assertEqual(list(controls), ["系统提示词", "自由文本", "分隔符"])
         self.assertTrue(controls["系统提示词"][1]["multiline"])
         self.assertTrue(controls["自由文本"][1]["multiline"])
         self.assertFalse(controls["分隔符"][1].get("multiline", False))
-        self.assertEqual(controls["显示系统提示词"][0], "BOOLEAN")
         self.assertTrue(controls["系统提示词"][1]["default"])
         instance = node()
-        self.assertEqual(instance.compose("A", "C", "B"), ("A\nB\nC",))
-        self.assertEqual(instance.compose("", "", ""), ("\n\n",))
+        self.assertEqual(instance.compose("A", "C", "B"), ("A\n\nB\n\nC",))
+        self.assertEqual(instance.compose("", "", ""), ("\n\n\n\n",))
         source = (Path(__file__).resolve().parents[1] / "web" / "multi_line_text.js").read_text(
             encoding="utf-8",
         )
         self.assertIn('const NODE_TYPE = "QQMultiLineText";', source)
-        self.assertIn("qq-multi-line-text-toggle", source)
+        self.assertIn("function drawToggle(node, ctx)", source)
+        self.assertIn("function toggleRect(node)", source)
+        self.assertIn('ctx.fillText(visible ? "隐藏提示词" : "显示提示词"', source)
+        self.assertNotIn("addDOMWidget", source)
         self.assertNotIn("node.widgets.unshift(domWidget);", source)
         self.assertNotIn("node.widgets.splice(index, 1);", source)
-        self.assertIn('button.textContent = visible ? "隐藏提示词" : "显示提示词";', source)
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
