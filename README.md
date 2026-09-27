@@ -25,7 +25,6 @@
   - `QQ-绕过规则`
   - `QQ-图像轮询切换`
   - `QQ-多行文本`
-  - `QQ-Qwen Image 2.1 提示词增强`
 - `QQ/LR 调色`
   - `QQ-LR-光线调节`
   - `QQ-LR-色彩调节`
@@ -191,21 +190,6 @@ FPS 是播放速率，不会按分段相加；目标总帧数按合计时长一�
 节点首行的「隐藏提示词」开关控制系统提示词框的显示与隐藏，隐藏不影响输出；开关状态与全部文本随工作流保存。
 两个多行框可拖拽角落调整高度，节点整体可自由缩放。
 
-`QQ-Qwen Image 2.1 提示词增强` 按 Qwen Image 2.1 官方规则（内置文生图八步规则与图生图/多图编辑规则，逐字移植）
-增强提示词，支持「本地官方PE」（单文件 safetensors 经 ComfyUI TE 加载，GGUF 经 llama-cpp 加载）与「API」
-（OpenAI 兼容 chat/completions，参考图按最大边长预压缩后以 base64 发送）两种方式，不含本地通用 LLaMA 通路。
-参考图为单个 `reference_images` 输入口：顺序即 `<imageN>` 序号，最多 9 张，可直接接 `QQ-多媒体加载` 的 `multi output`；
-任务模式支持 自动/文生图/图生图（自动=接了参考图走图生图）。模型下拉支持 gguf 文件（含分片）与
-safetensors 单文件/目录：safetensors 走 ComfyUI 自带 TE 栈加载（内置 tokenizer 与架构识别，
-调用约定同核心 TextGenerate 节点），gguf 走 llama-cpp。本地官方PE 优先提取 JSON 对象中的
-`rewritten_prompt`；文生图模型直接输出干净的单段描述时也可接收。对话续写、不完整 JSON 和思考内容会报错。
-API 方式仍按原有 JSON 策略提取 `rewritten_prompt`。
-本地图生图 PE 会将参考图送入 ComfyUI 的视觉 tokenizer，并检查视觉 token 数；需选择支持视觉输入的
-safetensors 模型。GGUF 本地通路未配置视觉投影器，不能用于图生图，图生图可改用支持视觉输入的
-safetensors 模型或 API。显式图生图必须接参考图，显式文生图不能接参考图；文件名明确标注
-T2I/编辑用途的模型会在运行前校验，无法从文件名判断用途的模型仍需自行确认。
-输出为单个「增强提示词」STRING；
-输出语言（中/英）以节点级最终语言规则追加，用户指定的画面文字保持原文。
 输入/输出类型固定为 `IMAGE`：使用通配类型时，被绕过(Bypass)的节点会让 ComfyUI 前端的
 绕过解析走到不安全分支，导致执行时报 `Cannot read properties of undefined`。
 适合「优先用微调结果，微调没有就回退到原版」这类预览场景：把微调接 `input1`、原版接 `input2`，

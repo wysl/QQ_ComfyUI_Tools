@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 27)
+        self.assertEqual(len(mappings), 25)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -440,6 +440,9 @@ class RegistrationTests(unittest.TestCase):
         self.assertNotIn("node.widgets.splice(index, 1);", source)
 
     def test_qwen_pe_node_contract(self):
+        self.assertNotIn("QQQwenImage21PromptEnhancer", self.package.NODE_CLASS_MAPPINGS)
+        self.assertNotIn("QQQwenImage21PromptEnhancerPEAPI", self.package.NODE_CLASS_MAPPINGS)
+        return
         node = self.package.NODE_CLASS_MAPPINGS["QQQwenImage21PromptEnhancer"]
         self.assertEqual(node.RETURN_TYPES, ("STRING",))
         self.assertEqual(node.RETURN_NAMES, ("增强提示词",))
