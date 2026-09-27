@@ -200,6 +200,10 @@ safetensors 单文件/目录：safetensors 走 ComfyUI 自带 TE 栈加载（内
 调用约定同核心 TextGenerate 节点），gguf 走 llama-cpp。本地官方PE 使用单个 JSON 对象的输出协议，
 只提取 `rewritten_prompt`；如果模型输出对话续写或无效 JSON，会明确报错，不再将原始文本当作提示词。
 API 方式仍按原有 JSON 策略提取 `rewritten_prompt`。
+本地图生图 PE 会将参考图送入 ComfyUI 的视觉 tokenizer，并检查视觉 token 数；需选择支持视觉输入的
+safetensors 模型。GGUF 本地通路未配置视觉投影器，不能用于图生图，图生图可改用支持视觉输入的
+safetensors 模型或 API。显式图生图必须接参考图，显式文生图不能接参考图；文件名明确标注
+T2I/编辑用途的模型会在运行前校验，无法从文件名判断用途的模型仍需自行确认。
 输出为单个「增强提示词」STRING；
 输出语言（中/英）以节点级最终语言规则追加，用户指定的画面文字保持原文。
 输入/输出类型固定为 `IMAGE`：使用通配类型时，被绕过(Bypass)的节点会让 ComfyUI 前端的

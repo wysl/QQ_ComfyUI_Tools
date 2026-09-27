@@ -456,13 +456,27 @@ class RegistrationTests(unittest.TestCase):
         self.assertTrue(
             module.QWEN_EDIT_SYSTEM_PROMPT.rstrip().endswith("The user's edit instruction to rewrite is:")
         )
+        for method in ("API", "本地官方PE"):
+            for language in ("中文", "英文"):
+                system = module._build_system_prompt("文生图", language, method)
+                self.assertNotIn("## Language", system)
+                self.assertNotIn("one long English paragraph", system)
+                self.assertIn("one long paragraph", system)
+                expected_rule = (
+                    "节点选择的输出语言是中文"
+                    if language == "中文" else "The selected output language is English"
+                )
+                self.assertIn(expected_rule, system)
+                edit_system = module._build_system_prompt("图生图", language, method)
+                self.assertIn(expected_rule, edit_system)
+                self.assertIn("follows the node-selected output language", edit_system)
+                self.assertNotIn("User instruction is in Chinese →", edit_system)
+                self.assertNotIn("User instruction is in English →", edit_system)
+                self.assertNotIn("surrounding description (A) is still written in English", edit_system)
+                self.assertIn("Language of the TEXT THAT WILL BE RENDERED", edit_system)
+                self.assertTrue(edit_system.rstrip().endswith("The user's edit instruction to rewrite is:"))
         system = module._build_system_prompt("文生图", "中文")
-        self.assertNotIn("## Language", system)
         self.assertIn("## Output format", system)
-        self.assertIn("节点选择的输出语言是中文", system)
-        system_en = module._build_system_prompt("图生图", "英文")
-        self.assertIn("The selected output language is English", system_en)
-        self.assertTrue(system_en.rstrip().endswith("The user's edit instruction to rewrite is:"))
         local_system = module._build_system_prompt("文生图", "中文", "本地官方PE")
         self.assertNotIn("## Language", local_system)
         self.assertNotIn("## Output format", local_system)
@@ -558,6 +572,104 @@ class RegistrationTests(unittest.TestCase):
                 module._flatten_reference_images([[213, 0]], strict=False),
                 [],
             )
+
+    def test_qwen_pe_local_multi_image_tokenization(self):
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
+
+        class Image:
+            def __init__(self, index):
+                self.index = index
+
+            def unsqueeze(self, dim):
+                if dim != 0:
+                    raise AssertionError("Expected a single batch dimension")
+                return self.index
+
+        # Qwen3VLTokenizer replaces image-pad IDs with image dictionaries in token tuples.
+        tokens = {"qwen3vl_8b": [[
+            ({"type": "image", "data": 1}, 1.0),
+            ({"type": "image", "data": 2}, 1.0),
+        ]]}
+        class Clip:
+            def tokenize(self, text, **kwargs):
+                self.text = text
+                self.kwargs = kwargs
+                return tokens
+
+            def generate(self, received, **kwargs):
+                self.received = received
+                return [1]
+
+            def decode(self, received):
+                return '{"rewritten_prompt": "有效结果"}'
+
+        clip = Clip()
+        result = module._generate_clip(clip, "system", "user", 100, 2, False, [Image(1), Image(2)])
+        self.assertEqual(result, '{"rewritten_prompt": "有效结果"}')
+        self.assertEqual(clip.kwargs["images"], [1, 2])
+        self.assertEqual(clip.kwargs["system_prompt"], "system")
+        self.assertIs(clip.received, tokens)
+
+        with patch.object(clip, "tokenize", return_value={"qwen3vl_8b": [[(1, 1.0)]]}):
+            with self.assertRaisesRegex(RuntimeError, "视觉 token"):
+                module._generate_clip(clip, "system", "user", 100, 2, False, [Image(1)])
+
+    def test_qwen_pe_image_modes_and_model_selection(self):
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
+        node = module.QQQwenImage21PromptEnhancer
+        t2i = "Qwen-Image-2.1-T2I.safetensors"
+        edit = "Qwen-Image-2.1-Edit.safetensors"
+        gguf = "Qwen-Image-2.1-Edit.gguf"
+        with patch.object(module, "_model_choices", return_value=[t2i, edit, gguf, "unknown.safetensors"]):
+            controls = node.INPUT_TYPES()["required"]
+        self.assertIn(edit, controls["文生图PE模型"][0])
+        self.assertIn(t2i, controls["图生图PE模型"][0])
+        self.assertIn("unknown.safetensors", controls["图生图PE模型"][0])
+
+        with patch.object(module, "_resolve_model_path", return_value="/models/Qwen-Image-2.1-Edit.safetensors"):
+            self.assertTrue(node.VALIDATE_INPUTS(
+                input_types=[{"reference_images": "IMAGE"}],
+                **{"任务模式": "自动", "增强方式": "本地官方PE", "图生图PE模型": edit},
+            ))
+            self.assertTrue(node.VALIDATE_INPUTS(
+                input_types=[{"reference_images": "IMAGE"}],
+                **{"任务模式": "图生图", "增强方式": "本地官方PE", "图生图PE模型": edit},
+            ))
+            self.assertIn("不能接参考图", node.VALIDATE_INPUTS(
+                input_types=[{"reference_images": "IMAGE"}],
+                **{"任务模式": "文生图", "增强方式": "本地官方PE", "文生图PE模型": t2i},
+            ))
+            self.assertIn("需要至少一张", node.VALIDATE_INPUTS(
+                input_types=[{}],
+                **{"任务模式": "图生图", "增强方式": "本地官方PE", "图生图PE模型": edit},
+            ))
+            self.assertIn("文生图模型", node.VALIDATE_INPUTS(
+                input_types=[{"reference_images": "IMAGE"}],
+                **{"任务模式": "自动", "增强方式": "本地官方PE", "图生图PE模型": t2i},
+            ))
+        with patch.object(module, "_resolve_model_path", return_value="/models/Qwen-Image-2.1-Edit.gguf"):
+            self.assertIn("不能读取参考图", node.VALIDATE_INPUTS(
+                input_types=[{"reference_images": "IMAGE"}],
+                **{"任务模式": "自动", "增强方式": "本地官方PE", "图生图PE模型": gguf},
+            ))
+            with self.assertRaisesRegex(ValueError, "视觉投影器"):
+                module._request_official_pe(gguf, 8192, "system", "user", 100, 0, False, [object()])
+
+        with patch.object(module, "_flatten_reference_images", return_value=[object(), object()]), \
+                patch.object(module, "_request_official_pe", return_value='{"rewritten_prompt": "ok"}') as request:
+            result = node().enhance(**{
+                "输入提示词": "调整画面", "任务模式": "自动", "增强方式": "本地官方PE",
+                "图生图PE模型": edit, "reference_images": [object()],
+            })
+            self.assertEqual(result, ("ok",))
+            self.assertEqual(len(request.call_args.kwargs["images"]), 2)
+            self.assertIn("<image2>", request.call_args.args[3])
+        with patch.object(module, "_flatten_reference_images", return_value=[]):
+            with self.assertRaisesRegex(ValueError, "需要至少一张"):
+                node().enhance(**{"输入提示词": "调整画面", "任务模式": "图生图"})
+        with patch.object(module, "_flatten_reference_images", return_value=[object()]):
+            with self.assertRaisesRegex(ValueError, "不能接参考图"):
+                node().enhance(**{"输入提示词": "画一张图", "任务模式": "文生图"})
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
