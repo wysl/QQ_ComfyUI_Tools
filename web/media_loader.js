@@ -866,6 +866,38 @@ function createGroupSection(group) {
     return section;
 }
 
+function parseExternalPositions(spec, count) {
+    if (!count) return null;
+    const text = String(spec || "").trim();
+    if (!text || text === "0") return null;
+    const tokens = text.split(/[,，]/).map((token) => token.trim()).filter(Boolean);
+    const values = tokens.map((token) => Number.parseInt(token, 10));
+    if (values.some((value) => !Number.isFinite(value) || value < 1)) return null;
+    if (values.length === 1) {
+        return Array.from({ length: count }, (_, offset) => values[0] + offset);
+    }
+    if (values.length !== count) return null;
+    return values;
+}
+
+function externalMergedInternalNumbers(node, count) {
+    // Final 1-based number of each internal image after external insertion.
+    const identity = Array.from({ length: count }, (_, index) => index + 1);
+    const info = node?.__wyslMediaLoaderExternalInfo;
+    if (!info || !info.count) return identity;
+    const positions = parseExternalPositions(widget(node, EXTERNAL_WIDGET)?.value, info.count);
+    if (!positions) return identity;
+    const result = identity.map((number) => ({ ext: false, number }));
+    for (const index of positions.map((pos, i) => [pos, i]).sort((a, b) => a[0] - b[0]).map((pair) => pair[1])) {
+        result.splice(Math.min(positions[index] - 1, result.length), 0, { ext: true });
+    }
+    const numbers = new Array(count).fill(0);
+    result.forEach((entry, position) => {
+        if (!entry.ext) numbers[entry.number - 1] = position + 1;
+    });
+    return numbers;
+}
+
 function renderGroup(node, group, values) {
     const section = node.__wyslMediaLoaderPanel?.querySelector(`.wysl-media-group.is-${group.type}`);
     if (!section) return;
@@ -888,6 +920,7 @@ function renderGroup(node, group, values) {
             cards.delete(path);
         }
     }
+    const numbers = group.type === "image" ? externalMergedInternalNumbers(node, values.length) : null;
     values.forEach((path, index) => {
         let card = cards.get(path);
         if (!card) {
@@ -895,9 +928,10 @@ function renderGroup(node, group, values) {
             cards.set(path, card);
         }
         card.dataset.index = String(index);
-        card.title = `${index + 1}. ${cardTitle(path)}（序号按类别单独计数）`;
+        const shown = numbers ? numbers[index] : index + 1;
+        card.title = `${shown}. ${cardTitle(path)}（序号按类别单独计数）`;
         const order = card.querySelector(".wysl-media-order");
-        if (order) order.textContent = String(index + 1);
+        if (order) order.textContent = String(shown);
         // Re-appending moves the existing element, so already decoded
         // thumbnails are reused instead of rebuilt on every state change.
         list.append(card);
@@ -1755,6 +1789,7 @@ function installExecutedListener() {
             positions: Array.isArray(info.positions) ? info.positions.map((value) => Number(value)) : [],
         };
         syncExternalRow(node);
+        render(node);
     });
 }
 
@@ -1840,6 +1875,7 @@ function setup(node) {
     externalInput.addEventListener("input", () => {
         const positions = widget(node, EXTERNAL_WIDGET);
         if (positions) positions.value = externalInput.value;
+        render(node);
     });
     external.append(externalLabel, externalInput, externalStatus);
     node.__wyslMediaLoaderExternalRow = external;
@@ -1946,6 +1982,7 @@ app.registerExtension({
         nodeType.prototype.onConnectionsChange = function onConnectionsChangeQQMediaLoader(...args) {
             const result = originalConnections?.apply(this, args);
             syncExternalRow(this);
+            render(this);
             return result;
         };
         const originalRemoved = nodeType.prototype.onRemoved;
