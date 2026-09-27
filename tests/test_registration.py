@@ -598,6 +598,13 @@ class RegistrationTests(unittest.TestCase):
             )
             with self.assertRaises(ValueError):
                 media._media_loader_flatten_images(["not-a-tensor"])
+            # Validation runs before upstream nodes execute, so linked inputs
+            # arrive as unresolved placeholders and must be skipped there.
+            self.assertEqual(media._media_loader_flatten_images([[213, 0]], strict=False), [])
+            self.assertEqual(
+                media._media_loader_flatten_images([FakeBatch(["x"]), [213, 0]], strict=False),
+                ["x"],
+            )
 
     def test_media_loader_output_directory_and_legacy_input_references(self):
         media = importlib.import_module("QQ_ComfyUI_Tools.node_modules.media")
