@@ -513,6 +513,17 @@ class RegistrationTests(unittest.TestCase):
             module._parse_pe_result('{"rewritten_prompt": "增强结果", "wh_ratio": "3:2"}', require_json=True),
             "增强结果",
         )
+        self.assertEqual(
+            module._parse_pe_result(
+                '结果如下：\n```json\n{"rewritten_prompt":"增强结果","wh_ratio":"","ratio_follow":""}\n```\n已完成。',
+                require_json=True,
+            ),
+            "增强结果",
+        )
+        self.assertEqual(
+            module._parse_pe_result('{"rewritten_prompt":"截断也能恢复"', require_json=True),
+            "截断也能恢复",
+        )
         for malformed in (
             'USER Raw Input Prompt: 测试\\nAI\\nUSER Raw Input Prompt: 测试',
             '{"rewritten_prompt": "测试"} USER Raw Input Prompt: 测试',
@@ -524,12 +535,16 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(module._parse_pe_result(plain, require_json=True, allow_plain_prompt=True), plain)
         with self.assertRaises(RuntimeError):
             module._parse_pe_result(plain, require_json=True)
+        multiline_plain = "一位身穿汉服的少女站在花园里。\n夕阳从树叶间照亮她的面容。"
+        self.assertEqual(
+            module._parse_pe_result(multiline_plain, require_json=True, allow_plain_prompt=True),
+            "一位身穿汉服的少女站在花园里。 夕阳从树叶间照亮她的面容。",
+        )
         for malformed in (
             "好的，我来为你生成一张汉服少女的图片。",
             "USER Raw Input Prompt: 汉服少女，背景是花园。",
             "第一步分析用户请求，第二步组织画面细节。",
             "一位汉服少女站在花园里。\n接下来我解释构图。",
-            '{"rewritten_prompt": "一位汉服少女"',
         ):
             with self.subTest(malformed=malformed), self.assertRaises(RuntimeError):
                 module._parse_pe_result(malformed, require_json=True, allow_plain_prompt=True)
