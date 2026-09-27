@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 28)
+        self.assertEqual(len(mappings), 29)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -95,6 +95,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(display["QQIgnoreRules"], "QQ-绕过规则")
         self.assertEqual(display["QQIgnoreRulesController"], "QQ-绕过规则开关")
         self.assertEqual(display["QQTextPollingSwitch"], "QQ-文本轮询切换")
+        self.assertEqual(display["QQTextMerge"], "QQ-文本合并")
         self.assertEqual(
             display["QQQwenImage21PromptEnhancer"],
             "QQ-Qwen Image 2.1 AI提示词增强(PE or API)",
@@ -974,6 +975,29 @@ class RegistrationTests(unittest.TestCase):
                 latent_image=[{"samples": "custom"}],
             )
         self.assertEqual(calls[0][1]["latent_image"], {"samples": "custom"})
+
+    def test_text_merge_node_decodes_separator_escapes(self):
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.text_tools")
+        self.assertEqual(module.decode_separator("\\n"), "\n")
+        self.assertEqual(module.decode_separator("\\r"), "\r")
+        self.assertEqual(module.decode_separator("\\t"), "\t")
+        self.assertEqual(module.decode_separator("a\\nb"), "a\nb")
+        # 双反斜杠还原成字面反斜杠 + n，不会变成换行
+        self.assertEqual(module.decode_separator("\\\\n"), "\\n")
+        # 未定义的转义原样保留
+        self.assertEqual(module.decode_separator("\\d"), "\\d")
+        self.assertEqual(module.decode_separator(""), "")
+        node = self.package.NODE_CLASS_MAPPINGS["QQTextMerge"]
+        self.assertEqual(node.RETURN_TYPES, ("STRING",))
+        self.assertEqual(node.RETURN_NAMES, ("文本",))
+        inputs = node.INPUT_TYPES()
+        self.assertEqual(inputs["required"]["分隔符"][1]["default"], "\\n")
+        self.assertEqual(list(inputs["optional"]), ["文本1", "文本2"])
+        self.assertEqual(node().merge(分隔符="\\n", 文本1="A", 文本2="B"), ("A\nB",))
+        self.assertEqual(node().merge(分隔符="\\r\\n", 文本1="A", 文本2="B"), ("A\r\nB",))
+        # 只接一段时原样输出，不会多出分隔符
+        self.assertEqual(node().merge(分隔符="\\n", 文本1="A"), ("A",))
+        self.assertEqual(node().merge(分隔符="\\n"), ("",))
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
