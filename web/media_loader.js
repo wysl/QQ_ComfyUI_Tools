@@ -3,6 +3,8 @@ import { api } from "../../scripts/api.js";
 
 const NODE_TYPE = "QQMediaLoader";
 const STATE_WIDGET = "media_state";
+const EXTERNAL_WIDGET = "external_positions";
+const EXTERNAL_INPUT_NAME = "external_images";
 const THUMB_TILE = 128;
 // 128px webp is already 2x a 56px tile at devicePixelRatio 2, and requesting a
 // larger tier for every row of a big folder would stall the picker.
@@ -476,13 +478,15 @@ function relativeFolder(file) {
 }
 
 function hideWidget(node) {
-    const stateWidget = widget(node, STATE_WIDGET);
-    if (!stateWidget) return;
-    stateWidget.hidden = true;
-    stateWidget.type = "hidden";
-    stateWidget.computeSize = () => [0, -4];
-    stateWidget.options ||= {};
-    stateWidget.options.hidden = true;
+    for (const name of [STATE_WIDGET, EXTERNAL_WIDGET]) {
+        const target = widget(node, name);
+        if (!target) continue;
+        target.hidden = true;
+        target.type = "hidden";
+        target.computeSize = () => [0, -4];
+        target.options ||= {};
+        target.options.hidden = true;
+    }
 }
 
 function makeButton(text, className, handler) {
@@ -927,6 +931,7 @@ function render(node) {
     closeDetachedHoverPreview(node);
     if (groups) groups.scrollTop = scrollTop;
     panel.classList.toggle("is-empty", selectedCount(state) === 0);
+    syncExternalRow(node);
     renderStatus(node);
     updatePanelHeight(node);
 }
@@ -1476,6 +1481,12 @@ function scrollableAncestor(panel, target, deltaX, deltaY) {
 const CSS_TEXT = `
 .wysl-media-loader-panel{position:relative;box-sizing:border-box;width:100%;height:100%;min-height:0;display:flex;flex-direction:column;gap:${PANEL_GAP}px;padding:${PANEL_PADDING}px;border:1px solid var(--border-color,rgba(255,255,255,.1));border-radius:6px;background:var(--comfy-menu-bg,#24272b);color:var(--content-fg,#dfe4e8);font:12px/1.35 sans-serif;overflow:hidden}
 .wysl-media-toolbar{display:flex;align-items:center;gap:5px;min-height:25px;flex:0 0 auto}
+.wysl-media-external{display:flex;align-items:center;gap:6px;padding:3px 0 0;flex:0 0 auto;font-size:11px;color:var(--content-fg,#9eb7c9)}
+.wysl-media-external[hidden]{display:none}
+.wysl-media-external-label{flex:0 0 auto}
+.wysl-media-external-input{box-sizing:border-box;flex:0 0 88px;height:24px;padding:2px 6px;border:1px solid var(--border-color,#535d66);border-radius:4px;background:var(--comfy-input-bg,#22282d);color:var(--fg-color,#e3e7ea);font:inherit;font-size:11px}
+.wysl-media-external-input:focus-visible{outline:2px solid var(--p-primary-color,#4b86b4);outline-offset:1px}
+.wysl-media-external-status{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--content-fg,#8fa3b0)}
 .wysl-media-title{font-weight:650;color:var(--fg-color,#f1f3f5);margin-right:2px}
 .wysl-media-count{color:var(--content-fg,#8c969f);opacity:.72;font-size:10px;margin-right:auto}
 .wysl-media-toolbar button,.wysl-media-modal button{border:1px solid var(--border-color,rgba(255,255,255,.14));border-radius:4px;background:var(--comfy-input-bg,#343a40);color:var(--fg-color,#e9edf0);padding:4px 8px;cursor:pointer;font:inherit}
@@ -1701,12 +1712,59 @@ function installPasteHandling() {
     }, { capture: true });
 }
 
+function externalLinked(node) {
+    return Boolean(node?.inputs?.some((input) => input.name === EXTERNAL_INPUT_NAME && input.link));
+}
+
+function syncExternalRow(node) {
+    const row = node?.__wyslMediaLoaderExternalRow;
+    if (!row) return;
+    const linked = externalLinked(node);
+    if (!linked) node.__wyslMediaLoaderExternalInfo = null;
+    const wasHidden = row.hidden;
+    row.hidden = !linked;
+    const input = node.__wyslMediaLoaderExternalInput;
+    if (input && document.activeElement !== input) {
+        input.value = String(widget(node, EXTERNAL_WIDGET)?.value || "");
+    }
+    const status = node.__wyslMediaLoaderExternalStatus;
+    if (status) {
+        const info = node.__wyslMediaLoaderExternalInfo;
+        let text = "";
+        if (linked) {
+            text = info
+                ? (info.count ? `外部图片 ×${info.count} → 序号 ${info.positions.join(",")}` : "已连接，未收到外部图片")
+                : "执行后确认外部图片序号";
+        }
+        status.textContent = text;
+        status.title = text;
+    }
+    if (wasHidden !== row.hidden) updatePanelHeight(node);
+}
+
+function installExecutedListener() {
+    if (installExecutedListener.installed) return;
+    installExecutedListener.installed = true;
+    api.addEventListener("executed", (event) => {
+        const info = event?.detail?.output?.qq_external_images;
+        if (!info) return;
+        const node = app.graph?.getNodeById?.(Number(event.detail.node));
+        if (!node || (node.type !== NODE_TYPE && node.comfyClass !== NODE_TYPE)) return;
+        node.__wyslMediaLoaderExternalInfo = {
+            count: Number(info.count) || 0,
+            positions: Array.isArray(info.positions) ? info.positions.map((value) => Number(value)) : [],
+        };
+        syncExternalRow(node);
+    });
+}
+
 function setup(node) {
     if (!node || node.__wyslMediaLoaderSetup || typeof node.addDOMWidget !== "function") return;
     node.__wyslMediaLoaderSetup = true;
     installPointerTracking();
     installStyles();
     installPasteHandling();
+    installExecutedListener();
     hideWidget(node);
 
     const panel = document.createElement("div");
@@ -1764,13 +1822,37 @@ function setup(node) {
     });
     toolbar.append(...[title, count, paste, add, clear].filter(Boolean));
 
+    const external = document.createElement("div");
+    external.className = "wysl-media-external";
+    external.hidden = true;
+    const externalLabel = document.createElement("span");
+    externalLabel.className = "wysl-media-external-label";
+    externalLabel.textContent = "外部图片序号";
+    const externalInput = document.createElement("input");
+    externalInput.className = "wysl-media-external-input";
+    externalInput.type = "text";
+    externalInput.inputMode = "numeric";
+    externalInput.placeholder = "留空=末尾";
+    externalInput.setAttribute("aria-label", "外部图片序号");
+    externalInput.title = "从 1 开始；单个数字=起始序号连续占位；逗号分隔=逐张指定；留空或 0=追加到内部图片末尾";
+    const externalStatus = document.createElement("span");
+    externalStatus.className = "wysl-media-external-status";
+    externalInput.addEventListener("input", () => {
+        const positions = widget(node, EXTERNAL_WIDGET);
+        if (positions) positions.value = externalInput.value;
+    });
+    external.append(externalLabel, externalInput, externalStatus);
+    node.__wyslMediaLoaderExternalRow = external;
+    node.__wyslMediaLoaderExternalInput = externalInput;
+    node.__wyslMediaLoaderExternalStatus = externalStatus;
+
     const groups = document.createElement("div");
     groups.className = "wysl-media-groups";
     for (const group of GROUPS) groups.append(createGroupSection(group));
 
     const status = document.createElement("div");
     status.className = "wysl-media-status";
-    panel.append(toolbar, groups, status);
+    panel.append(toolbar, external, groups, status);
 
     panel.addEventListener("wheel", (event) => {
         const deltaX = event.shiftKey ? event.deltaY : event.deltaX;
@@ -1858,6 +1940,12 @@ app.registerExtension({
             honorRestoredSize(this);
             setup(this);
             render(this);
+            return result;
+        };
+        const originalConnections = nodeType.prototype.onConnectionsChange;
+        nodeType.prototype.onConnectionsChange = function onConnectionsChangeQQMediaLoader(...args) {
+            const result = originalConnections?.apply(this, args);
+            syncExternalRow(this);
             return result;
         };
         const originalRemoved = nodeType.prototype.onRemoved;

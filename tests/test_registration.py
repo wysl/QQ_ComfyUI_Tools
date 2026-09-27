@@ -464,7 +464,13 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(loader.RETURN_TYPES, ("IMAGE", "AUDIO", "VIDEO", "MINIMAX_H3_MEDIA_BUNDLE"))
         self.assertEqual(loader.RETURN_NAMES, ("multi output", "audio output", "video output", "media_bundle"))
         self.assertEqual(loader.OUTPUT_IS_LIST, (True, True, True, False))
-        empty_outputs = loader.load("")
+        empty_result = loader.load("")
+        self.assertEqual(set(empty_result), {"ui", "result"})
+        self.assertEqual(
+            empty_result["ui"]["qq_external_images"],
+            {"count": 0, "positions": []},
+        )
+        empty_outputs = empty_result["result"]
         self.assertEqual(empty_outputs[:3], ([], [], []))
         self.assertEqual(empty_outputs[3].items, ())
         splitter = self.package.NODE_CLASS_MAPPINGS["QQMediaAutoSplitter"]
@@ -495,6 +501,12 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('["name_desc", "文件名 Z-A"]', source)
         self.assertIn('["size_desc", "文件大小 大→小"]', source)
         self.assertIn('["size_asc", "文件大小 小→大"]', source)
+        self.assertIn('const EXTERNAL_WIDGET = "external_positions";', source)
+        self.assertIn('const EXTERNAL_INPUT_NAME = "external_images";', source)
+        self.assertIn("function syncExternalRow(node)", source)
+        self.assertIn('api.addEventListener("executed"', source)
+        self.assertIn("panel.append(toolbar, external, groups, status);", source)
+        self.assertIn(".wysl-media-external-input{", source)
         self.assertIn('const layout = searching ? "4"', source)
         self.assertNotIn('input.webkitdirectory = true', source)
         self.assertIn("当前目录全选", source)
@@ -523,6 +535,67 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("pointer-events:auto", source)
         self.assertIn("section.hidden = group.type !== \"image\"", source)
         self.assertIn("wysl-media-hover-preview", source)
+
+    def test_media_loader_external_image_positions(self):
+        media = importlib.import_module("QQ_ComfyUI_Tools.node_modules.media")
+        node = self.package.NODE_CLASS_MAPPINGS["QQMediaLoader"]
+        self.assertTrue(node.INPUT_IS_LIST)
+        optional = node.INPUT_TYPES()["optional"]
+        self.assertEqual(optional["external_images"][0], "IMAGE")
+        self.assertIn("external_positions", optional)
+        self.assertEqual(media._media_loader_parse_positions("", 2), None)
+        self.assertEqual(media._media_loader_parse_positions("0", 2), None)
+        self.assertEqual(media._media_loader_parse_positions("2", 3), [2, 3, 4])
+        self.assertEqual(media._media_loader_parse_positions("2,5", 2), [2, 5])
+        with self.assertRaises(ValueError):
+            media._media_loader_parse_positions("2,5", 3)
+        with self.assertRaises(ValueError):
+            media._media_loader_parse_positions("2,2", 2)
+        with self.assertRaises(ValueError):
+            media._media_loader_parse_positions("0,2", 2)
+        with self.assertRaises(ValueError):
+            media._media_loader_parse_positions("a", 2)
+        merged, positions = media._media_loader_merge_images(["a", "b", "c"], ["x", "y"], "2")
+        self.assertEqual(merged, ["a", "x", "y", "b", "c"])
+        self.assertEqual(positions, [2, 3])
+        merged, positions = media._media_loader_merge_images(["a", "b", "c"], ["x", "y"], "")
+        self.assertEqual(merged, ["a", "b", "c", "x", "y"])
+        self.assertEqual(positions, [4, 5])
+        merged, positions = media._media_loader_merge_images(["a", "b", "c"], ["x", "y"], "5,2")
+        self.assertEqual(merged, ["a", "y", "b", "c", "x"])
+        self.assertEqual(positions, [5, 2])
+        merged, positions = media._media_loader_merge_images(["a"], [], "2")
+        self.assertEqual(merged, ["a"])
+        self.assertEqual(positions, [])
+
+        class FakeBatch(FakeTensor):
+            """Minimal IMAGE-batch stand-in for the stub torch module."""
+
+            def __init__(self, frames):
+                self.frames = list(frames)
+
+            def detach(self):
+                return self
+
+            @property
+            def ndim(self):
+                return 4
+
+            @property
+            def shape(self):
+                return (len(self.frames), 1, 1, 1)
+
+            def __getitem__(self, index):
+                return self.frames[index]
+
+        self.assertEqual(media._media_loader_flatten_images(None), [])
+        self.assertEqual(media._media_loader_flatten_images(FakeBatch(["x", "y"])), ["x", "y"])
+        self.assertEqual(
+            media._media_loader_flatten_images([FakeBatch(["x"]), FakeBatch(["y", "z"])]),
+            ["x", "y", "z"],
+        )
+        with self.assertRaises(ValueError):
+            media._media_loader_flatten_images(["not-a-tensor"])
 
     def test_media_loader_output_directory_and_legacy_input_references(self):
         media = importlib.import_module("QQ_ComfyUI_Tools.node_modules.media")
