@@ -485,6 +485,15 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('makeButton("选择媒体文件", "wysl-media-modal-files"', source)
         self.assertIn('makeButton("output 根目录"', source)
         self.assertIn('[["list", "列表"], ["3", "3 列"], ["4", "4 列"], ["5", "5 列"]]', source)
+        self.assertIn('const DEFAULT_SORT = "created_desc";', source)
+        self.assertIn("function sortModalFiles(files, sort)", source)
+        self.assertIn('sort.className = "wysl-media-modal-sort";', source)
+        self.assertIn("options.append(layout, sort, search);", source)
+        self.assertIn('["created_desc", "创建时间 近→远"]', source)
+        self.assertIn('["created_asc", "创建时间 远→近"]', source)
+        self.assertIn('["name_asc", "文件名 A-Z"]', source)
+        self.assertIn('["size_desc", "文件大小 大→小"]', source)
+        self.assertIn('["size_asc", "文件大小 小→大"]', source)
         self.assertIn('const layout = searching ? "4"', source)
         self.assertNotIn('input.webkitdirectory = true', source)
         self.assertIn("当前目录全选", source)
@@ -541,6 +550,8 @@ class RegistrationTests(unittest.TestCase):
                 self.assertEqual(folder, "")
                 self.assertEqual(directories, [{"name": "sub", "path": "sub"}])
                 self.assertEqual([item["name"] for item in files], ["same.png"])
+                self.assertIn("created", files[0])
+                self.assertIsInstance(files[0]["created"], float)
                 self.assertEqual(
                     [item["name"] for item in media._media_loader_list_folder("sub", "output")[2]],
                     ["clip.mp4"],

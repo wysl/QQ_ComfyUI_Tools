@@ -548,6 +548,29 @@ function filePreview(path, type, size = THUMB_TILE) {
     return preview;
 }
 
+const SORT_OPTIONS = [
+    ["created_desc", "创建时间 近→远"],
+    ["created_asc", "创建时间 远→近"],
+    ["name_asc", "文件名 A-Z"],
+    ["size_desc", "文件大小 大→小"],
+    ["size_asc", "文件大小 小→大"],
+];
+const DEFAULT_SORT = "created_desc";
+
+function sortModalFiles(files, sort) {
+    const list = [...(files || [])];
+    const mode = SORT_OPTIONS.some(([value]) => value === sort) ? sort : DEFAULT_SORT;
+    const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+    list.sort((a, b) => {
+        if (mode === "name_asc") return byName(a, b);
+        if (mode === "size_asc") return (a.size || 0) - (b.size || 0) || byName(a, b);
+        if (mode === "size_desc") return (b.size || 0) - (a.size || 0) || byName(a, b);
+        if (mode === "created_asc") return (a.created || 0) - (b.created || 0) || byName(a, b);
+        return (b.created || 0) - (a.created || 0) || byName(a, b);
+    });
+    return list;
+}
+
 function modalThumbnailSize(list, layout) {
     if (layout === "list") return THUMB_TILE;
     const edge = { "3": 200, "4": 128, "5": 90 }[layout] || 128;
@@ -1044,9 +1067,12 @@ function refreshModal(node, modal) {
     closeDetachedHoverPreview(node);
     body.scrollTop = 0;
 
-    const files = searching
-        ? (data.files || []).filter((item) => item.name.toLocaleLowerCase().includes(node.__wyslMediaLoaderSearch))
-        : (data.files || []);
+    const files = sortModalFiles(
+        searching
+            ? (data.files || []).filter((item) => item.name.toLocaleLowerCase().includes(node.__wyslMediaLoaderSearch))
+            : (data.files || []),
+        node.__wyslMediaLoaderSort,
+    );
     const folderUnavailable = node.__wyslMediaLoaderFolderLoading || Boolean(data.error) || !(data.files || []).length;
     if (selectAll) selectAll.disabled = folderUnavailable;
     if (clearSelected) clearSelected.disabled = folderUnavailable;
@@ -1335,6 +1361,22 @@ function openModal(node) {
         button.dataset.layout = value;
         layout.append(button);
     }
+    const sort = document.createElement("select");
+    sort.className = "wysl-media-modal-sort";
+    sort.setAttribute("aria-label", "媒体排序规则");
+    for (const [value, label] of SORT_OPTIONS) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        sort.append(option);
+    }
+    sort.value = SORT_OPTIONS.some(([value]) => value === node.__wyslMediaLoaderSort)
+        ? node.__wyslMediaLoaderSort
+        : DEFAULT_SORT;
+    sort.addEventListener("change", () => {
+        node.__wyslMediaLoaderSort = sort.value;
+        refreshModal(node, modal);
+    });
     const search = document.createElement("form");
     search.className = "wysl-media-modal-search";
     const searchInput = document.createElement("input");
@@ -1354,7 +1396,7 @@ function openModal(node) {
         refreshModal(node, modal);
     });
     search.append(searchInput, searchButton, clearSearch);
-    options.append(layout, search);
+    options.append(layout, sort, search);
 
     const body = document.createElement("div");
     body.className = "wysl-media-modal-body";
@@ -1489,6 +1531,8 @@ const CSS_TEXT = `
 .wysl-media-layout button:last-child{border-radius:0 4px 4px 0}
 .wysl-media-layout button+button{border-left:0}
 .wysl-media-layout button.is-active{background:var(--p-primary-color,#4d728c);color:#fff}
+.wysl-media-modal-sort{flex:0 0 auto;height:27px;padding:0 6px;font:inherit;font-size:11px;color:var(--fg-color,#e3e7ea);background:var(--comfy-input-bg,#22282d);border:1px solid var(--border-color,#535d66);border-radius:4px}
+.wysl-media-modal-sort:focus-visible{outline:2px solid var(--p-primary-color,#4b86b4);outline-offset:1px}
 .wysl-media-modal-search{display:flex;align-items:center;gap:5px;min-width:0;flex:1 1 260px;justify-content:flex-end}
 .wysl-media-modal-search-input{box-sizing:border-box;width:min(240px,100%);min-width:90px;height:27px;border:1px solid var(--border-color,#535d66);border-radius:4px;background:var(--comfy-input-bg,#22282d);color:var(--fg-color,#e3e7ea);padding:3px 8px;font:inherit}
 .wysl-media-modal-search-input:focus-visible{outline:2px solid var(--p-primary-color,#4b86b4);outline-offset:1px}
