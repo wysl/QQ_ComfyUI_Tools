@@ -212,7 +212,7 @@ FPS 是播放速率，不会按分段相加；目标总帧数按合计时长一�
   repetition_penalty 1.05 / presence_penalty 0.0）和 `启用思考` 开关都与原节点一致。
   `生成后自动卸载模型` 会卸载 PE 并释放显存；`seed` 为负数时按随机处理。
   GGUF 属于已经移除的旧通路，不会出现在模型下拉里。
-- **API**：OpenAI 兼容接口，默认地址 `https://teynex.com`、默认模型 `deepseek-v4.1-flash`。
+- **API**：OpenAI 兼容接口，默认地址 `https://api.deepseek.com`、默认模型 `deepseek-flash`。
   请求发到 `{base}/v1/responses`（Responses API，`instructions` + `input`，temperature 0.6）；
   地址已带 `/v1` 时补 `/responses`，填完整的 `/v1/chat/completions` 或 `/v1/responses` 时原样使用。
   没有参考图时 `input` 直接发纯文本，有参考图时才展开成多模态数组。

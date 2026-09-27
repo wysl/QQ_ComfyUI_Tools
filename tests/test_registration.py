@@ -463,7 +463,8 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(controls["最大生成token"][1]["min"], 256)
         self.assertEqual(controls["最大生成token"][1]["max"], 32768)
         self.assertEqual(controls["最大生成token"][1]["step"], 256)
-        self.assertEqual(controls["api_url"][1]["default"], "https://teynex.com")
+        self.assertEqual(controls["api_url"][1]["default"], "https://api.deepseek.com")
+        self.assertEqual(controls["model"][1]["default"], "deepseek-flash")
         # api_url 在 api_key 前面
         order = list(controls)
         self.assertLess(order.index("api_url"), order.index("api_key"))
