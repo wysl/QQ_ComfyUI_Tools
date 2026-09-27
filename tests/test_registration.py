@@ -730,10 +730,14 @@ class RegistrationTests(unittest.TestCase):
         # 低于阈值不执行任何操作
         self.assertIs(module._scale_longest_edge(small, 1024), small)
         with patch.object(module, "_resize_tensor_to", return_value="resized") as resize:
+            # 超过阈值直接等比缩到阈值
             self.assertEqual(module._scale_longest_edge(FakeImage(2048, 2048), 1024), "resized")
-            self.assertEqual(resize.call_args.args[1:], (1664, 1664))
+            self.assertEqual(resize.call_args.args[1:], (1024, 1024))
             self.assertEqual(module._scale_longest_edge(FakeImage(1000, 2000), 1024), "resized")
-            self.assertEqual(resize.call_args.args[1:], (800, 1600))
+            self.assertEqual(resize.call_args.args[1:], (512, 1024))
+            # 非 32 倍数的结果对齐到 32 的倍数
+            self.assertEqual(module._scale_longest_edge(FakeImage(1500, 1000), 1024), "resized")
+            self.assertEqual(resize.call_args.args[1:], (1024, 672))
         # 阈值非法（<=0）时也不动
         huge = FakeImage(4000, 4000)
         self.assertIs(module._scale_longest_edge(huge, 0), huge)
