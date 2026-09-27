@@ -485,6 +485,12 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(module._parse_pe_result(thinky), "plain text")
         self.assertEqual(module._model_choices(), [])
         self.assertEqual(module.MAX_REFERENCE_IMAGES, 9)
+        source = (Path(__file__).resolve().parents[1] / "node_modules" / "qwen_pe.py").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn("comfy.sd.load_clip", source)
+        self.assertIn("clip.generate(tokens, do_sample=False", source)
+        self.assertNotIn("AutoModelForCausalLM", source)
 
         class FakeBatch:
             def __init__(self, frames):
