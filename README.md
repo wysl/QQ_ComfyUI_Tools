@@ -204,9 +204,8 @@ FPS 是播放速率，不会按分段相加；目标总帧数按合计时长一�
   「最多支持 9 张参考图，当前 N 张」，不会静默丢图。接 `QQ-多媒体加载` 的 `multi output`
   （列表型输出）时按列表顺序展开，与加载器面板里的序号一致；接普通 batch 张量（`Load Image` 等）
   时按 batch 维展平，顺序同样即序号。节点是 `INPUT_IS_LIST`，一张列表只执行一次，
-  不会被 ComfyUI 拆成「每张图执行一次」。另有一个 `media_bundle` 口可接 `QQ-多媒体加载` 的
-  `media_bundle`，只取其中图片并按包内顺序编号；两个口同时接入时 `参考图` 排在前面。
-  输入口固定为这两个，不会再自动增删。
+  不会被 ComfyUI 拆成「每张图执行一次」。输入口只有这一个，不会再自动增删；
+  手上只有 `media_bundle` 时可以先过 `QQ-自动拆分媒体`，用它的 `图像` 输出接进来。
 - **本地官方PE**：只用 `models/text_encoders`（含 `models/clip`）里的单文件 `safetensors`，
   经 ComfyUI 自带文本编码器栈（`CLIPType.QWEN_IMAGE`）加载，调用约定为 `tokenize → generate → decode`；
   手写对话模板、图生图的图像软 token、采样参数（temperature 0.7 / top_k 20 / top_p 0.95 /

@@ -473,9 +473,8 @@ class RegistrationTests(unittest.TestCase):
         for removed in ("主模型", "mmproj", "上下文长度"):
             self.assertNotIn(removed, controls)
         # 单个列表口 + media_bundle 口，不再自动扩展编号口
-        self.assertEqual(list(inputs["optional"]), ["参考图", "media_bundle"])
+        self.assertEqual(list(inputs["optional"]), ["参考图"])
         self.assertEqual(inputs["optional"]["参考图"][0], "IMAGE")
-        self.assertEqual(inputs["optional"]["media_bundle"][0], "MINIMAX_H3_MEDIA_BUNDLE")
         module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
         self.assertEqual(module.MAX_REFERENCE_IMAGES, 9)
 
@@ -623,16 +622,7 @@ class RegistrationTests(unittest.TestCase):
                 module._collect_reference_images({"参考图": [FakeImage(10)]})
             with self.assertRaisesRegex(ValueError, "只接受 IMAGE 张量"):
                 module._collect_reference_images({"参考图": ["not a tensor"]})
-            # media_bundle 只取图片，包内顺序即序号，音频视频被跳过
-            bundle = types.SimpleNamespace(items=(
-                types.SimpleNamespace(media_type="image", value=FakeImage()),
-                types.SimpleNamespace(media_type="audio", value=object()),
-                types.SimpleNamespace(media_type="image", value=FakeImage(2)),
-            ))
-            collected = module._collect_reference_images({"media_bundle": [bundle]})
-            self.assertEqual(len(collected), 3)
-            both = module._collect_reference_images({"参考图": [FakeImage()], "media_bundle": [bundle]})
-            self.assertEqual(len(both), 4)
+
 
     def test_qwen_pe_enhance_prompt_modes(self):
         module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
@@ -758,7 +748,7 @@ class RegistrationTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertIn('REFERENCE_INPUT = "参考图"', source)
-        self.assertIn('BUNDLE_INPUT = "media_bundle"', source)
+        self.assertNotIn("media_bundle", source)
         self.assertNotIn("IMAGE_INPUT_NAMES", source)
 
     def test_lightroom_controls_default_to_zero(self):
