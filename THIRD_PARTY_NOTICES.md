@@ -11,6 +11,17 @@ The following adapted components are distributed under the MIT License:
   [ComfyUI-H3-FaceRefine](https://github.com/Carasibana/ComfyUI-H3-FaceRefine),
   copyright (c) 2026 Carasibana.
 
+Not covered by the MIT grant above:
+
+- `node_modules/qwen_pe.py` and `node_modules/qwen_pe_prompts.py` port the
+  `TE MAN Qwen Image 2.1 AI提示词增强(本地orAPI)` node from the local `TE_MAN`
+  custom-node package. The Qwen Image 2.1 rewriting rules are the Qwen
+  project's own prompt templates; the node-level policy blocks, request shape
+  and parsing rules come from TE MAN, which ships its own terms
+  (`本项目代码仅供学习和阅读使用。未经作者书面授权，严禁任何形式的复制、修改、衍生开发及发布。`).
+  Those terms do not grant redistribution rights, so obtain the TE MAN
+  author's written authorization before publishing this port.
+
 MIT License
 
 Copyright (c) 2026 nkxx188

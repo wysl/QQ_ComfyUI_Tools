@@ -25,6 +25,7 @@
   - `QQ-绕过规则`
   - `QQ-图像轮询切换`
   - `QQ-多行文本`
+  - `QQ-Qwen Image 2.1 AI提示词增强(PE or API)`
 - `QQ/LR 调色`
   - `QQ-LR-光线调节`
   - `QQ-LR-色彩调节`
@@ -189,6 +190,36 @@ FPS 是播放速率，不会按分段相加；目标总帧数按合计时长一�
 输出文本按 系统提示词 + 空行 + 分隔符 + 空行 + 自由文本 拼接（分隔符上下自动加空行）。
 节点首行的「隐藏提示词」开关控制系统提示词框的显示与隐藏，隐藏不影响输出；开关状态与全部文本随工作流保存。
 两个多行框可拖拽角落调整高度，节点整体可自由缩放。
+
+`QQ-Qwen Image 2.1 AI提示词增强(PE or API)` 复刻 TE MAN 的 `TE MAN Qwen Image 2.1 AI提示词增强(本地orAPI)`，
+按 Qwen Image 2.1 官方规则（内置文生图八步法与图生图/多图编辑规则，提示词逐字移植）增强提示词，
+同样的 任务模式 / 输出语言 / 增强方式 组合会得到与原节点逐字节相同的 system prompt。
+相比原节点去掉了旧的「本地」通用 llama.cpp 通路，只保留 **本地官方PE** 和 **API** 两种增强方式，
+`主模型` / `mmproj` / `上下文长度` 这三个只服务于旧通路的控件也一并去掉。
+
+- **任务模式**：新增 `自动` 并作为默认值。自动=接了参考图走图生图、没接走文生图；也可以显式选 `文生图` / `图生图`。
+  显式图生图必须接参考图；显式文生图会忽略参考图（与原节点一致）。
+- **最大生成token**：默认 `4096`（范围 256–32768，步长 256）。API 方式和原节点一样不发送这个限制。
+- **参考图**：`图片1` → `图片9` 一组输入口，**接口序号即 `<imageN>` 序号**，最多 9 张（原节点是 8 个常驻口）。
+  节点默认只显示 1 个口，接满一个自动多出下一个，尾部空闲的自动收回，已连线的口不会被删。
+  每个口都保持列表语义，因此可以直接接 `QQ-多媒体加载` 的 `multi output`（一次带多张，按顺序展开，
+  不会被 ComfyUI 拆成「每张图执行一次」），也可以接 `QQ-媒体序号输出` 的单个 `图片 N` 口或普通 `Load Image`。
+  batch 张量按帧展开；总数超过 9 张直接报错，不会静默丢图。
+- **本地官方PE**：只用 `models/text_encoders`（含 `models/clip`）里的单文件 `safetensors`，
+  经 ComfyUI 自带文本编码器栈（`CLIPType.QWEN_IMAGE`）加载，调用约定为 `tokenize → generate → decode`；
+  手写对话模板、图生图的图像软 token、采样参数（temperature 0.7 / top_k 20 / top_p 0.95 /
+  repetition_penalty 1.05 / presence_penalty 0.0）和 `启用思考` 开关都与原节点一致。
+  `生成后自动卸载模型` 会卸载 PE 并释放显存；`seed` 为负数时按随机处理。
+  GGUF 属于已经移除的旧通路，不会出现在模型下拉里。
+- **API**：OpenAI 兼容接口，默认地址 `https://teynex.com`、默认模型 `deepseek-v4.1-flash`。
+  请求发到 `{base}/v1/responses`（Responses API，`instructions` + `input`，temperature 0.6）；
+  地址已带 `/v1` 时补 `/responses`，填完整的 `/v1/chat/completions` 或 `/v1/responses` 时原样使用。
+  没有参考图时 `input` 直接发纯文本，有参考图时才展开成多模态数组。
+  返回同时兼容 Responses 的 `output[].content[].text`、`output_text` 和 chat 的 `choices[].message.content`。
+  参考图按最长边 2048 等比压成 progressive JPEG（quality 90）后以 base64 发送。
+  `api_key` 留空时会尝试读取本机 TE MAN 插件 `config.ini` 的 `[gemini] api_key`（没装 TE MAN 就必须自己填）。
+- **输出**：单个 `增强提示词` STRING。优先取 JSON 里的 `rewritten_prompt`，模型直接输出干净的单段提示词也能接收；
+  思考块、代码块和 latin-1 乱码按原节点的规则清理，解析不出内容时报错并提示提高 `最大生成token`。
 
 输入/输出类型固定为 `IMAGE`：使用通配类型时，被绕过(Bypass)的节点会让 ComfyUI 前端的
 绕过解析走到不安全分支，导致执行时报 `Cannot read properties of undefined`。

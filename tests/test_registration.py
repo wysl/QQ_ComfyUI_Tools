@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 25)
+        self.assertEqual(len(mappings), 26)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -94,6 +94,10 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(display["QQ-多值输入"], "QQ-多值输入")
         self.assertEqual(display["QQIgnoreRules"], "QQ-绕过规则")
         self.assertEqual(display["QQIgnoreRulesController"], "QQ-绕过规则开关")
+        self.assertEqual(
+            display["QQQwenImage21PromptEnhancer"],
+            "QQ-Qwen Image 2.1 AI提示词增强(PE or API)",
+        )
 
     def test_ignore_rules_controller_is_frontend_only_and_keeps_stable_bindings(self):
         controller = self.package.NODE_CLASS_MAPPINGS["QQIgnoreRulesController"]
@@ -440,215 +444,150 @@ class RegistrationTests(unittest.TestCase):
         self.assertNotIn("node.widgets.splice(index, 1);", source)
 
     def test_qwen_pe_node_contract(self):
-        self.assertNotIn("QQQwenImage21PromptEnhancer", self.package.NODE_CLASS_MAPPINGS)
-        self.assertNotIn("QQQwenImage21PromptEnhancerPEAPI", self.package.NODE_CLASS_MAPPINGS)
-        return
         node = self.package.NODE_CLASS_MAPPINGS["QQQwenImage21PromptEnhancer"]
         self.assertEqual(node.RETURN_TYPES, ("STRING",))
         self.assertEqual(node.RETURN_NAMES, ("增强提示词",))
         self.assertTrue(node.INPUT_IS_LIST)
-        controls = node.INPUT_TYPES()["required"]
+        self.assertTrue(node.OUTPUT_NODE)
+        self.assertEqual(node.CATEGORY, "QQ/工具")
+        self.assertEqual(node.FUNCTION, "enhance_prompt")
+        inputs = node.INPUT_TYPES()
+        controls = inputs["required"]
         self.assertEqual(controls["任务模式"][0], ["自动", "文生图", "图生图"])
+        self.assertEqual(controls["任务模式"][1]["default"], "自动")
         self.assertEqual(controls["增强方式"][0], ["本地官方PE", "API"])
+        self.assertEqual(controls["增强方式"][1]["default"], "本地官方PE")
         self.assertEqual(controls["输出语言"][0], ["中文", "英文"])
-        self.assertNotIn("mmproj", " ".join(controls))
-        self.assertIn("reference_images", node.INPUT_TYPES()["optional"])
-        pe_api_node = self.package.NODE_CLASS_MAPPINGS["QQQwenImage21PromptEnhancerPEAPI"]
-        pe_api_controls = pe_api_node.INPUT_TYPES()["required"]
-        self.assertEqual(pe_api_node.RETURN_TYPES, ("STRING",))
-        self.assertEqual(pe_api_controls["任务模式"][0], ["自动", "文生图", "图生图"])
-        self.assertEqual(pe_api_controls["增强方式"][0], ["本地官方PE", "API"])
-        self.assertIn("文生图PE模型", pe_api_controls)
-        self.assertIn("图生图PE模型", pe_api_controls)
-        self.assertIn("上下文长度", pe_api_controls)
-        self.assertIn("seed", pe_api_controls)
-        self.assertIn("reference_images", pe_api_node.INPUT_TYPES()["optional"])
-        self.assertEqual(
-            pe_api_node.VALIDATE_INPUTS(**{"增强方式": "API", "API地址": "", "API密钥": "key", "API模型名": "model"}),
-            "API 方式需要填写 API地址",
-        )
+        self.assertEqual(controls["输出语言"][1]["default"], "中文")
+        self.assertEqual(controls["最大生成token"][1]["default"], 4096)
+        self.assertEqual(controls["最大生成token"][1]["min"], 256)
+        self.assertEqual(controls["最大生成token"][1]["max"], 32768)
+        self.assertEqual(controls["最大生成token"][1]["step"], 256)
+        self.assertEqual(controls["api_base_url"][1]["default"], "https://teynex.com")
+        self.assertEqual(controls["api_key"][1]["default"], "")
+        self.assertEqual(controls["seed"][1]["control_after_generate"], True)
+        # 旧的「本地」通用 LLaMA 通路连同它的专属控件一起去掉
+        for removed in ("主模型", "mmproj", "上下文长度"):
+            self.assertNotIn(removed, controls)
+        self.assertEqual(list(inputs["optional"]), [f"图片{index}" for index in range(1, 10)])
+        self.assertTrue(all(spec[0] == "IMAGE" for spec in inputs["optional"].values()))
         module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
-        with patch.object(module, "_request_api", return_value='{"rewritten_prompt":"api result"}') as request:
-            result = pe_api_node().enhance(**{
-                "输入提示词": "两个人站在海边",
-                "任务模式": "自动",
-                "输出语言": "中文",
-                "API地址": "https://example.test/v1",
-                "API密钥": "key",
-                "API模型名": "qwen-image",
-                "最大生成token": 512,
-                "最大边长": 1024,
-                "增强方式": "API",
-            })
-            self.assertEqual(result, ("api result",))
-            self.assertEqual(request.call_args.args[0], "https://example.test/v1")
-            self.assertIn("两个人站在海边", request.call_args.args[4])
-        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
-        self.assertIn("# Image Prompt Rewriting Expert", module.QWEN_T2I_SYSTEM_PROMPT)
-        self.assertIn("# Edit Prompt Enhancer", module.QWEN_EDIT_SYSTEM_PROMPT)
-        self.assertTrue(
-            module.QWEN_EDIT_SYSTEM_PROMPT.rstrip().endswith("The user's edit instruction to rewrite is:")
-        )
-        for method in ("API", "本地官方PE"):
-            for language in ("中文", "英文"):
-                system = module._build_system_prompt("文生图", language, method)
-                self.assertNotIn("## Language", system)
-                self.assertNotIn("one long English paragraph", system)
-                self.assertIn("one long paragraph", system)
-                expected_rule = (
-                    "节点选择的输出语言是中文"
-                    if language == "中文" else "The selected output language is English"
-                )
-                self.assertIn(expected_rule, system)
-                edit_system = module._build_system_prompt("图生图", language, method)
-                self.assertIn(expected_rule, edit_system)
-                self.assertIn("follows the node-selected output language", edit_system)
-                self.assertNotIn("User instruction is in Chinese →", edit_system)
-                self.assertNotIn("User instruction is in English →", edit_system)
-                self.assertNotIn("surrounding description (A) is still written in English", edit_system)
-                self.assertIn("Language of the TEXT THAT WILL BE RENDERED", edit_system)
-                self.assertTrue(edit_system.rstrip().endswith("The user's edit instruction to rewrite is:"))
-        system = module._build_system_prompt("文生图", "中文")
-        self.assertIn("## Output format", system)
-        local_system = module._build_system_prompt("文生图", "中文", "本地官方PE")
-        self.assertNotIn("## Language", local_system)
-        self.assertNotIn("## Output format", local_system)
-        self.assertIn("## Official PE output protocol", local_system)
-        self.assertIn('"rewritten_prompt"', local_system)
-        self.assertNotIn("plain text", local_system)
-        local_edit = module._build_system_prompt("图生图", "英文", "本地官方PE")
-        self.assertNotIn("## Output Format", local_edit)
-        self.assertIn("## Official PE output protocol", local_edit)
-        self.assertTrue(local_edit.rstrip().endswith("The user's edit instruction to rewrite is:"))
-        self.assertEqual(
-            module._normalize_api_url("https://x.com/v1"),
-            "https://x.com/v1/chat/completions",
-        )
-        self.assertEqual(
-            module._normalize_api_url("https://x.com/v1/chat/completions"),
-            "https://x.com/v1/chat/completions",
-        )
-        self.assertEqual(
-            module._normalize_api_url("https://x.com/"),
-            "https://x.com/v1/chat/completions",
-        )
-        self.assertEqual(
-            module._parse_pe_result('{"rewritten_prompt": "abc", "wh_ratio": "3:2"}'),
-            "abc",
-        )
-        fenced = "```json" + chr(10) + '{"rewritten_prompt": "abc", "wh_ratio": ""}' + chr(10) + "```"
-        self.assertEqual(module._parse_pe_result(fenced), "abc")
-        thinky = "<think>" + chr(10) + "x" + chr(10) + "</think>" + chr(10) + "plain text"
-        self.assertEqual(module._parse_pe_result(thinky), "plain text")
-        self.assertEqual(module._parse_pe_result("</think>final plain", False), "final plain")
-        self.assertEqual(module._parse_pe_result("<think" + ">abc", False), "")
-        self.assertEqual(
-            module._parse_pe_result('{"rewritten_prompt": "增强结果", "wh_ratio": "3:2"}', require_json=True),
-            "增强结果",
-        )
-        self.assertEqual(
-            module._parse_pe_result(
-                '结果如下：\n```json\n{"rewritten_prompt":"增强结果","wh_ratio":"","ratio_follow":""}\n```\n已完成。',
-                require_json=True,
-            ),
-            "增强结果",
-        )
-        self.assertEqual(
-            module._parse_pe_result('{"rewritten_prompt":"截断也能恢复"', require_json=True),
-            "截断也能恢复",
-        )
-        transcript = (
-            "USER Raw Input Prompt: 测试\n"
-            "ASSISTANT\n"
-            "{\"rewritten_prompt\":\"从 assistant 段提取\",\"wh_ratio\":\"\",\"ratio_follow\":\"\"}\n"
-            "USER 继续"
-        )
-        self.assertEqual(module._parse_pe_result(transcript, require_json=True), "从 assistant 段提取")
-        transcript_with_followup = (
-            "USER Raw Input Prompt: 测试\n"
-            "ASSISTANT:\n"
-            "{\"rewritten_prompt\":\"截断 assistant 段\"}\n"
-            "USER Raw Input Prompt: 后续内容"
-        )
-        self.assertEqual(
-            module._parse_pe_result(transcript_with_followup, require_json=True),
-            "截断 assistant 段",
-        )
-        im_start_transcript = (
-            "<|im_start|>user\nUSER Raw Input Prompt: 测试<|im_end|>\n"
-            "<|im_start|>assistant\n"
-            "{\"rewritten_prompt\":\"从 Qwen3.5 assistant 段提取\",\"wh_ratio\":\"\",\"ratio_follow\":\"\"}"
-            "<|im_end|>"
-        )
-        self.assertEqual(
-            module._parse_pe_result(im_start_transcript, require_json=True),
-            "从 Qwen3.5 assistant 段提取",
-        )
-        plain_transcript = (
-            "USER Raw Input Prompt: 测试\n"
-            "ASSISTANT\n"
-            "一位身穿汉服的少女站在花园里，夕阳照亮她的面容。\n"
-            "USER 继续"
-        )
-        self.assertEqual(
-            module._parse_pe_result(plain_transcript, require_json=True, allow_plain_prompt=True),
-            "一位身穿汉服的少女站在花园里，夕阳照亮她的面容。",
-        )
-        for malformed in (
-            'USER Raw Input Prompt: 测试\\nAI\\nUSER Raw Input Prompt: 测试',
-            '{"rewritten_prompt": "测试"} USER Raw Input Prompt: 测试',
-            '{"wh_ratio": "3:2"}',
-        ):
-            with self.subTest(malformed=malformed), self.assertRaises(RuntimeError):
-                module._parse_pe_result(malformed, require_json=True, allow_plain_prompt=True)
-        plain = "一位身穿汉服的少女站在花园里，夕阳从树叶间照亮她的面容。"
-        self.assertEqual(module._parse_pe_result(plain, require_json=True, allow_plain_prompt=True), plain)
-        with self.assertRaises(RuntimeError):
-            module._parse_pe_result(plain, require_json=True)
-        multiline_plain = "一位身穿汉服的少女站在花园里。\n夕阳从树叶间照亮她的面容。"
-        self.assertEqual(
-            module._parse_pe_result(multiline_plain, require_json=True, allow_plain_prompt=True),
-            "一位身穿汉服的少女站在花园里。 夕阳从树叶间照亮她的面容。",
-        )
-        for malformed in (
-            "好的，我来为你生成一张汉服少女的图片。",
-            "USER Raw Input Prompt: 汉服少女，背景是花园。",
-            "第一步分析用户请求，第二步组织画面细节。",
-            "一位汉服少女站在花园里。\n接下来我解释构图。",
-        ):
-            with self.subTest(malformed=malformed), self.assertRaises(RuntimeError):
-                module._parse_pe_result(malformed, require_json=True, allow_plain_prompt=True)
-        with patch.object(module, "_request_official_pe", return_value='{"rewritten_prompt": "增强结果"}') as request:
-            result = node().enhance(**{
-                "输入提示词": "一个女孩", "任务模式": "文生图", "增强方式": "本地官方PE",
-                "输出语言": "中文", "文生图PE模型": "pe.safetensors",
-            })
-            self.assertEqual(result, ("增强结果",))
-            self.assertIn("## Official PE output protocol", request.call_args.args[2])
-            self.assertEqual(request.call_args.args[3], "一个女孩")
-        with patch.object(module, "_request_official_pe", return_value=plain):
-            self.assertEqual(node().enhance(**{
-                "输入提示词": "汉服少女", "任务模式": "文生图", "增强方式": "本地官方PE",
-                "文生图PE模型": "pe.safetensors",
-            }), (plain,))
-        with patch.object(module, "_request_official_pe", return_value="USER Raw Input Prompt: 测试\\nAI\\nUSER"):
-            with self.assertRaisesRegex(RuntimeError, "官方 PE 模型"):
-                node().enhance(**{
-                    "输入提示词": "测试", "任务模式": "文生图", "增强方式": "本地官方PE",
-                    "输出语言": "中文", "文生图PE模型": "pe.safetensors",
-                })
-        self.assertEqual(module._model_choices(), [])
         self.assertEqual(module.MAX_REFERENCE_IMAGES, 9)
+
+    def test_qwen_pe_drops_the_legacy_local_llama_path(self):
         source = (Path(__file__).resolve().parents[1] / "node_modules" / "qwen_pe.py").read_text(
             encoding="utf-8",
         )
         self.assertIn("comfy.sd.load_clip", source)
-        self.assertIn("clip.generate(tokens, do_sample=False", source)
+        self.assertIn("comfy.sd.CLIPType.QWEN_IMAGE", source)
+        self.assertIn("clip.tokenize(text, images=list(images), thinking=bool(thinking))", source)
+        self.assertIn("Image.BICUBIC", source)
+        self.assertIn("progressive=True", source)
+        self.assertNotIn("llama_cpp", source)
+        self.assertNotIn("mmproj", source)
         self.assertNotIn("AutoModelForCausalLM", source)
 
-        class FakeBatch:
-            def __init__(self, frames):
-                self.frames = list(frames)
+    def test_qwen_pe_prompt_templates_follow_the_official_rules(self):
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
+        self.assertIn("# Image Prompt Rewriting Expert", module.QWEN_T2I_SYSTEM_PROMPT)
+        self.assertIn("# Edit Prompt Enhancer", module.QWEN_EDIT_SYSTEM_PROMPT)
+        for mode in ("文生图", "图生图"):
+            cleaned = module._clean_base_prompt(mode)
+            self.assertNotIn("one long English paragraph", cleaned)
+            self.assertNotIn("## Language", cleaned)
+            self.assertNotIn("## Output format", cleaned)
+            self.assertNotIn("## Output Format", cleaned)
+            self.assertNotIn("there are TWO separate language decisions", cleaned)
+        api = module._build_api_instructions("文生图", "中文")
+        self.assertTrue(api.startswith(module._clean_base_prompt("文生图")))
+        self.assertIn("## Node output controls", api)
+        self.assertIn("最终语言规则（优先级最高）：节点选择的输出语言是“中文”。", api)
+        self.assertTrue(api.endswith("当前为 API 模式：只输出最终增强后的提示词纯文本，不要输出 JSON、字段名、代码块、分析或解释。"))
+        self.assertNotIn("## Official PE output protocol", api)
+        pe_zh = module._build_official_pe_system("文生图", "中文")
+        pe_en = module._build_official_pe_system("图生图", "英文")
+        self.assertIn("## Official PE output protocol", pe_zh)
+        self.assertIn("节点选择的输出语言是中文。", pe_zh)
+        self.assertNotIn("## Node output controls", pe_zh)
+        self.assertIn("The selected output language is English", pe_en)
+        self.assertTrue(pe_en.startswith(module._clean_base_prompt("图生图")))
+        text = module._build_official_pe_text("SYS", "用户需求：\nhello", has_images=False)
+        self.assertEqual(
+            text,
+            "<start_of_turn>system\nSYS<end_of_turn>\n<start_of_turn>user\n"
+            "User Raw Input Prompt: 用户需求：\nhello.<end_of_turn>\n<start_of_turn>model\n",
+        )
+        with_image = module._build_official_pe_text("SYS", "U", has_images=True)
+        self.assertIn("<start_of_turn>user\n\n<image_soft_token>\n\nUser Raw Input Prompt: U.", with_image)
+
+    def test_qwen_pe_parses_model_output_like_the_original(self):
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
+        self.assertEqual(module._parse_result('{"rewritten_prompt": "abc", "wh_ratio": "3:2"}'), "abc")
+        fenced = "```json" + chr(10) + '{"rewritten_prompt": "abc"}' + chr(10) + "```"
+        self.assertEqual(module._parse_result(fenced), "abc")
+        self.assertEqual(
+            module._parse_result("前缀说明" + chr(10) + '{"rewritten_prompt":"abc"}' + chr(10) + "后缀"),
+            "abc",
+        )
+        self.assertEqual(module._parse_result("plain prompt"), "plain prompt")
+        self.assertEqual(module._parse_result('{"rewritten_prompt":  "  spaced  "}'), "spaced")
+        self.assertEqual(module._parse_result('{"rewritten_prompt":123}'), "123")
+        # 截断的 JSON 原样返回，和原节点一致
+        self.assertEqual(module._parse_result('{"rewritten_prompt":"截断"'), '{"rewritten_prompt":"截断"')
+        with self.assertRaisesRegex(ValueError, "模型返回为空"):
+            module._parse_result("   ")
+        think_close = "<" + "/think>"
+        self.assertEqual(module._clean_think_blocks("<think>a" + think_close + "b"), "b")
+        self.assertEqual(module._clean_think_blocks("<思考>z</思考>w"), "w")
+        self.assertEqual(
+            module._clean_think_blocks("```thought" + chr(10) + "x" + chr(10) + "```" + chr(10) + "y"),
+            "y",
+        )
+        self.assertEqual(module._clean_think_blocks("garbage" + think_close + "tail"), "tail")
+        self.assertEqual(module._clean_think_blocks("no think"), "no think")
+
+    def test_qwen_pe_api_url_and_payload_shape(self):
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
+        self.assertEqual(module._resolve_api_url("https://teynex.com"), "https://teynex.com/v1/responses")
+        self.assertEqual(module._resolve_api_url("https://x.com/v1"), "https://x.com/v1/responses")
+        self.assertEqual(
+            module._resolve_api_url("https://x.com/v1/chat/completions"),
+            "https://x.com/v1/chat/completions",
+        )
+        self.assertEqual(module._resolve_api_url("https://api.deepseek.com"), "https://api.deepseek.com/responses")
+        with self.assertRaisesRegex(ValueError, "未配置有效的 API URL"):
+            module._resolve_api_url("  ")
+        self.assertEqual(module._build_api_input("u", []), "u")
+        self.assertEqual(
+            module._build_api_input("u", ["AAA"]),
+            [{
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": "u"},
+                    {"type": "input_image", "image_url": "data:image/jpeg;base64,AAA"},
+                ],
+            }],
+        )
+        self.assertEqual(module._extract_response_text({"output_text": "B"}), "B")
+        self.assertEqual(
+            module._extract_response_text(
+                {"output": [{"type": "message", "content": [{"type": "output_text", "text": "A"}]}]},
+            ),
+            "A",
+        )
+        self.assertEqual(module._extract_response_text({"choices": [{"message": {"content": "C"}}]}), "C")
+        self.assertEqual(module._extract_response_text({"error": {"message": "boom"}}), "")
+        self.assertEqual(module._normalize_seed(-1), None)
+        self.assertEqual(module._normalize_seed(0), 0)
+        self.assertEqual(module._normalize_seed(42), 42)
+
+    def test_qwen_pe_collects_images_by_port_index(self):
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
+
+        class FakeImage(FakeTensor):
+            def __init__(self, frames=1):
+                self.frames = frames
+                self.shape = (frames, 8, 8, 3)
 
             def detach(self):
                 return self
@@ -657,123 +596,157 @@ class RegistrationTests(unittest.TestCase):
             def ndim(self):
                 return 4
 
-            @property
-            def shape(self):
-                return (len(self.frames), 1, 1, 1)
+            def __getitem__(self, item):
+                return FakeImage(1)
 
-            def __getitem__(self, index):
-                return self.frames[index]
-
-        fake_torch = types.SimpleNamespace(Tensor=FakeBatch)
+        fake_torch = types.SimpleNamespace(Tensor=FakeImage)
         with patch.object(module, "torch", fake_torch):
+            # 端口序号就是 <imageN> 序号，中间没接线的口自动跳过
             self.assertEqual(
-                len(module._flatten_reference_images([FakeBatch(list(range(9)))])),
-                9,
+                len(module._collect_reference_images({"图片1": [FakeImage()], "图片3": [FakeImage(2)]})),
+                3,
             )
-            with self.assertRaises(ValueError):
-                module._flatten_reference_images([FakeBatch(list(range(10)))])
+            # 一个口接 QQ-多媒体加载 的 multi output（列表）时按顺序整组展开
             self.assertEqual(
-                module._flatten_reference_images([[213, 0]], strict=False),
-                [],
+                len(module._collect_reference_images({"图片1": [[FakeImage(), FakeImage()], FakeImage()]})),
+                3,
             )
+            self.assertEqual(module._collect_reference_images({}), [])
+            with self.assertRaisesRegex(ValueError, "最多支持 9 张参考图"):
+                module._collect_reference_images({"图片1": [FakeImage(10)]})
+            with self.assertRaisesRegex(ValueError, "只接受 IMAGE 张量"):
+                module._collect_reference_images({"图片1": ["not a tensor"]})
 
-    def test_qwen_pe_local_multi_image_tokenization(self):
-        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
-
-        class Image:
-            def __init__(self, index):
-                self.index = index
-
-            def unsqueeze(self, dim):
-                if dim != 0:
-                    raise AssertionError("Expected a single batch dimension")
-                return self.index
-
-        # Qwen3VLTokenizer replaces image-pad IDs with image dictionaries in token tuples.
-        tokens = {"qwen3vl_8b": [[
-            ({"type": "image", "data": 1}, 1.0),
-            ({"type": "image", "data": 2}, 1.0),
-        ]]}
-        class Clip:
-            def tokenize(self, text, **kwargs):
-                self.text = text
-                self.kwargs = kwargs
-                return tokens
-
-            def generate(self, received, **kwargs):
-                self.received = received
-                return [1]
-
-            def decode(self, received):
-                return '{"rewritten_prompt": "有效结果"}'
-
-        clip = Clip()
-        result = module._generate_clip(clip, "system", "user", 100, 2, False, [Image(1), Image(2)])
-        self.assertEqual(result, '{"rewritten_prompt": "有效结果"}')
-        self.assertEqual(clip.kwargs["images"], [1, 2])
-        self.assertEqual(clip.kwargs["system_prompt"], "system")
-        self.assertIs(clip.received, tokens)
-
-        with patch.object(clip, "tokenize", return_value={"qwen3vl_8b": [[(1, 1.0)]]}):
-            with self.assertRaisesRegex(RuntimeError, "视觉 token"):
-                module._generate_clip(clip, "system", "user", 100, 2, False, [Image(1)])
-
-    def test_qwen_pe_image_modes_and_model_selection(self):
+    def test_qwen_pe_enhance_prompt_modes(self):
         module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
         node = module.QQQwenImage21PromptEnhancer
-        t2i = "Qwen-Image-2.1-T2I.safetensors"
-        edit = "Qwen-Image-2.1-Edit.safetensors"
-        gguf = "Qwen-Image-2.1-Edit.gguf"
-        with patch.object(module, "_model_choices", return_value=[t2i, edit, gguf, "unknown.safetensors"]):
-            controls = node.INPUT_TYPES()["required"]
-        self.assertIn(edit, controls["文生图PE模型"][0])
-        self.assertIn(t2i, controls["图生图PE模型"][0])
-        self.assertIn("unknown.safetensors", controls["图生图PE模型"][0])
 
-        with patch.object(module, "_resolve_model_path", return_value="/models/Qwen-Image-2.1-Edit.safetensors"):
-            self.assertTrue(node.VALIDATE_INPUTS(
-                input_types=[{"reference_images": "IMAGE"}],
-                **{"任务模式": "自动", "增强方式": "本地官方PE", "图生图PE模型": edit},
-            ))
-            self.assertTrue(node.VALIDATE_INPUTS(
-                input_types=[{"reference_images": "IMAGE"}],
-                **{"任务模式": "图生图", "增强方式": "本地官方PE", "图生图PE模型": edit},
-            ))
-            self.assertIn("不能接参考图", node.VALIDATE_INPUTS(
-                input_types=[{"reference_images": "IMAGE"}],
-                **{"任务模式": "文生图", "增强方式": "本地官方PE", "文生图PE模型": t2i},
-            ))
-            self.assertIn("需要至少一张", node.VALIDATE_INPUTS(
-                input_types=[{}],
-                **{"任务模式": "图生图", "增强方式": "本地官方PE", "图生图PE模型": edit},
-            ))
-            self.assertIn("文生图模型", node.VALIDATE_INPUTS(
-                input_types=[{"reference_images": "IMAGE"}],
-                **{"任务模式": "自动", "增强方式": "本地官方PE", "图生图PE模型": t2i},
-            ))
-        with patch.object(module, "_resolve_model_path", return_value="/models/Qwen-Image-2.1-Edit.gguf"):
-            self.assertIn("不能读取参考图", node.VALIDATE_INPUTS(
-                input_types=[{"reference_images": "IMAGE"}],
-                **{"任务模式": "自动", "增强方式": "本地官方PE", "图生图PE模型": gguf},
-            ))
-            with self.assertRaisesRegex(ValueError, "视觉投影器"):
-                module._request_official_pe(gguf, 8192, "system", "user", 100, 0, False, [object()])
+        class FakeImage(FakeTensor):
+            def __init__(self, frames=1):
+                self.frames = frames
+                self.shape = (frames, 8, 8, 3)
 
-        with patch.object(module, "_flatten_reference_images", return_value=[object(), object()]), \
-                patch.object(module, "_request_official_pe", return_value='{"rewritten_prompt": "ok"}') as request:
-            result = node().enhance(**{
-                "输入提示词": "调整画面", "任务模式": "自动", "增强方式": "本地官方PE",
-                "图生图PE模型": edit, "reference_images": [object()],
-            })
-            self.assertEqual(result, ("ok",))
-            self.assertEqual(len(request.call_args.kwargs["images"]), 2)
-            self.assertIn("<image2>", request.call_args.args[3])
-        with patch.object(module, "_flatten_reference_images", return_value=[]):
-            with self.assertRaisesRegex(ValueError, "需要至少一张"):
-                node().enhance(**{"输入提示词": "调整画面", "任务模式": "图生图"})
-        with patch.object(module, "_flatten_reference_images", return_value=[object()]):
-            with self.assertRaisesRegex(ValueError, "不能接参考图"):
-                node().enhance(**{"输入提示词": "画一张图", "任务模式": "文生图"})
+            def detach(self):
+                return self
+
+            @property
+            def ndim(self):
+                return 4
+
+            def __getitem__(self, item):
+                return FakeImage(1)
+
+        fake_torch = types.SimpleNamespace(Tensor=FakeImage)
+        api_base = {
+            "输入提示词": ["两个人站在海边"], "任务模式": ["自动"], "输出语言": ["中文"],
+            "增强方式": ["API"], "api_base_url": ["https://example.test"], "api_key": ["key"],
+            "model": ["qwen-image"], "最大生成token": [4096],
+        }
+        self.assertEqual(node().enhance_prompt(**{"输入提示词": ["   "]}), ("",))
+        with patch.object(module, "torch", fake_torch), patch.object(module, "_request_api", return_value='{"rewritten_prompt":"api result"}') as request:
+            self.assertEqual(node().enhance_prompt(**api_base), ("api result",))
+            kwargs = request.call_args.kwargs
+            self.assertEqual(kwargs["api_base_url"], "https://example.test")
+            self.assertEqual(kwargs["user_prompt"], "用户需求：" + chr(10) + "两个人站在海边")
+            self.assertEqual(kwargs["image_base64_list"], [])
+            self.assertIn("## Node output controls", kwargs["instructions"])
+            self.assertIn("# Image Prompt Rewriting Expert", kwargs["instructions"])
+
+        with patch.object(module, "torch", fake_torch), \
+                patch.object(module, "_request_api", return_value="plain") as request, \
+                patch.object(module, "_images_to_jpeg_base64", return_value=["B64"]):
+            node().enhance_prompt(**{**api_base, "任务模式": ["自动"], "图片1": [FakeImage()]})
+            self.assertEqual(request.call_args.kwargs["image_base64_list"], ["B64"])
+            self.assertIn("# Edit Prompt Enhancer", request.call_args.kwargs["instructions"])
+
+        # 显式文生图忽略参考图，和原节点一致
+        with patch.object(module, "torch", fake_torch), \
+                patch.object(module, "_request_api", return_value="plain") as request:
+            node().enhance_prompt(**{**api_base, "任务模式": ["文生图"], "图片1": [FakeImage()]})
+            self.assertEqual(request.call_args.kwargs["image_base64_list"], [])
+
+        with self.assertRaisesRegex(ValueError, "图生图模式需要连接图片输入"):
+            node().enhance_prompt(**{"输入提示词": ["x"], "任务模式": ["图生图"], "增强方式": ["API"]})
+
+        with patch.object(module, "_request_api", side_effect=ValueError("未配置有效的 API URL")):
+            with self.assertRaisesRegex(RuntimeError, "QQ Qwen Image 2.1 提示词增强失败：未配置有效的 API URL"):
+                node().enhance_prompt(**api_base)
+
+        pe_base = {
+            "输入提示词": ["汉服少女"], "任务模式": ["文生图"], "增强方式": ["本地官方PE"],
+            "输出语言": ["英文"], "文生图PE模型": ["pe.safetensors"], "图生图PE模型": ["edit.safetensors"],
+            "最大生成token": [2048], "seed": [7], "启用思考": [True],
+        }
+        with patch.object(module, "_request_official_pe", return_value='{"rewritten_prompt":"pe result"}') as request:
+            self.assertEqual(node().enhance_prompt(**pe_base), ("pe result",))
+            kwargs = request.call_args.kwargs
+            self.assertEqual(kwargs["model_name"], "pe.safetensors")
+            self.assertEqual(kwargs["max_output_tokens"], 2048)
+            self.assertEqual(kwargs["seed"], 7)
+            self.assertTrue(kwargs["thinking"])
+            self.assertEqual(kwargs["images"], [])
+            self.assertIn("## Official PE output protocol", kwargs["system_prompt"])
+            self.assertIn("The selected output language is English", kwargs["system_prompt"])
+
+        with patch.object(module, "torch", fake_torch), \
+                patch.object(module, "_request_official_pe", return_value="plain") as request:
+            node().enhance_prompt(**{**pe_base, "任务模式": ["自动"], "图片1": [FakeImage()]})
+            self.assertEqual(request.call_args.kwargs["model_name"], "edit.safetensors")
+            self.assertEqual(len(request.call_args.kwargs["images"]), 1)
+
+        with patch.object(module, "_request_official_pe", return_value="plain"), \
+                patch.object(module, "_OfficialPEStorage") as storage:
+            node().enhance_prompt(**{**pe_base, "生成后自动卸载模型": [True]})
+            storage.unload.assert_called_once_with()
+
+        with patch.object(module, "_request_official_pe", return_value="plain"):
+            with self.assertRaisesRegex(RuntimeError, "请选择本地官方PE模型"):
+                node().enhance_prompt(**{**pe_base, "文生图PE模型": [module.MISSING_MODEL_PLACEHOLDER]})
+
+    def test_qwen_pe_validate_inputs(self):
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
+        node = self.package.NODE_CLASS_MAPPINGS["QQQwenImage21PromptEnhancer"]
+        self.assertEqual(
+            node.VALIDATE_INPUTS(**{"增强方式": ["API"], "api_base_url": [""], "api_key": ["k"], "model": ["m"]}),
+            "API 方式需要填写 api_base_url",
+        )
+        self.assertEqual(
+            node.VALIDATE_INPUTS(**{"增强方式": ["API"], "api_base_url": ["https://x"], "api_key": [""], "model": ["m"]}),
+            "API 方式需要填写 api_key（或在本机 TE MAN 的 config.ini 中配置）",
+        )
+        self.assertEqual(
+            node.VALIDATE_INPUTS(**{"增强方式": ["API"], "api_base_url": ["https://x"], "api_key": ["k"], "model": [""]}),
+            "API 方式需要填写 model",
+        )
+        self.assertTrue(node.VALIDATE_INPUTS(**{
+            "增强方式": ["API"], "api_base_url": ["https://x"], "api_key": ["k"], "model": ["m"],
+        }))
+        self.assertIn(
+            "safetensors PE 模型",
+            node.VALIDATE_INPUTS(**{
+                "增强方式": ["本地官方PE"], "任务模式": ["文生图"],
+                "文生图PE模型": [module.MISSING_MODEL_PLACEHOLDER],
+            }),
+        )
+        # 自动模式要等执行时才知道有没有参考图，交给运行期报错
+        self.assertTrue(node.VALIDATE_INPUTS(**{
+            "增强方式": ["本地官方PE"], "任务模式": ["自动"],
+            "文生图PE模型": [module.MISSING_MODEL_PLACEHOLDER],
+        }))
+
+    def test_qwen_pe_image_ports_are_bounded_on_the_frontend(self):
+        source = (Path(__file__).resolve().parents[1] / "web" / "qwen_pe_images.js").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn('const NODE_TYPE = "QQQwenImage21PromptEnhancer";', source)
+        self.assertIn("const MIN_IMAGES = 1;", source)
+        self.assertIn("const MAX_IMAGES = 9;", source)
+        self.assertIn("function imageName(slot)", source)
+        self.assertIn("function targetCount(node)", source)
+        self.assertIn("function dropTrailingFree(node, floor)", source)
+        self.assertIn("if (hasLink(last)) break;", source)
+        self.assertIn("input.isList = true;", source)
+        self.assertIn('name: "QQ.QwenPeImages"', source)
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
