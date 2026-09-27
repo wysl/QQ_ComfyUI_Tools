@@ -197,8 +197,8 @@ FPS 是播放速率，不会按分段相加；目标总帧数按合计时长一�
 参考图为单个 `reference_images` 输入口：顺序即 `<imageN>` 序号，最多 9 张，可直接接 `QQ-多媒体加载` 的 `multi output`；
 任务模式支持 自动/文生图/图生图（自动=接了参考图走图生图）。模型下拉支持 gguf 文件（含分片）与
 safetensors 单文件/目录：safetensors 走 ComfyUI 自带 TE 栈加载（内置 tokenizer 与架构识别，
-调用约定同核心 TextGenerate 节点），gguf 走 llama-cpp。本地官方PE 使用单个 JSON 对象的输出协议，
-只提取 `rewritten_prompt`；如果模型输出对话续写或无效 JSON，会明确报错，不再将原始文本当作提示词。
+调用约定同核心 TextGenerate 节点），gguf 走 llama-cpp。本地官方PE 优先提取 JSON 对象中的
+`rewritten_prompt`；文生图模型直接输出干净的单段描述时也可接收。对话续写、不完整 JSON 和思考内容会报错。
 API 方式仍按原有 JSON 策略提取 `rewritten_prompt`。
 本地图生图 PE 会将参考图送入 ComfyUI 的视觉 tokenizer，并检查视觉 token 数；需选择支持视觉输入的
 safetensors 模型。GGUF 本地通路未配置视觉投影器，不能用于图生图，图生图可改用支持视觉输入的

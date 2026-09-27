@@ -519,7 +519,20 @@ class RegistrationTests(unittest.TestCase):
             '{"wh_ratio": "3:2"}',
         ):
             with self.subTest(malformed=malformed), self.assertRaises(RuntimeError):
-                module._parse_pe_result(malformed, require_json=True)
+                module._parse_pe_result(malformed, require_json=True, allow_plain_prompt=True)
+        plain = "一位身穿汉服的少女站在花园里，夕阳从树叶间照亮她的面容。"
+        self.assertEqual(module._parse_pe_result(plain, require_json=True, allow_plain_prompt=True), plain)
+        with self.assertRaises(RuntimeError):
+            module._parse_pe_result(plain, require_json=True)
+        for malformed in (
+            "好的，我来为你生成一张汉服少女的图片。",
+            "USER Raw Input Prompt: 汉服少女，背景是花园。",
+            "第一步分析用户请求，第二步组织画面细节。",
+            "一位汉服少女站在花园里。\n接下来我解释构图。",
+            '{"rewritten_prompt": "一位汉服少女"',
+        ):
+            with self.subTest(malformed=malformed), self.assertRaises(RuntimeError):
+                module._parse_pe_result(malformed, require_json=True, allow_plain_prompt=True)
         with patch.object(module, "_request_official_pe", return_value='{"rewritten_prompt": "增强结果"}') as request:
             result = node().enhance(**{
                 "输入提示词": "一个女孩", "任务模式": "文生图", "增强方式": "本地官方PE",
@@ -527,6 +540,12 @@ class RegistrationTests(unittest.TestCase):
             })
             self.assertEqual(result, ("增强结果",))
             self.assertIn("## Official PE output protocol", request.call_args.args[2])
+            self.assertEqual(request.call_args.args[3], "一个女孩")
+        with patch.object(module, "_request_official_pe", return_value=plain):
+            self.assertEqual(node().enhance(**{
+                "输入提示词": "汉服少女", "任务模式": "文生图", "增强方式": "本地官方PE",
+                "文生图PE模型": "pe.safetensors",
+            }), (plain,))
         with patch.object(module, "_request_official_pe", return_value="USER Raw Input Prompt: 测试\\nAI\\nUSER"):
             with self.assertRaisesRegex(RuntimeError, "官方 PE 模型"):
                 node().enhance(**{
