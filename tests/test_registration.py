@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 27)
+        self.assertEqual(len(mappings), 28)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -94,6 +94,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(display["QQ-多值输入"], "QQ-多值输入")
         self.assertEqual(display["QQIgnoreRules"], "QQ-绕过规则")
         self.assertEqual(display["QQIgnoreRulesController"], "QQ-绕过规则开关")
+        self.assertEqual(display["QQTextPollingSwitch"], "QQ-文本轮询切换")
         self.assertEqual(
             display["QQQwenImage21PromptEnhancer"],
             "QQ-Qwen Image 2.1 AI提示词增强(PE or API)",

@@ -135,6 +135,9 @@ class PollingSwitchFrontendTests(unittest.TestCase):
 
     def test_targets_the_right_node(self):
         self.assertIn('const NODE_TYPE = "QQPollingSwitch";', self.source)
+        self.assertIn('const TEXT_NODE_TYPE = "QQTextPollingSwitch";', self.source)
+        self.assertIn("[NODE_TYPE]: \"IMAGE\",", self.source)
+        self.assertIn("[TEXT_NODE_TYPE]: \"STRING\",", self.source)
 
     def test_has_dynamic_helpers(self):
         for name in ("function inputName", "function targetCount",
@@ -145,8 +148,9 @@ class PollingSwitchFrontendTests(unittest.TestCase):
     def test_input_names_match_backend(self):
         # 与后端 f"input{index + 1}" 一致
         self.assertIn("return `input${slot + 1}`;", self.source)
-        # 前端补的口也必须是 IMAGE，保持与后端一致
-        self.assertIn('node.addInput(inputName(node.inputs?.length || 0), "IMAGE");', self.source)
+        # 前端补的口按节点类型取 IMAGE / STRING，保持与后端一致
+        self.assertIn("node.addInput(inputName(node.inputs?.length || 0), socketType(node));", self.source)
+        self.assertIn("return SOCKET_TYPES[node?.type] || \"IMAGE\";", self.source)
 
     def test_hooks_connection_and_configure(self):
         self.assertIn("prototype.onConnectionsChange", self.source)
@@ -160,6 +164,53 @@ class PollingSwitchFrontendTests(unittest.TestCase):
 
     def test_skips_while_graph_is_configuring(self):
         self.assertIn("app?.configuringGraph", self.source)
+
+
+class TextPollingSwitchTests(unittest.TestCase):
+    """QQ-文本轮询切换：和图像版同构，但空字符串/纯空白算没有内容。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.module = load_module()
+        cls.node = cls.module.QQTextPollingSwitch
+
+    def test_blank_text_rules(self):
+        blank = self.module._is_blank_text
+        self.assertTrue(blank(None))
+        self.assertTrue(blank(""))
+        self.assertTrue(blank("   "))
+        self.assertTrue(blank("\n\t"))
+        self.assertTrue(blank([]))
+        self.assertTrue(blank({}))
+        self.assertFalse(blank("x"))
+        self.assertFalse(blank("  x  "))
+        self.assertFalse(blank(0))
+        self.assertFalse(blank(["a"]))
+
+    def test_picks_first_non_blank_text(self):
+        self.assertEqual(self.node.pick_first(input1="", input2="B", input3="C"), ("B",))
+        self.assertEqual(self.node.pick_first(input1="  ", input2="B"), ("B",))
+        self.assertEqual(self.node.pick_first(input1="A", input2="B"), ("A",))
+
+    def test_all_blank_returns_empty_string(self):
+        self.assertEqual(self.node.pick_first(input1="", input2="   "), ("",))
+        self.assertEqual(self.node.pick_first(), ("",))
+
+    def test_contract(self):
+        self.assertEqual(self.node.RETURN_TYPES, ("STRING",))
+        self.assertEqual(self.node.RETURN_NAMES, ("文本",))
+        inputs = self.node.INPUT_TYPES()["optional"]
+        self.assertEqual(len(inputs), self.module.MAX_POLL_INPUTS)
+        for name, spec in inputs.items():
+            self.assertEqual(spec[0], "STRING", msg=f"{name} 应为 STRING")
+            self.assertTrue(spec[1].get("forceInput"), msg=f"{name} 应为纯输入口")
+
+    def test_registered(self):
+        self.assertIn("QQTextPollingSwitch", self.module.NODE_CLASS_MAPPINGS)
+        self.assertEqual(
+            self.module.NODE_DISPLAY_NAME_MAPPINGS["QQTextPollingSwitch"],
+            "QQ-文本轮询切换",
+        )
 
 
 if __name__ == "__main__":
