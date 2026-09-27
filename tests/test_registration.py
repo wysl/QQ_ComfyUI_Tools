@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 25)
+        self.assertEqual(len(mappings), 26)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -438,6 +438,82 @@ class RegistrationTests(unittest.TestCase):
         self.assertNotIn("onDrawForeground", source)
         self.assertNotIn("node.widgets.unshift(domWidget);", source)
         self.assertNotIn("node.widgets.splice(index, 1);", source)
+
+    def test_qwen_pe_node_contract(self):
+        node = self.package.NODE_CLASS_MAPPINGS["QQQwenImage21PromptEnhancer"]
+        self.assertEqual(node.RETURN_TYPES, ("STRING", "STRING"))
+        self.assertEqual(node.RETURN_NAMES, ("增强提示词", "宽高比"))
+        self.assertTrue(node.INPUT_IS_LIST)
+        controls = node.INPUT_TYPES()["required"]
+        self.assertEqual(controls["增强方式"][0], ["本地官方PE", "API"])
+        self.assertEqual(controls["输出语言"][0], ["中文", "英文"])
+        self.assertNotIn("mmproj", " ".join(controls))
+        self.assertIn("reference_images", node.INPUT_TYPES()["optional"])
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
+        self.assertIn("# Image Prompt Rewriting Expert", module.QWEN_T2I_SYSTEM_PROMPT)
+        self.assertIn("# Edit Prompt Enhancer", module.QWEN_EDIT_SYSTEM_PROMPT)
+        self.assertTrue(
+            module.QWEN_EDIT_SYSTEM_PROMPT.rstrip().endswith("The user's edit instruction to rewrite is:")
+        )
+        system = module._build_system_prompt("文生图", "中文")
+        self.assertNotIn("## Language", system)
+        self.assertIn("## Output format", system)
+        self.assertIn("节点选择的输出语言是中文", system)
+        system_en = module._build_system_prompt("图生图", "英文")
+        self.assertIn("The selected output language is English", system_en)
+        self.assertTrue(system_en.rstrip().endswith("The user's edit instruction to rewrite is:"))
+        self.assertEqual(
+            module._normalize_api_url("https://x.com/v1"),
+            "https://x.com/v1/chat/completions",
+        )
+        self.assertEqual(
+            module._normalize_api_url("https://x.com/v1/chat/completions"),
+            "https://x.com/v1/chat/completions",
+        )
+        self.assertEqual(
+            module._normalize_api_url("https://x.com/"),
+            "https://x.com/v1/chat/completions",
+        )
+        self.assertEqual(
+            module._parse_pe_result('{"rewritten_prompt": "abc", "wh_ratio": "3:2"}'),
+            ("abc", "3:2"),
+        )
+        fenced = "```json" + chr(10) + '{"rewritten_prompt": "abc", "wh_ratio": ""}' + chr(10) + "```"
+        self.assertEqual(module._parse_pe_result(fenced), ("abc", ""))
+        thinky = "<think>" + chr(10) + "x" + chr(10) + "</think>" + chr(10) + "plain text"
+        self.assertEqual(module._parse_pe_result(thinky), ("plain text", ""))
+        self.assertEqual(module.MAX_REFERENCE_IMAGES, 9)
+
+        class FakeBatch:
+            def __init__(self, frames):
+                self.frames = list(frames)
+
+            def detach(self):
+                return self
+
+            @property
+            def ndim(self):
+                return 4
+
+            @property
+            def shape(self):
+                return (len(self.frames), 1, 1, 1)
+
+            def __getitem__(self, index):
+                return self.frames[index]
+
+        fake_torch = types.SimpleNamespace(Tensor=FakeBatch)
+        with patch.object(module, "torch", fake_torch):
+            self.assertEqual(
+                len(module._flatten_reference_images([FakeBatch(list(range(9)))])),
+                9,
+            )
+            with self.assertRaises(ValueError):
+                module._flatten_reference_images([FakeBatch(list(range(10)))])
+            self.assertEqual(
+                module._flatten_reference_images([[213, 0]], strict=False),
+                [],
+            )
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
