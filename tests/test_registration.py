@@ -509,6 +509,8 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("function commitExternalSpec(node)", source)
         self.assertIn('makeButton("提交", "wysl-media-external-submit"', source)
         self.assertIn(".wysl-media-card.is-external{", source)
+        self.assertIn("ordered.sort((a, b) => a.number - b.number);", source)
+        self.assertIn(".wysl-media-toolbar button,.wysl-media-modal button,.wysl-media-external-submit{", source)
         self.assertNotIn("已连接，未收到外部图片", source)
         self.assertIn("const shown = numbers ? numbers[index] : index + 1;", source)
         self.assertIn('externalInput.addEventListener("keydown"', source)

@@ -978,6 +978,7 @@ function renderGroup(node, group, values) {
     }
     const model = group.type === "image" ? externalDisplayModel(node, values.length) : null;
     const numbers = model ? model.numbers : null;
+    const ordered = [];
     values.forEach((path, index) => {
         let card = cards.get(path);
         if (!card) {
@@ -991,7 +992,7 @@ function renderGroup(node, group, values) {
         if (order) order.textContent = String(shown);
         // Re-appending moves the existing element, so already decoded
         // thumbnails are reused instead of rebuilt on every state change.
-        list.append(card);
+        ordered.push({ number: shown, element: card });
     });
     const placeholderKeys = new Set();
     for (const position of model?.placeholders || []) {
@@ -1004,7 +1005,7 @@ function renderGroup(node, group, values) {
         }
         const order = card.querySelector(".wysl-media-order");
         if (order) order.textContent = String(position);
-        list.append(card);
+        ordered.push({ number: position, element: card });
     }
     for (const [key, card] of cards) {
         if (key.startsWith("__external__") && !placeholderKeys.has(key)) {
@@ -1012,6 +1013,8 @@ function renderGroup(node, group, values) {
             cards.delete(key);
         }
     }
+    ordered.sort((a, b) => a.number - b.number);
+    for (const entry of ordered) list.append(entry.element);
     const empty = section.__wyslEmpty;
     if (empty) {
         if (values.length || placeholderKeys.size) empty.remove();
@@ -1597,15 +1600,15 @@ const CSS_TEXT = `
 .wysl-media-external-input{box-sizing:border-box;flex:0 0 88px;height:24px;padding:2px 6px;border:1px solid var(--border-color,#535d66);border-radius:4px;background:var(--comfy-input-bg,#22282d);color:var(--fg-color,#e3e7ea);font:inherit;font-size:11px}
 .wysl-media-external-input:focus-visible{outline:2px solid var(--p-primary-color,#4b86b4);outline-offset:1px}
 .wysl-media-external-status{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--content-fg,#8fa3b0)}
-.wysl-media-external-submit{flex:0 0 auto;padding:3px 9px;font-size:11px;border-radius:4px}
+.wysl-media-external-submit{flex:0 0 auto;font-size:11px}
 .wysl-media-card.is-external{border-style:dashed;cursor:default;background:transparent}
 .wysl-media-card-external-body{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--content-fg,#8fa3b0);font-size:10px}
 .wysl-media-title{font-weight:650;color:var(--fg-color,#f1f3f5);margin-right:2px}
 .wysl-media-count{color:var(--content-fg,#8c969f);opacity:.72;font-size:10px;margin-right:auto}
-.wysl-media-toolbar button,.wysl-media-modal button{border:1px solid var(--border-color,rgba(255,255,255,.14));border-radius:4px;background:var(--comfy-input-bg,#343a40);color:var(--fg-color,#e9edf0);padding:4px 8px;cursor:pointer;font:inherit}
-.wysl-media-toolbar button:hover:not(:disabled),.wysl-media-modal button:hover:not(:disabled){background:var(--comfy-menu-hover-bg,#46505a);border-color:var(--border-color,rgba(255,255,255,.26))}
-.wysl-media-toolbar button:focus-visible,.wysl-media-modal button:focus-visible,.wysl-media-file-row:focus-within{outline:2px solid var(--p-primary-color,#4b86b4);outline-offset:1px}
-.wysl-media-toolbar button:disabled,.wysl-media-modal button:disabled{opacity:.45;cursor:not-allowed}
+.wysl-media-toolbar button,.wysl-media-modal button,.wysl-media-external-submit{border:1px solid var(--border-color,rgba(255,255,255,.14));border-radius:4px;background:var(--comfy-input-bg,#343a40);color:var(--fg-color,#e9edf0);padding:4px 8px;cursor:pointer;font:inherit}
+.wysl-media-toolbar button:hover:not(:disabled),.wysl-media-modal button:hover:not(:disabled),.wysl-media-external-submit:hover:not(:disabled){background:var(--comfy-menu-hover-bg,#46505a);border-color:var(--border-color,rgba(255,255,255,.26))}
+.wysl-media-toolbar button:focus-visible,.wysl-media-modal button:focus-visible,.wysl-media-external-submit:focus-visible,.wysl-media-file-row:focus-within{outline:2px solid var(--p-primary-color,#4b86b4);outline-offset:1px}
+.wysl-media-toolbar button:disabled,.wysl-media-modal button:disabled,.wysl-media-external-submit:disabled{opacity:.45;cursor:not-allowed}
 .wysl-media-clear{color:var(--error-color,#d7afb0)}
 .wysl-media-groups{display:flex;flex:1 1 auto;flex-direction:column;gap:${GROUP_GAP}px;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin}
 .wysl-media-group{min-width:0;flex:0 0 auto;padding-top:5px;border-top:1px solid var(--border-color,rgba(255,255,255,.09))}
