@@ -54,7 +54,7 @@
 官方 `KSampler`、`VAEDecode` 三个节点合成一个：内部先按官方规则编码正负条件和参考图 latent，
 再跑 K 采样，最后 VAE 解码直接输出 `图像`，省掉采样器和解码器两条连线。
 采样控件（seed / steps / cfg / sampler_name / scheduler / denoise）与官方 KSampler 完全一致，
-参考图同样是单个列表口 `参考图`（最多 16 张）。编码规则与官方 `Text Encode Qwen Image 2.1` 一致：`resolution`（默认 1024、步长 32）把参考图缩到约 resolution×resolution、32 的倍数、保持宽高比，填 0 则保持各自尺寸；接了 `vae` 时参考图同时编码成 `reference_latents` 拼进正负条件。需要单独控制采样环节时可以直接用官方 `Text Encode Qwen Image 2.1` 接官方 KSampler / VAEDecode。
+参考图同样是单个列表口 `参考图`（最多 16 张）。编码规则与官方 `Text Encode Qwen Image 2.1` 一致：`resolution`（默认 1024、步长 32）把参考图缩到约 resolution×resolution、32 的倍数、保持宽高比，填 0 则保持各自尺寸；接了 `vae` 时参考图同时编码成 `reference_latents` 拼进正负条件。可选的 `latent_image` 口接自定义空 latent（如 `EmptyLatentImage`）来指定输出的宽高比和分辨率；不接时采样画布跟随第一张参考图缩放后的尺寸（官方 edit 的对齐约定，画布和参考图不一致时编辑会偏）。需要单独控制采样环节时可以直接用官方 `Text Encode Qwen Image 2.1` 接官方 KSampler / VAEDecode。
 
 `QQ-Grok图像生成` 使用 OpenAI-compatible 的 Grok2API 图片接口，默认模型为
 `grok-imagine-image-2.0`。它支持文生图，也支持将 ComfyUI `IMAGE` 批次作为参考图发送到

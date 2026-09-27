@@ -919,7 +919,8 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(controls["cfg"][1]["default"], 8.0)
         self.assertEqual(controls["denoise"][1]["default"], 1.0)
         self.assertEqual(controls["seed"][1]["control_after_generate"], True)
-        self.assertEqual(list(inputs["optional"]), ["参考图"])
+        self.assertEqual(list(inputs["optional"]), ["参考图", "latent_image"])
+        self.assertEqual(inputs["optional"]["latent_image"][0], "LATENT")
 
     def test_qwen_encode21_all_in_one_runs_sampler_and_decoder(self):
         module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_encode21")
@@ -959,6 +960,19 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(kwargs["latent_image"], {"samples": "empty"})
         self.assertEqual(kwargs["denoise"], 0.9)
         self.assertEqual(calls[1], ("decode", "V", {"samples": "denoised"}))
+
+        # 接了 latent_image 时采样画布完全由它决定
+        calls.clear()
+        with patch.dict(sys.modules, {"nodes": fake_nodes}), patch.object(
+            module, "_encode_references", return_value=("pos", "neg", {"samples": "empty"})
+        ):
+            module.QQQwenImage21AllInOne().run(
+                model=["M"], clip=["C"], vae=["V"], prompt=["P"], negative_prompt=["N"],
+                resolution=[1024], seed=[0], steps=[20], cfg=[8.0],
+                sampler_name=["euler"], scheduler=["normal"], denoise=[1.0],
+                latent_image=[{"samples": "custom"}],
+            )
+        self.assertEqual(calls[0][1]["latent_image"], {"samples": "custom"})
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
