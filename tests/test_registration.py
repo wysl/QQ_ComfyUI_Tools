@@ -714,11 +714,12 @@ class RegistrationTests(unittest.TestCase):
     def test_qwen_pe_longest_edge_scaling(self):
         module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
         controls = module.QQQwenImage21PromptEnhancer.INPUT_TYPES()["required"]
-        spec = controls["最长边缩放"][1]
-        self.assertEqual(controls["最长边缩放"][0], "INT")
+        spec = controls["最大边长"][1]
+        self.assertEqual(controls["最大边长"][0], "INT")
         self.assertEqual(spec["default"], 1024)
         self.assertEqual(spec["step"], 32)
         self.assertEqual(spec["min"], 32)
+        self.assertEqual(list(controls)[-1], "最大边长")
         self.assertEqual(module._round_to_multiple(1651.6), 1664)
         self.assertEqual(module._round_to_multiple(10), 32)
 
