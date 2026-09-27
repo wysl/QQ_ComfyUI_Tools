@@ -200,11 +200,13 @@ FPS 是播放速率，不会按分段相加；目标总帧数按合计时长一�
 - **任务模式**：新增 `自动` 并作为默认值。自动=接了参考图走图生图、没接走文生图；也可以显式选 `文生图` / `图生图`。
   显式图生图必须接参考图；显式文生图会忽略参考图（与原节点一致）。
 - **最大生成token**：默认 `4096`（范围 256–32768，步长 256）。API 方式和原节点一样不发送这个限制。
-- **参考图**：`图片1` → `图片9` 一组输入口，**接口序号即 `<imageN>` 序号**，最多 9 张（原节点是 8 个常驻口）。
-  节点默认只显示 1 个口，接满一个自动多出下一个，尾部空闲的自动收回，已连线的口不会被删。
-  每个口都保持列表语义，因此可以直接接 `QQ-多媒体加载` 的 `multi output`（一次带多张，按顺序展开，
-  不会被 ComfyUI 拆成「每张图执行一次」），也可以接 `QQ-媒体序号输出` 的单个 `图片 N` 口或普通 `Load Image`。
-  batch 张量按帧展开；总数超过 9 张直接报错，不会静默丢图。
+- **参考图**：单个列表输入口 `参考图`，**接入顺序即 `<imageN>` 序号**，最多 9 张，超出直接报
+  「最多支持 9 张参考图，当前 N 张」，不会静默丢图。接 `QQ-多媒体加载` 的 `multi output`
+  （列表型输出）时按列表顺序展开，与加载器面板里的序号一致；接普通 batch 张量（`Load Image` 等）
+  时按 batch 维展平，顺序同样即序号。节点是 `INPUT_IS_LIST`，一张列表只执行一次，
+  不会被 ComfyUI 拆成「每张图执行一次」。另有一个 `media_bundle` 口可接 `QQ-多媒体加载` 的
+  `media_bundle`，只取其中图片并按包内顺序编号；两个口同时接入时 `参考图` 排在前面。
+  输入口固定为这两个，不会再自动增删。
 - **本地官方PE**：只用 `models/text_encoders`（含 `models/clip`）里的单文件 `safetensors`，
   经 ComfyUI 自带文本编码器栈（`CLIPType.QWEN_IMAGE`）加载，调用约定为 `tokenize → generate → decode`；
   手写对话模板、图生图的图像软 token、采样参数（temperature 0.7 / top_k 20 / top_p 0.95 /
@@ -217,7 +219,7 @@ FPS 是播放速率，不会按分段相加；目标总帧数按合计时长一�
   没有参考图时 `input` 直接发纯文本，有参考图时才展开成多模态数组。
   返回同时兼容 Responses 的 `output[].content[].text`、`output_text` 和 chat 的 `choices[].message.content`。
   参考图按最长边 2048 等比压成 progressive JPEG（quality 90）后以 base64 发送。
-  `api_key` 留空时会尝试读取本机 TE MAN 插件 `config.ini` 的 `[gemini] api_key`（没装 TE MAN 就必须自己填）。
+  `api_url` 留空时回读本机 TE MAN 插件 `config.ini` 的 `[gemini] api_base_url`，`api_key` 留空时回读 `[gemini] api_key`（没装 TE MAN 就必须自己填）。
 - **输出**：单个 `增强提示词` STRING。优先取 JSON 里的 `rewritten_prompt`，模型直接输出干净的单段提示词也能接收；
   思考块、代码块和 latin-1 乱码按原节点的规则清理，解析不出内容时报错并提示提高 `最大生成token`。
 

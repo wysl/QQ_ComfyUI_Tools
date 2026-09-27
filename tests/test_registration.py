@@ -463,14 +463,19 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(controls["最大生成token"][1]["min"], 256)
         self.assertEqual(controls["最大生成token"][1]["max"], 32768)
         self.assertEqual(controls["最大生成token"][1]["step"], 256)
-        self.assertEqual(controls["api_base_url"][1]["default"], "https://teynex.com")
+        self.assertEqual(controls["api_url"][1]["default"], "https://teynex.com")
+        # api_url 在 api_key 前面
+        order = list(controls)
+        self.assertLess(order.index("api_url"), order.index("api_key"))
         self.assertEqual(controls["api_key"][1]["default"], "")
         self.assertEqual(controls["seed"][1]["control_after_generate"], True)
         # 旧的「本地」通用 LLaMA 通路连同它的专属控件一起去掉
         for removed in ("主模型", "mmproj", "上下文长度"):
             self.assertNotIn(removed, controls)
-        self.assertEqual(list(inputs["optional"]), [f"图片{index}" for index in range(1, 10)])
-        self.assertTrue(all(spec[0] == "IMAGE" for spec in inputs["optional"].values()))
+        # 单个列表口 + media_bundle 口，不再自动扩展编号口
+        self.assertEqual(list(inputs["optional"]), ["参考图", "media_bundle"])
+        self.assertEqual(inputs["optional"]["参考图"][0], "IMAGE")
+        self.assertEqual(inputs["optional"]["media_bundle"][0], "MINIMAX_H3_MEDIA_BUNDLE")
         module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
         self.assertEqual(module.MAX_REFERENCE_IMAGES, 9)
 
@@ -601,21 +606,33 @@ class RegistrationTests(unittest.TestCase):
 
         fake_torch = types.SimpleNamespace(Tensor=FakeImage)
         with patch.object(module, "torch", fake_torch):
-            # 端口序号就是 <imageN> 序号，中间没接线的口自动跳过
+            # 列表顺序即 <imageN> 序号，和加载器面板一致
             self.assertEqual(
-                len(module._collect_reference_images({"图片1": [FakeImage()], "图片3": [FakeImage(2)]})),
+                len(module._collect_reference_images({"参考图": [FakeImage(), FakeImage(), FakeImage()]})),
                 3,
             )
-            # 一个口接 QQ-多媒体加载 的 multi output（列表）时按顺序整组展开
+            # 一个口接 QQ-多媒体加载 的 multi output（列表套列表）时按顺序整组展开
             self.assertEqual(
-                len(module._collect_reference_images({"图片1": [[FakeImage(), FakeImage()], FakeImage()]})),
+                len(module._collect_reference_images({"参考图": [[FakeImage(), FakeImage()], FakeImage()]})),
                 3,
             )
+            # 普通 batch 张量按 batch 维展平
+            self.assertEqual(len(module._collect_reference_images({"参考图": [FakeImage(4)]})), 4)
             self.assertEqual(module._collect_reference_images({}), [])
-            with self.assertRaisesRegex(ValueError, "最多支持 9 张参考图"):
-                module._collect_reference_images({"图片1": [FakeImage(10)]})
+            with self.assertRaisesRegex(ValueError, "最多支持 9 张参考图，当前 10 张"):
+                module._collect_reference_images({"参考图": [FakeImage(10)]})
             with self.assertRaisesRegex(ValueError, "只接受 IMAGE 张量"):
-                module._collect_reference_images({"图片1": ["not a tensor"]})
+                module._collect_reference_images({"参考图": ["not a tensor"]})
+            # media_bundle 只取图片，包内顺序即序号，音频视频被跳过
+            bundle = types.SimpleNamespace(items=(
+                types.SimpleNamespace(media_type="image", value=FakeImage()),
+                types.SimpleNamespace(media_type="audio", value=object()),
+                types.SimpleNamespace(media_type="image", value=FakeImage(2)),
+            ))
+            collected = module._collect_reference_images({"media_bundle": [bundle]})
+            self.assertEqual(len(collected), 3)
+            both = module._collect_reference_images({"参考图": [FakeImage()], "media_bundle": [bundle]})
+            self.assertEqual(len(both), 4)
 
     def test_qwen_pe_enhance_prompt_modes(self):
         module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
@@ -639,7 +656,7 @@ class RegistrationTests(unittest.TestCase):
         fake_torch = types.SimpleNamespace(Tensor=FakeImage)
         api_base = {
             "输入提示词": ["两个人站在海边"], "任务模式": ["自动"], "输出语言": ["中文"],
-            "增强方式": ["API"], "api_base_url": ["https://example.test"], "api_key": ["key"],
+            "增强方式": ["API"], "api_url": ["https://example.test"], "api_key": ["key"],
             "model": ["qwen-image"], "最大生成token": [4096],
         }
         self.assertEqual(node().enhance_prompt(**{"输入提示词": ["   "]}), ("",))
@@ -655,14 +672,14 @@ class RegistrationTests(unittest.TestCase):
         with patch.object(module, "torch", fake_torch), \
                 patch.object(module, "_request_api", return_value="plain") as request, \
                 patch.object(module, "_images_to_jpeg_base64", return_value=["B64"]):
-            node().enhance_prompt(**{**api_base, "任务模式": ["自动"], "图片1": [FakeImage()]})
+            node().enhance_prompt(**{**api_base, "任务模式": ["自动"], "参考图": [FakeImage()]})
             self.assertEqual(request.call_args.kwargs["image_base64_list"], ["B64"])
             self.assertIn("# Edit Prompt Enhancer", request.call_args.kwargs["instructions"])
 
         # 显式文生图忽略参考图，和原节点一致
         with patch.object(module, "torch", fake_torch), \
                 patch.object(module, "_request_api", return_value="plain") as request:
-            node().enhance_prompt(**{**api_base, "任务模式": ["文生图"], "图片1": [FakeImage()]})
+            node().enhance_prompt(**{**api_base, "任务模式": ["文生图"], "参考图": [FakeImage()]})
             self.assertEqual(request.call_args.kwargs["image_base64_list"], [])
 
         with self.assertRaisesRegex(ValueError, "图生图模式需要连接图片输入"):
@@ -690,7 +707,7 @@ class RegistrationTests(unittest.TestCase):
 
         with patch.object(module, "torch", fake_torch), \
                 patch.object(module, "_request_official_pe", return_value="plain") as request:
-            node().enhance_prompt(**{**pe_base, "任务模式": ["自动"], "图片1": [FakeImage()]})
+            node().enhance_prompt(**{**pe_base, "任务模式": ["自动"], "参考图": [FakeImage()]})
             self.assertEqual(request.call_args.kwargs["model_name"], "edit.safetensors")
             self.assertEqual(len(request.call_args.kwargs["images"]), 1)
 
@@ -707,19 +724,19 @@ class RegistrationTests(unittest.TestCase):
         module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
         node = self.package.NODE_CLASS_MAPPINGS["QQQwenImage21PromptEnhancer"]
         self.assertEqual(
-            node.VALIDATE_INPUTS(**{"增强方式": ["API"], "api_base_url": [""], "api_key": ["k"], "model": ["m"]}),
-            "API 方式需要填写 api_base_url",
+            node.VALIDATE_INPUTS(**{"增强方式": ["API"], "api_url": [""], "api_key": ["k"], "model": ["m"]}),
+            "API 方式需要填写 api_url",
         )
         self.assertEqual(
-            node.VALIDATE_INPUTS(**{"增强方式": ["API"], "api_base_url": ["https://x"], "api_key": [""], "model": ["m"]}),
+            node.VALIDATE_INPUTS(**{"增强方式": ["API"], "api_url": ["https://x"], "api_key": [""], "model": ["m"]}),
             "API 方式需要填写 api_key（或在本机 TE MAN 的 config.ini 中配置）",
         )
         self.assertEqual(
-            node.VALIDATE_INPUTS(**{"增强方式": ["API"], "api_base_url": ["https://x"], "api_key": ["k"], "model": [""]}),
+            node.VALIDATE_INPUTS(**{"增强方式": ["API"], "api_url": ["https://x"], "api_key": ["k"], "model": [""]}),
             "API 方式需要填写 model",
         )
         self.assertTrue(node.VALIDATE_INPUTS(**{
-            "增强方式": ["API"], "api_base_url": ["https://x"], "api_key": ["k"], "model": ["m"],
+            "增强方式": ["API"], "api_url": ["https://x"], "api_key": ["k"], "model": ["m"],
         }))
         self.assertIn(
             "safetensors PE 模型",
@@ -734,19 +751,15 @@ class RegistrationTests(unittest.TestCase):
             "文生图PE模型": [module.MISSING_MODEL_PLACEHOLDER],
         }))
 
-    def test_qwen_pe_image_ports_are_bounded_on_the_frontend(self):
-        source = (Path(__file__).resolve().parents[1] / "web" / "qwen_pe_images.js").read_text(
+    def test_qwen_pe_has_no_auto_expanding_image_ports(self):
+        web_dir = Path(__file__).resolve().parents[1] / "web"
+        self.assertFalse((web_dir / "qwen_pe_images.js").exists())
+        source = (Path(__file__).resolve().parents[1] / "node_modules" / "qwen_pe.py").read_text(
             encoding="utf-8",
         )
-        self.assertIn('const NODE_TYPE = "QQQwenImage21PromptEnhancer";', source)
-        self.assertIn("const MIN_IMAGES = 1;", source)
-        self.assertIn("const MAX_IMAGES = 9;", source)
-        self.assertIn("function imageName(slot)", source)
-        self.assertIn("function targetCount(node)", source)
-        self.assertIn("function dropTrailingFree(node, floor)", source)
-        self.assertIn("if (hasLink(last)) break;", source)
-        self.assertIn("input.isList = true;", source)
-        self.assertIn('name: "QQ.QwenPeImages"', source)
+        self.assertIn('REFERENCE_INPUT = "参考图"', source)
+        self.assertIn('BUNDLE_INPUT = "media_bundle"', source)
+        self.assertNotIn("IMAGE_INPUT_NAMES", source)
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
