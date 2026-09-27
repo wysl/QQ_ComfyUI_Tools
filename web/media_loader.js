@@ -1885,7 +1885,9 @@ function setup(node) {
     const panel = document.createElement("div");
     panel.className = "wysl-media-loader-panel";
     panel.addEventListener("pointerdown", (event) => event.stopPropagation());
-    panel.addEventListener("pointerdown", (event) => {
+    // Commit on click, not pointerdown: re-appending cards during pointerdown
+    // would detach the pressed button and swallow its click (e.g. the remove X).
+    panel.addEventListener("click", (event) => {
         if (event.button !== 0) return;
         commitExternalSpec(node);
     });
