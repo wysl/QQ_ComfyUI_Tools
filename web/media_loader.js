@@ -912,19 +912,13 @@ function externalDisplayModel(node, count) {
     if (node.__wyslMediaLoaderExternalSpec === undefined) {
         node.__wyslMediaLoaderExternalSpec = String(widget(node, EXTERNAL_WIDGET)?.value || "");
     }
+    // Placeholders are pinned to the committed spec: once submitted they stay
+    // visible before, during and after execution.  A lone start number grows to
+    // the real external count once the backend manifest arrives.
     const info = node?.__wyslMediaLoaderExternalInfo;
-    let positions = null;
-    if (info && info.count > 0) {
-        // After execution the backend manifest is the truth; only fall back to
-        // the typed spec when the manifest positions are unusable.
-        const manifest = (info.positions || [])
-            .map((value) => Number(value))
-            .filter((value) => Number.isFinite(value) && value >= 1);
-        positions = manifest.length === info.count
-            ? manifest
-            : parseExternalPositions(node.__wyslMediaLoaderExternalSpec, info.count);
-    } else if (!info) {
-        positions = externalPreviewPositions(node.__wyslMediaLoaderExternalSpec);
+    let positions = externalPreviewPositions(node.__wyslMediaLoaderExternalSpec);
+    if (positions && positions.length === 1 && info && info.count > 1) {
+        positions = Array.from({ length: info.count }, (_, offset) => positions[0] + offset);
     }
     if (!positions || !positions.length) return empty;
     const result = identity.map((number) => ({ ext: false, number }));
