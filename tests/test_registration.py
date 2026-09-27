@@ -466,10 +466,12 @@ class RegistrationTests(unittest.TestCase):
         local_system = module._build_system_prompt("文生图", "中文", "本地官方PE")
         self.assertNotIn("## Language", local_system)
         self.assertNotIn("## Output format", local_system)
-        self.assertIn("## Node output controls", local_system)
-        self.assertIn("当前为本地模式", local_system)
+        self.assertIn("## Official PE output protocol", local_system)
+        self.assertIn('"rewritten_prompt"', local_system)
+        self.assertNotIn("plain text", local_system)
         local_edit = module._build_system_prompt("图生图", "英文", "本地官方PE")
         self.assertNotIn("## Output Format", local_edit)
+        self.assertIn("## Official PE output protocol", local_edit)
         self.assertTrue(local_edit.rstrip().endswith("The user's edit instruction to rewrite is:"))
         self.assertEqual(
             module._normalize_api_url("https://x.com/v1"),
@@ -493,6 +495,30 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(module._parse_pe_result(thinky), "plain text")
         self.assertEqual(module._parse_pe_result("</think>final plain", False), "final plain")
         self.assertEqual(module._parse_pe_result("<think" + ">abc", False), "")
+        self.assertEqual(
+            module._parse_pe_result('{"rewritten_prompt": "增强结果", "wh_ratio": "3:2"}', require_json=True),
+            "增强结果",
+        )
+        for malformed in (
+            'USER Raw Input Prompt: 测试\\nAI\\nUSER Raw Input Prompt: 测试',
+            '{"rewritten_prompt": "测试"} USER Raw Input Prompt: 测试',
+            '{"wh_ratio": "3:2"}',
+        ):
+            with self.subTest(malformed=malformed), self.assertRaises(RuntimeError):
+                module._parse_pe_result(malformed, require_json=True)
+        with patch.object(module, "_request_official_pe", return_value='{"rewritten_prompt": "增强结果"}') as request:
+            result = node().enhance(**{
+                "输入提示词": "一个女孩", "任务模式": "文生图", "增强方式": "本地官方PE",
+                "输出语言": "中文", "文生图PE模型": "pe.safetensors",
+            })
+            self.assertEqual(result, ("增强结果",))
+            self.assertIn("## Official PE output protocol", request.call_args.args[2])
+        with patch.object(module, "_request_official_pe", return_value="USER Raw Input Prompt: 测试\\nAI\\nUSER"):
+            with self.assertRaisesRegex(RuntimeError, "官方 PE 模型"):
+                node().enhance(**{
+                    "输入提示词": "测试", "任务模式": "文生图", "增强方式": "本地官方PE",
+                    "输出语言": "中文", "文生图PE模型": "pe.safetensors",
+                })
         self.assertEqual(module._model_choices(), [])
         self.assertEqual(module.MAX_REFERENCE_IMAGES, 9)
         source = (Path(__file__).resolve().parents[1] / "node_modules" / "qwen_pe.py").read_text(

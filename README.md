@@ -192,13 +192,14 @@ FPS 是播放速率，不会按分段相加；目标总帧数按合计时长一�
 两个多行框可拖拽角落调整高度，节点整体可自由缩放。
 
 `QQ-Qwen Image 2.1 提示词增强` 按 Qwen Image 2.1 官方规则（内置文生图八步规则与图生图/多图编辑规则，逐字移植）
-增强提示词，支持「本地官方PE」（llama-cpp 加载 GGUF 版 PE 模型，含分片校验与模型缓存）与「API」
+增强提示词，支持「本地官方PE」（单文件 safetensors 经 ComfyUI TE 加载，GGUF 经 llama-cpp 加载）与「API」
 （OpenAI 兼容 chat/completions，参考图按最大边长预压缩后以 base64 发送）两种方式，不含本地通用 LLaMA 通路。
 参考图为单个 `reference_images` 输入口：顺序即 `<imageN>` 序号，最多 9 张，可直接接 `QQ-多媒体加载` 的 `multi output`；
 任务模式支持 自动/文生图/图生图（自动=接了参考图走图生图）。模型下拉支持 gguf 文件（含分片）与
 safetensors 单文件/目录：safetensors 走 ComfyUI 自带 TE 栈加载（内置 tokenizer 与架构识别，
-调用约定同核心 TextGenerate 节点），gguf 走 llama-cpp。本地官方PE 按纯文本策略组装系统提示词
-（剥离模板的 JSON 输出段，追加节点级纯文本与推理可见性规则），API 方式按 JSON 策略输出并抽取 rewritten_prompt。
+调用约定同核心 TextGenerate 节点），gguf 走 llama-cpp。本地官方PE 使用单个 JSON 对象的输出协议，
+只提取 `rewritten_prompt`；如果模型输出对话续写或无效 JSON，会明确报错，不再将原始文本当作提示词。
+API 方式仍按原有 JSON 策略提取 `rewritten_prompt`。
 输出为单个「增强提示词」STRING；
 输出语言（中/英）以节点级最终语言规则追加，用户指定的画面文字保持原文。
 输入/输出类型固定为 `IMAGE`：使用通配类型时，被绕过(Bypass)的节点会让 ComfyUI 前端的
