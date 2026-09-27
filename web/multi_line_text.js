@@ -65,15 +65,14 @@ function setup(node) {
         if (size) node.setSize([node.size[0], Math.max(size[1], 60)]);
         node.setDirtyCanvas?.(true, true);
     });
+    // The button must stay at the end of node.widgets: reordering the widget
+    // array desyncs the frontend's widget value bindings and shifts text
+    // between boxes (system prompt into free text, everything into separator
+    // on clone).  A footer button keeps serialization order untouched.
     const domWidget = node.addDOMWidget("qq_text_toggle", "qq_text_toggle", button, { serialize: false });
     if (domWidget) {
         domWidget.serialize = false;
         domWidget.computeLayoutSize = () => ({ minHeight: 26, minWidth: 100 });
-        const index = node.widgets.indexOf(domWidget);
-        if (index > 0) {
-            node.widgets.splice(index, 1);
-            node.widgets.unshift(domWidget);
-        }
     }
     node.__qqMultiLineTextToggle = button;
     applySystemVisibility(node);

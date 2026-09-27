@@ -429,7 +429,8 @@ class RegistrationTests(unittest.TestCase):
         )
         self.assertIn('const NODE_TYPE = "QQMultiLineText";', source)
         self.assertIn("qq-multi-line-text-toggle", source)
-        self.assertIn("node.widgets.unshift(domWidget);", source)
+        self.assertNotIn("node.widgets.unshift(domWidget);", source)
+        self.assertNotIn("node.widgets.splice(index, 1);", source)
         self.assertIn('button.textContent = visible ? "隐藏提示词" : "显示提示词";', source)
 
     def test_lightroom_controls_default_to_zero(self):
