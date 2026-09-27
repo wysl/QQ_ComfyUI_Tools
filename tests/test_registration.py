@@ -568,8 +568,8 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(merged, ["a"])
         self.assertEqual(positions, [])
 
-        class FakeBatch(FakeTensor):
-            """Minimal IMAGE-batch stand-in for the stub torch module."""
+        class FakeBatch:
+            """Minimal IMAGE-batch stand-in for the flatten helper."""
 
             def __init__(self, frames):
                 self.frames = list(frames)
@@ -588,14 +588,16 @@ class RegistrationTests(unittest.TestCase):
             def __getitem__(self, index):
                 return self.frames[index]
 
-        self.assertEqual(media._media_loader_flatten_images(None), [])
-        self.assertEqual(media._media_loader_flatten_images(FakeBatch(["x", "y"])), ["x", "y"])
-        self.assertEqual(
-            media._media_loader_flatten_images([FakeBatch(["x"]), FakeBatch(["y", "z"])]),
-            ["x", "y", "z"],
-        )
-        with self.assertRaises(ValueError):
-            media._media_loader_flatten_images(["not-a-tensor"])
+        fake_torch = types.SimpleNamespace(Tensor=FakeBatch)
+        with patch.object(media, "torch", fake_torch):
+            self.assertEqual(media._media_loader_flatten_images(None), [])
+            self.assertEqual(media._media_loader_flatten_images(FakeBatch(["x", "y"])), ["x", "y"])
+            self.assertEqual(
+                media._media_loader_flatten_images([FakeBatch(["x"]), FakeBatch(["y", "z"])]),
+                ["x", "y", "z"],
+            )
+            with self.assertRaises(ValueError):
+                media._media_loader_flatten_images(["not-a-tensor"])
 
     def test_media_loader_output_directory_and_legacy_input_references(self):
         media = importlib.import_module("QQ_ComfyUI_Tools.node_modules.media")
