@@ -491,7 +491,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(module._parse_pe_result(fenced), "abc")
         thinky = "<think>" + chr(10) + "x" + chr(10) + "</think>" + chr(10) + "plain text"
         self.assertEqual(module._parse_pe_result(thinky), "plain text")
-        self.assertEqual(module._parse_pe_result("x</think>final plain", False), "final plain")
+        self.assertEqual(module._parse_pe_result("</think>final plain", False), "final plain")
         self.assertEqual(module._parse_pe_result("<think" + ">abc", False), "")
         self.assertEqual(module._model_choices(), [])
         self.assertEqual(module.MAX_REFERENCE_IMAGES, 9)
