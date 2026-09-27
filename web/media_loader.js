@@ -1805,6 +1805,10 @@ function setup(node) {
     const panel = document.createElement("div");
     panel.className = "wysl-media-loader-panel";
     panel.addEventListener("pointerdown", (event) => event.stopPropagation());
+    panel.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        render(node);
+    });
     panel.addEventListener("dragenter", (event) => {
         if (!event.dataTransfer?.items?.length) return;
         if (node.__wyslMediaLoaderDrag) return;
@@ -1875,6 +1879,12 @@ function setup(node) {
     externalInput.addEventListener("input", () => {
         const positions = widget(node, EXTERNAL_WIDGET);
         if (positions) positions.value = externalInput.value;
+    });
+    // Re-numbering on every keystroke feels janky, so commit the new order on
+    // Enter or on any left click inside the node panel instead.
+    externalInput.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
         render(node);
     });
     external.append(externalLabel, externalInput, externalStatus);

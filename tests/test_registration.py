@@ -507,6 +507,8 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("function parseExternalPositions(spec, count)", source)
         self.assertIn("function externalMergedInternalNumbers(node, count)", source)
         self.assertIn("const shown = numbers ? numbers[index] : index + 1;", source)
+        self.assertIn('externalInput.addEventListener("keydown"', source)
+        self.assertIn('if (event.key !== "Enter") return;', source)
         self.assertIn('api.addEventListener("executed"', source)
         self.assertIn("panel.append(toolbar, external, groups, status);", source)
         self.assertIn(".wysl-media-external-input{", source)
