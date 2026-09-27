@@ -571,6 +571,16 @@ class RegistrationTests(unittest.TestCase):
             module._parse_pe_result(transcript_with_followup, require_json=True),
             "截断 assistant 段",
         )
+        im_start_transcript = (
+            "<|im_start|>user\nUSER Raw Input Prompt: 测试<|im_end|>\n"
+            "<|im_start|>assistant\n"
+            "{\"rewritten_prompt\":\"从 Qwen3.5 assistant 段提取\",\"wh_ratio\":\"\",\"ratio_follow\":\"\"}"
+            "<|im_end|>"
+        )
+        self.assertEqual(
+            module._parse_pe_result(im_start_transcript, require_json=True),
+            "从 Qwen3.5 assistant 段提取",
+        )
         plain_transcript = (
             "USER Raw Input Prompt: 测试\n"
             "ASSISTANT\n"
