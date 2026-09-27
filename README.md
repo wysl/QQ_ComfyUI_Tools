@@ -48,23 +48,13 @@
 
 - `QQ/图像生成`
   - `QQ-Grok图像生成`
-  - `QQ-Text Encode Qwen Image 2.1`
   - `QQ-Qwen Image 2.1 一键出图(编码+K采样+VAE解码)`
-
-`QQ-Text Encode Qwen Image 2.1` 复刻官方 `Text Encode Qwen Image 2.1`
-（`comfy_extras/nodes_qwen.py` 的 `TextEncodeQwenImage21`）：把提示词和参考图一起送进
-Qwen Image 2.1 文本编码器，输出 `positive` / `negative` 条件和一个按第一张参考图尺寸生成的空 `latent`。
-与官方节点的唯一区别是参考图输入：官方是 16 个独立图片口（Autogrow），这里改成单个列表口 `参考图`，
-接 `QQ-多媒体加载` 的 `multi output` 或普通 batch 张量时按顺序展平，每一帧即一张参考图，最多 16 张，
-超出直接报错。`resolution`（默认 1024、步长 32）与官方一致：参考图缩到约 resolution×resolution、
-32 的倍数、保持宽高比，填 0 则每张保持自身尺寸只取整到 32；接了 `vae` 时参考图同时编码成
-`reference_latents` 拼进正负条件，没接 `vae` 时视觉塔仍能看到图片（`keep_vision=True`）。
 
 `QQ-Qwen Image 2.1 一键出图(编码+K采样+VAE解码)` 把 `QQ-Text Encode Qwen Image 2.1`、
 官方 `KSampler`、`VAEDecode` 三个节点合成一个：内部先按官方规则编码正负条件和参考图 latent，
 再跑 K 采样，最后 VAE 解码直接输出 `图像`，省掉采样器和解码器两条连线。
 采样控件（seed / steps / cfg / sampler_name / scheduler / denoise）与官方 KSampler 完全一致，
-参考图同样是单个列表口 `参考图`（最多 16 张）。想单独控制采样环节时仍可用纯编码节点接官方 KSampler。
+参考图同样是单个列表口 `参考图`（最多 16 张）。编码规则与官方 `Text Encode Qwen Image 2.1` 一致：`resolution`（默认 1024、步长 32）把参考图缩到约 resolution×resolution、32 的倍数、保持宽高比，填 0 则保持各自尺寸；接了 `vae` 时参考图同时编码成 `reference_latents` 拼进正负条件。需要单独控制采样环节时可以直接用官方 `Text Encode Qwen Image 2.1` 接官方 KSampler / VAEDecode。
 
 `QQ-Grok图像生成` 使用 OpenAI-compatible 的 Grok2API 图片接口，默认模型为
 `grok-imagine-image-2.0`。它支持文生图，也支持将 ComfyUI `IMAGE` 批次作为参考图发送到

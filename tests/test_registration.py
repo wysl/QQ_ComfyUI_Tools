@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 28)
+        self.assertEqual(len(mappings), 27)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -97,10 +97,6 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(
             display["QQQwenImage21PromptEnhancer"],
             "QQ-Qwen Image 2.1 AI提示词增强(PE or API)",
-        )
-        self.assertEqual(
-            display["QQTextEncodeQwenImage21"],
-            "QQ-Text Encode Qwen Image 2.1（单口参考图）",
         )
         self.assertEqual(
             display["QQQwenImage21AllInOne"],
@@ -792,20 +788,11 @@ class RegistrationTests(unittest.TestCase):
         self.assertNotIn("media_bundle", source)
         self.assertNotIn("IMAGE_INPUT_NAMES", source)
 
-    def test_qwen_encode21_node_contract(self):
-        node = self.package.NODE_CLASS_MAPPINGS["QQTextEncodeQwenImage21"]
-        self.assertEqual(self.package.NODE_DISPLAY_NAME_MAPPINGS["QQTextEncodeQwenImage21"],
-                         "QQ-Text Encode Qwen Image 2.1（单口参考图）")
-        self.assertEqual(node.RETURN_TYPES, ("CONDITIONING", "CONDITIONING", "LATENT"))
-        self.assertEqual(node.RETURN_NAMES, ("positive", "negative", "latent"))
-        self.assertTrue(node.INPUT_IS_LIST)
-        inputs = node.INPUT_TYPES()
-        self.assertEqual(list(inputs["required"]), ["clip", "prompt", "negative_prompt", "resolution"])
-        self.assertEqual(list(inputs["optional"]), ["vae", "参考图"])
-        self.assertEqual(inputs["optional"]["参考图"][0], "IMAGE")
-        self.assertEqual(inputs["required"]["resolution"][1]["default"], 1024)
-        self.assertEqual(inputs["required"]["resolution"][1]["step"], 32)
+    def test_qwen_encode21_pure_encode_node_is_removed(self):
+        self.assertNotIn("QQTextEncodeQwenImage21", self.package.NODE_CLASS_MAPPINGS)
+        self.assertNotIn("QQTextEncodeQwenImage21", self.package.NODE_DISPLAY_NAME_MAPPINGS)
         module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_encode21")
+        self.assertFalse(hasattr(module, "QQTextEncodeQwenImage21"))
         self.assertEqual(module.MAX_ENCODE_REFERENCE_IMAGES, 16)
 
     def test_qwen_encode21_flattens_batches_and_caps(self):
@@ -894,9 +881,8 @@ class RegistrationTests(unittest.TestCase):
         }), patch.object(module, "torch", fake_torch), \
                 patch.object(module, "_resize_reference", lambda image, resolution: (FakeRGB(), 64, 64)):
             clip, vae = FakeClip(), FakeVAE()
-            positive, negative, latent = module.QQTextEncodeQwenImage21().encode(
-                clip=[clip], prompt=["P"], negative_prompt=["N"], resolution=[1024],
-                vae=[vae], **{module.REFERENCE_INPUT: [[FakeImage(), FakeImage()]]},
+            positive, negative, latent = module._encode_references(
+                clip, "P", "N", vae, 1024, [object(), object()],
             )
             # 两张参考图：视觉槽和 reference_latents 都是 2
             self.assertEqual(clip.calls[0][1]["images"], 2)
@@ -913,9 +899,7 @@ class RegistrationTests(unittest.TestCase):
             # 没接 vae、没接图时 keep_vision=True、不写 reference_latents，latent 用 resolution
             recorded.clear()
             clip2 = FakeClip()
-            positive2, _, latent2 = module.QQTextEncodeQwenImage21().encode(
-                clip=[clip2], prompt=["P"], negative_prompt=["N"], resolution=[1024],
-            )
+            positive2, _, latent2 = module._encode_references(clip2, "P", "N", None, 1024, [])
             self.assertEqual(clip2.calls[0][1]["keep_vision"], True)
             self.assertEqual(clip2.calls[0][1]["images"], 0)
             self.assertNotIn("reference_latents", positive2[0][1])
