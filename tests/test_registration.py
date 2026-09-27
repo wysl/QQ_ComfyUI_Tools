@@ -492,6 +492,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('["created_desc", "创建时间 近→远"]', source)
         self.assertIn('["created_asc", "创建时间 远→近"]', source)
         self.assertIn('["name_asc", "文件名 A-Z"]', source)
+        self.assertIn('["name_desc", "文件名 Z-A"]', source)
         self.assertIn('["size_desc", "文件大小 大→小"]', source)
         self.assertIn('["size_asc", "文件大小 小→大"]', source)
         self.assertIn('const layout = searching ? "4"', source)

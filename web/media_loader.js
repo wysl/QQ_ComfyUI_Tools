@@ -552,6 +552,7 @@ const SORT_OPTIONS = [
     ["created_desc", "创建时间 近→远"],
     ["created_asc", "创建时间 远→近"],
     ["name_asc", "文件名 A-Z"],
+    ["name_desc", "文件名 Z-A"],
     ["size_desc", "文件大小 大→小"],
     ["size_asc", "文件大小 小→大"],
 ];
@@ -563,6 +564,7 @@ function sortModalFiles(files, sort) {
     const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
     list.sort((a, b) => {
         if (mode === "name_asc") return byName(a, b);
+        if (mode === "name_desc") return byName(b, a);
         if (mode === "size_asc") return (a.size || 0) - (b.size || 0) || byName(a, b);
         if (mode === "size_desc") return (b.size || 0) - (a.size || 0) || byName(a, b);
         if (mode === "created_asc") return (a.created || 0) - (b.created || 0) || byName(a, b);
