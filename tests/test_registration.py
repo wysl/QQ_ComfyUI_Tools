@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 26)
+        self.assertEqual(len(mappings), 27)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -97,6 +97,10 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(
             display["QQQwenImage21PromptEnhancer"],
             "QQ-Qwen Image 2.1 AI提示词增强(PE or API)",
+        )
+        self.assertEqual(
+            display["QQTextEncodeQwenImage21"],
+            "QQ-Text Encode Qwen Image 2.1（单口参考图）",
         )
 
     def test_ignore_rules_controller_is_frontend_only_and_keeps_stable_bindings(self):
@@ -783,6 +787,135 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('REFERENCE_INPUT = "参考图"', source)
         self.assertNotIn("media_bundle", source)
         self.assertNotIn("IMAGE_INPUT_NAMES", source)
+
+    def test_qwen_encode21_node_contract(self):
+        node = self.package.NODE_CLASS_MAPPINGS["QQTextEncodeQwenImage21"]
+        self.assertEqual(self.package.NODE_DISPLAY_NAME_MAPPINGS["QQTextEncodeQwenImage21"],
+                         "QQ-Text Encode Qwen Image 2.1（单口参考图）")
+        self.assertEqual(node.RETURN_TYPES, ("CONDITIONING", "CONDITIONING", "LATENT"))
+        self.assertEqual(node.RETURN_NAMES, ("positive", "negative", "latent"))
+        self.assertTrue(node.INPUT_IS_LIST)
+        inputs = node.INPUT_TYPES()
+        self.assertEqual(list(inputs["required"]), ["clip", "prompt", "negative_prompt", "resolution"])
+        self.assertEqual(list(inputs["optional"]), ["vae", "参考图"])
+        self.assertEqual(inputs["optional"]["参考图"][0], "IMAGE")
+        self.assertEqual(inputs["required"]["resolution"][1]["default"], 1024)
+        self.assertEqual(inputs["required"]["resolution"][1]["step"], 32)
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_encode21")
+        self.assertEqual(module.MAX_ENCODE_REFERENCE_IMAGES, 16)
+
+    def test_qwen_encode21_flattens_batches_and_caps(self):
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_encode21")
+
+        class FakeImage(FakeTensor):
+            def __init__(self, frames=1):
+                self.shape = (frames, 8, 8, 3)
+
+            def detach(self):
+                return self
+
+            @property
+            def ndim(self):
+                return 4
+
+            def __getitem__(self, item):
+                return FakeImage(1)
+
+        with patch.object(module, "torch", types.SimpleNamespace(Tensor=FakeImage)):
+            self.assertEqual(len(module._collect_images([FakeImage(3)])), 3)
+            self.assertEqual(len(module._collect_images([[FakeImage(), FakeImage()]])), 2)
+            self.assertEqual(module._collect_images([]), [])
+            with self.assertRaisesRegex(ValueError, "最多支持 16 张参考图，当前 17 张"):
+                module._collect_images([FakeImage(17)])
+
+    def test_qwen_encode21_execute_wiring(self):
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_encode21")
+
+        class FakeImage(FakeTensor):
+            def __init__(self, frames=1):
+                self.shape = (frames, 8, 8, 3)
+
+            def detach(self):
+                return self
+
+            @property
+            def ndim(self):
+                return 4
+
+            def __getitem__(self, item):
+                return FakeImage(1)
+
+        class FakeRGB:
+            shape = (1, 64, 64, 3)
+
+            def __getitem__(self, item):
+                return FakeRGB()
+
+        class FakeClip:
+            def __init__(self):
+                self.calls = []
+
+            def tokenize(self, prompt, **kwargs):
+                self.calls.append((prompt, {k: (len(v) if isinstance(v, list) else v) for k, v in kwargs.items()}))
+                return ("tokens", prompt)
+
+            def encode_from_tokens_scheduled(self, tokens):
+                return [[tokens[1], {"pooled": None}]]
+
+        class FakeVAE:
+            def __init__(self):
+                self.encodes = []
+
+            def encode(self, tensor):
+                self.encodes.append(tensor)
+                return ("latent", len(self.encodes))
+
+        recorded = {}
+
+        def fake_set_values(conditioning, values={}, append=False):
+            recorded["values"] = {k: len(v) if isinstance(v, list) else v for k, v in values.items()}
+            return [[cond, {**extra, **values}] for cond, extra in conditioning]
+
+        fake_node_helpers = types.SimpleNamespace(conditioning_set_values=fake_set_values)
+        fake_model_management = types.SimpleNamespace(intermediate_device=lambda: "cpu")
+        fake_utils = types.SimpleNamespace(common_upscale=lambda *a, **k: None)
+        fake_torch = types.SimpleNamespace(
+            Tensor=FakeTensor,
+            zeros=lambda shape, device=None: ("zeros", tuple(shape), device),
+        )
+        with patch.dict(sys.modules, {
+            "node_helpers": fake_node_helpers,
+            "comfy.model_management": fake_model_management,
+            "comfy.utils": fake_utils,
+        }), patch.object(module, "torch", fake_torch), \
+                patch.object(module, "_resize_reference", lambda image, resolution: (FakeRGB(), 64, 64)):
+            clip, vae = FakeClip(), FakeVAE()
+            positive, negative, latent = module.QQTextEncodeQwenImage21().encode(
+                clip=[clip], prompt=["P"], negative_prompt=["N"], resolution=[1024],
+                vae=[vae], **{module.REFERENCE_INPUT: [[FakeImage(), FakeImage()]]},
+            )
+            # 两张参考图：视觉槽和 reference_latents 都是 2
+            self.assertEqual(clip.calls[0][1]["images"], 2)
+            self.assertEqual(clip.calls[0][1]["keep_vision"], False)
+            self.assertEqual(clip.calls[0][1]["prevent_empty_text"], True)
+            self.assertEqual(len(vae.encodes), 2)
+            self.assertEqual(recorded["values"], {"reference_latents": 2})
+            self.assertEqual(positive[0][0], "P")
+            self.assertEqual(negative[0][0], "N")
+            self.assertIn("reference_latents", positive[0][1])
+            self.assertIn("reference_latents", negative[0][1])
+            self.assertEqual(latent, {"samples": ("zeros", (1, 64, 4, 4), "cpu")})
+
+            # 没接 vae、没接图时 keep_vision=True、不写 reference_latents，latent 用 resolution
+            recorded.clear()
+            clip2 = FakeClip()
+            positive2, _, latent2 = module.QQTextEncodeQwenImage21().encode(
+                clip=[clip2], prompt=["P"], negative_prompt=["N"], resolution=[1024],
+            )
+            self.assertEqual(clip2.calls[0][1]["keep_vision"], True)
+            self.assertEqual(clip2.calls[0][1]["images"], 0)
+            self.assertNotIn("reference_latents", positive2[0][1])
+            self.assertEqual(latent2, {"samples": ("zeros", (1, 64, 64, 64), "cpu")})
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
