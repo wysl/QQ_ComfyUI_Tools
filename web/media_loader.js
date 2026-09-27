@@ -866,11 +866,24 @@ function createGroupSection(group) {
     return section;
 }
 
+function expandPositionToken(token) {
+    const match = /^(\d+)\s*-\s*(\d+)$/.exec(token);
+    if (!match) return [token];
+    const start = Number.parseInt(match[1], 10);
+    const end = Number.parseInt(match[2], 10);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 1 || end < start || end - start > 63) {
+        return [token];
+    }
+    const expanded = [];
+    for (let value = start; value <= end; value += 1) expanded.push(String(value));
+    return expanded;
+}
+
 function parseExternalPositions(spec, count) {
     if (!count) return null;
     const text = String(spec || "").trim();
     if (!text || text === "0") return null;
-    const tokens = text.split(/[,，]/).map((token) => token.trim()).filter(Boolean);
+    const tokens = text.split(/[,，]/).map((token) => token.trim()).filter(Boolean).flatMap(expandPositionToken);
     const values = tokens.map((token) => Number.parseInt(token, 10));
     if (values.some((value) => !Number.isFinite(value) || value < 1)) return null;
     if (values.length === 1) {
@@ -880,22 +893,65 @@ function parseExternalPositions(spec, count) {
     return values;
 }
 
-function externalMergedInternalNumbers(node, count) {
-    // Final 1-based number of each internal image after external insertion.
+function externalPreviewPositions(spec) {
+    // Placeholder positions before execution: explicit tokens only, so a lone
+    // start number previews a single external slot.
+    const text = String(spec || "").trim();
+    if (!text || text === "0") return null;
+    const tokens = text.split(/[,，]/).map((token) => token.trim()).filter(Boolean).flatMap(expandPositionToken);
+    const values = tokens.map((token) => Number.parseInt(token, 10));
+    if (values.some((value) => !Number.isFinite(value) || value < 1)) return null;
+    return values;
+}
+
+function externalDisplayModel(node, count) {
+    // Final 1-based number of each internal image plus external placeholder slots.
     const identity = Array.from({ length: count }, (_, index) => index + 1);
+    const empty = { numbers: identity, placeholders: [] };
+    if (!externalLinked(node)) return empty;
+    if (node.__wyslMediaLoaderExternalSpec === undefined) {
+        node.__wyslMediaLoaderExternalSpec = String(widget(node, EXTERNAL_WIDGET)?.value || "");
+    }
     const info = node?.__wyslMediaLoaderExternalInfo;
-    if (!info || !info.count) return identity;
-    const positions = parseExternalPositions(widget(node, EXTERNAL_WIDGET)?.value, info.count);
-    if (!positions) return identity;
+    const positions = info
+        ? (info.count ? parseExternalPositions(node.__wyslMediaLoaderExternalSpec, info.count) : null)
+        : externalPreviewPositions(node.__wyslMediaLoaderExternalSpec);
+    if (!positions || !positions.length) return empty;
     const result = identity.map((number) => ({ ext: false, number }));
     for (const index of positions.map((pos, i) => [pos, i]).sort((a, b) => a[0] - b[0]).map((pair) => pair[1])) {
         result.splice(Math.min(positions[index] - 1, result.length), 0, { ext: true });
     }
     const numbers = new Array(count).fill(0);
+    const placeholders = [];
     result.forEach((entry, position) => {
-        if (!entry.ext) numbers[entry.number - 1] = position + 1;
+        if (entry.ext) placeholders.push(position + 1);
+        else numbers[entry.number - 1] = position + 1;
     });
-    return numbers;
+    return { numbers, placeholders };
+}
+
+function createExternalPlaceholderCard(position) {
+    const card = document.createElement("div");
+    card.className = "wysl-media-card is-external";
+    card.dataset.path = `__external__${position}`;
+    card.title = `外部图片占位：序号 ${position}`;
+    const body = document.createElement("span");
+    body.className = "wysl-media-card-external-body";
+    body.textContent = "外部";
+    const order = document.createElement("span");
+    order.className = "wysl-media-order";
+    order.textContent = String(position);
+    card.append(body, order);
+    return card;
+}
+
+function commitExternalSpec(node) {
+    const input = node.__wyslMediaLoaderExternalInput;
+    const value = String(input?.value ?? widget(node, EXTERNAL_WIDGET)?.value ?? "");
+    node.__wyslMediaLoaderExternalSpec = value;
+    const positions = widget(node, EXTERNAL_WIDGET);
+    if (positions) positions.value = value;
+    render(node);
 }
 
 function renderGroup(node, group, values) {
@@ -915,12 +971,13 @@ function renderGroup(node, group, values) {
         cards.set(path, child);
     }
     for (const [path, card] of cards) {
-        if (!wanted.has(path)) {
+        if (!wanted.has(path) && !path.startsWith("__external__")) {
             card.remove();
             cards.delete(path);
         }
     }
-    const numbers = group.type === "image" ? externalMergedInternalNumbers(node, values.length) : null;
+    const model = group.type === "image" ? externalDisplayModel(node, values.length) : null;
+    const numbers = model ? model.numbers : null;
     values.forEach((path, index) => {
         let card = cards.get(path);
         if (!card) {
@@ -936,9 +993,28 @@ function renderGroup(node, group, values) {
         // thumbnails are reused instead of rebuilt on every state change.
         list.append(card);
     });
+    const placeholderKeys = new Set();
+    for (const position of model?.placeholders || []) {
+        const key = `__external__${position}`;
+        placeholderKeys.add(key);
+        let card = cards.get(key);
+        if (!card) {
+            card = createExternalPlaceholderCard(position);
+            cards.set(key, card);
+        }
+        const order = card.querySelector(".wysl-media-order");
+        if (order) order.textContent = String(position);
+        list.append(card);
+    }
+    for (const [key, card] of cards) {
+        if (key.startsWith("__external__") && !placeholderKeys.has(key)) {
+            card.remove();
+            cards.delete(key);
+        }
+    }
     const empty = section.__wyslEmpty;
     if (empty) {
-        if (values.length) empty.remove();
+        if (values.length || placeholderKeys.size) empty.remove();
         else list.append(empty);
     }
 }
@@ -1521,6 +1597,9 @@ const CSS_TEXT = `
 .wysl-media-external-input{box-sizing:border-box;flex:0 0 88px;height:24px;padding:2px 6px;border:1px solid var(--border-color,#535d66);border-radius:4px;background:var(--comfy-input-bg,#22282d);color:var(--fg-color,#e3e7ea);font:inherit;font-size:11px}
 .wysl-media-external-input:focus-visible{outline:2px solid var(--p-primary-color,#4b86b4);outline-offset:1px}
 .wysl-media-external-status{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--content-fg,#8fa3b0)}
+.wysl-media-external-submit{flex:0 0 auto;padding:3px 9px;font-size:11px;border-radius:4px}
+.wysl-media-card.is-external{border-style:dashed;cursor:default;background:transparent}
+.wysl-media-card-external-body{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--content-fg,#8fa3b0);font-size:10px}
 .wysl-media-title{font-weight:650;color:var(--fg-color,#f1f3f5);margin-right:2px}
 .wysl-media-count{color:var(--content-fg,#8c969f);opacity:.72;font-size:10px;margin-right:auto}
 .wysl-media-toolbar button,.wysl-media-modal button{border:1px solid var(--border-color,rgba(255,255,255,.14));border-radius:4px;background:var(--comfy-input-bg,#343a40);color:var(--fg-color,#e9edf0);padding:4px 8px;cursor:pointer;font:inherit}
@@ -1765,10 +1844,8 @@ function syncExternalRow(node) {
     if (status) {
         const info = node.__wyslMediaLoaderExternalInfo;
         let text = "";
-        if (linked) {
-            text = info
-                ? (info.count ? `外部图片 ×${info.count} → 序号 ${info.positions.join(",")}` : "已连接，未收到外部图片")
-                : "执行后确认外部图片序号";
+        if (linked && info && info.count) {
+            text = `外部图片 ×${info.count} → 序号 ${info.positions.join(",")}`;
         }
         status.textContent = text;
         status.title = text;
@@ -1807,7 +1884,7 @@ function setup(node) {
     panel.addEventListener("pointerdown", (event) => event.stopPropagation());
     panel.addEventListener("pointerdown", (event) => {
         if (event.button !== 0) return;
-        render(node);
+        commitExternalSpec(node);
     });
     panel.addEventListener("dragenter", (event) => {
         if (!event.dataTransfer?.items?.length) return;
@@ -1874,6 +1951,8 @@ function setup(node) {
     externalInput.placeholder = "留空=末尾";
     externalInput.setAttribute("aria-label", "外部图片序号");
     externalInput.title = "从 1 开始；单个数字=起始序号连续占位；逗号分隔=逐张指定；留空或 0=追加到内部图片末尾";
+    const externalSubmit = makeButton("提交", "wysl-media-external-submit", () => commitExternalSpec(node));
+    externalSubmit.title = "按当前序号提交占位并重排";
     const externalStatus = document.createElement("span");
     externalStatus.className = "wysl-media-external-status";
     externalInput.addEventListener("input", () => {
@@ -1885,9 +1964,9 @@ function setup(node) {
     externalInput.addEventListener("keydown", (event) => {
         if (event.key !== "Enter") return;
         event.preventDefault();
-        render(node);
+        commitExternalSpec(node);
     });
-    external.append(externalLabel, externalInput, externalStatus);
+    external.append(externalLabel, externalInput, externalSubmit, externalStatus);
     node.__wyslMediaLoaderExternalRow = external;
     node.__wyslMediaLoaderExternalInput = externalInput;
     node.__wyslMediaLoaderExternalStatus = externalStatus;

@@ -505,7 +505,11 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('const EXTERNAL_INPUT_NAME = "external_images";', source)
         self.assertIn("function syncExternalRow(node)", source)
         self.assertIn("function parseExternalPositions(spec, count)", source)
-        self.assertIn("function externalMergedInternalNumbers(node, count)", source)
+        self.assertIn("function externalDisplayModel(node, count)", source)
+        self.assertIn("function commitExternalSpec(node)", source)
+        self.assertIn('makeButton("提交", "wysl-media-external-submit"', source)
+        self.assertIn(".wysl-media-card.is-external{", source)
+        self.assertNotIn("已连接，未收到外部图片", source)
         self.assertIn("const shown = numbers ? numbers[index] : index + 1;", source)
         self.assertIn('externalInput.addEventListener("keydown"', source)
         self.assertIn('if (event.key !== "Enter") return;', source)
@@ -552,6 +556,11 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(media._media_loader_parse_positions("0", 2), None)
         self.assertEqual(media._media_loader_parse_positions("2", 3), [2, 3, 4])
         self.assertEqual(media._media_loader_parse_positions("2,5", 2), [2, 5])
+        self.assertEqual(media._media_loader_parse_positions("2-3", 2), [2, 3])
+        with self.assertRaises(ValueError):
+            media._media_loader_parse_positions("3-2", 2)
+        with self.assertRaises(ValueError):
+            media._media_loader_parse_positions("1-100", 100)
         with self.assertRaises(ValueError):
             media._media_loader_parse_positions("2,5", 3)
         with self.assertRaises(ValueError):
