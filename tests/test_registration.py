@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 27)
+        self.assertEqual(len(mappings), 28)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -101,6 +101,10 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(
             display["QQTextEncodeQwenImage21"],
             "QQ-Text Encode Qwen Image 2.1（单口参考图）",
+        )
+        self.assertEqual(
+            display["QQQwenImage21AllInOne"],
+            "QQ-Qwen Image 2.1 一键出图(编码+K采样+VAE解码)",
         )
 
     def test_ignore_rules_controller_is_frontend_only_and_keeps_stable_bindings(self):
@@ -916,6 +920,61 @@ class RegistrationTests(unittest.TestCase):
             self.assertEqual(clip2.calls[0][1]["images"], 0)
             self.assertNotIn("reference_latents", positive2[0][1])
             self.assertEqual(latent2, {"samples": ("zeros", (1, 64, 64, 64), "cpu")})
+
+    def test_qwen_encode21_all_in_one_contract(self):
+        node = self.package.NODE_CLASS_MAPPINGS["QQQwenImage21AllInOne"]
+        self.assertEqual(node.RETURN_TYPES, ("IMAGE",))
+        self.assertEqual(node.RETURN_NAMES, ("图像",))
+        self.assertTrue(node.INPUT_IS_LIST)
+        inputs = node.INPUT_TYPES()
+        controls = inputs["required"]
+        for key in ("model", "clip", "vae", "prompt", "negative_prompt", "resolution",
+                    "seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"):
+            self.assertIn(key, controls)
+        self.assertEqual(controls["steps"][1]["default"], 20)
+        self.assertEqual(controls["cfg"][1]["default"], 8.0)
+        self.assertEqual(controls["denoise"][1]["default"], 1.0)
+        self.assertEqual(controls["seed"][1]["control_after_generate"], True)
+        self.assertEqual(list(inputs["optional"]), ["参考图"])
+
+    def test_qwen_encode21_all_in_one_runs_sampler_and_decoder(self):
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_encode21")
+        calls = []
+
+        class FakeKSampler:
+            def sample(self, **kwargs):
+                calls.append(("ksampler", kwargs))
+                return ({"samples": "denoised"},)
+
+        class FakeVAEDecode:
+            def decode(self, vae, samples):
+                calls.append(("decode", vae, samples))
+                return ("image",)
+
+        fake_nodes = types.SimpleNamespace(KSampler=FakeKSampler, VAEDecode=FakeVAEDecode)
+        with patch.dict(sys.modules, {"nodes": fake_nodes}), patch.object(
+            module, "_encode_references", return_value=("pos", "neg", {"samples": "empty"})
+        ):
+            (image,) = module.QQQwenImage21AllInOne().run(
+                model=["M"], clip=["C"], vae=["V"], prompt=["P"], negative_prompt=["N"],
+                resolution=[1024], seed=[7], steps=[28], cfg=[4.5],
+                sampler_name=["euler"], scheduler=["simple"], denoise=[0.9],
+                **{module.REFERENCE_INPUT: []},
+            )
+        self.assertEqual(image, "image")
+        kind, kwargs = calls[0]
+        self.assertEqual(kind, "ksampler")
+        self.assertEqual(kwargs["model"], "M")
+        self.assertEqual(kwargs["seed"], 7)
+        self.assertEqual(kwargs["steps"], 28)
+        self.assertEqual(kwargs["cfg"], 4.5)
+        self.assertEqual(kwargs["sampler_name"], "euler")
+        self.assertEqual(kwargs["scheduler"], "simple")
+        self.assertEqual(kwargs["positive"], "pos")
+        self.assertEqual(kwargs["negative"], "neg")
+        self.assertEqual(kwargs["latent_image"], {"samples": "empty"})
+        self.assertEqual(kwargs["denoise"], 0.9)
+        self.assertEqual(calls[1], ("decode", "V", {"samples": "denoised"}))
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
