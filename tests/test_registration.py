@@ -507,6 +507,8 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("function parseExternalPositions(spec, count)", source)
         self.assertIn("function externalDisplayModel(node, count)", source)
         self.assertIn("function commitExternalSpec(node)", source)
+        self.assertIn("function scheduleExternalCommit(node)", source)
+        self.assertIn("const manifest = (info.positions || [])", source)
         self.assertIn('makeButton("提交", "wysl-media-external-submit"', source)
         self.assertIn(".wysl-media-card.is-external{", source)
         self.assertIn("ordered.sort((a, b) => a.number - b.number);", source)

@@ -913,9 +913,19 @@ function externalDisplayModel(node, count) {
         node.__wyslMediaLoaderExternalSpec = String(widget(node, EXTERNAL_WIDGET)?.value || "");
     }
     const info = node?.__wyslMediaLoaderExternalInfo;
-    const positions = info
-        ? (info.count ? parseExternalPositions(node.__wyslMediaLoaderExternalSpec, info.count) : null)
-        : externalPreviewPositions(node.__wyslMediaLoaderExternalSpec);
+    let positions = null;
+    if (info && info.count > 0) {
+        // After execution the backend manifest is the truth; only fall back to
+        // the typed spec when the manifest positions are unusable.
+        const manifest = (info.positions || [])
+            .map((value) => Number(value))
+            .filter((value) => Number.isFinite(value) && value >= 1);
+        positions = manifest.length === info.count
+            ? manifest
+            : parseExternalPositions(node.__wyslMediaLoaderExternalSpec, info.count);
+    } else if (!info) {
+        positions = externalPreviewPositions(node.__wyslMediaLoaderExternalSpec);
+    }
     if (!positions || !positions.length) return empty;
     const result = identity.map((number) => ({ ext: false, number }));
     for (const index of positions.map((pos, i) => [pos, i]).sort((a, b) => a[0] - b[0]).map((pair) => pair[1])) {
@@ -945,7 +955,21 @@ function createExternalPlaceholderCard(position) {
     return card;
 }
 
+function scheduleExternalCommit(node) {
+    if (node.__wyslMediaLoaderExternalCommitTimer) {
+        clearTimeout(node.__wyslMediaLoaderExternalCommitTimer);
+    }
+    node.__wyslMediaLoaderExternalCommitTimer = setTimeout(() => {
+        node.__wyslMediaLoaderExternalCommitTimer = null;
+        commitExternalSpec(node);
+    }, 400);
+}
+
 function commitExternalSpec(node) {
+    if (node.__wyslMediaLoaderExternalCommitTimer) {
+        clearTimeout(node.__wyslMediaLoaderExternalCommitTimer);
+        node.__wyslMediaLoaderExternalCommitTimer = null;
+    }
     const input = node.__wyslMediaLoaderExternalInput;
     const value = String(input?.value ?? widget(node, EXTERNAL_WIDGET)?.value ?? "");
     node.__wyslMediaLoaderExternalSpec = value;
@@ -1963,6 +1987,7 @@ function setup(node) {
     externalInput.addEventListener("input", () => {
         const positions = widget(node, EXTERNAL_WIDGET);
         if (positions) positions.value = externalInput.value;
+        scheduleExternalCommit(node);
     });
     // Re-numbering on every keystroke feels janky, so commit the new order on
     // Enter or on any left click inside the node panel instead.
