@@ -450,22 +450,23 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(controls["输出语言"][0], ["中文", "英文"])
         self.assertNotIn("mmproj", " ".join(controls))
         self.assertIn("reference_images", node.INPUT_TYPES()["optional"])
-        api_node = self.package.NODE_CLASS_MAPPINGS["QQQwenImage21PromptEnhancerAPI"]
-        api_controls = api_node.INPUT_TYPES()["required"]
-        self.assertEqual(api_node.RETURN_TYPES, ("STRING",))
-        self.assertEqual(api_controls["任务模式"][0], ["自动", "文生图", "图生图"])
-        self.assertNotIn("增强方式", api_controls)
-        self.assertNotIn("文生图PE模型", api_controls)
-        self.assertNotIn("图生图PE模型", api_controls)
-        self.assertNotIn("上下文长度", api_controls)
-        self.assertIn("reference_images", api_node.INPUT_TYPES()["optional"])
+        pe_api_node = self.package.NODE_CLASS_MAPPINGS["QQQwenImage21PromptEnhancerPEAPI"]
+        pe_api_controls = pe_api_node.INPUT_TYPES()["required"]
+        self.assertEqual(pe_api_node.RETURN_TYPES, ("STRING",))
+        self.assertEqual(pe_api_controls["任务模式"][0], ["自动", "文生图", "图生图"])
+        self.assertEqual(pe_api_controls["增强方式"][0], ["本地官方PE", "API"])
+        self.assertIn("文生图PE模型", pe_api_controls)
+        self.assertIn("图生图PE模型", pe_api_controls)
+        self.assertIn("上下文长度", pe_api_controls)
+        self.assertIn("seed", pe_api_controls)
+        self.assertIn("reference_images", pe_api_node.INPUT_TYPES()["optional"])
         self.assertEqual(
-            api_node.VALIDATE_INPUTS(**{"API地址": "", "API密钥": "key", "API模型名": "model"}),
-            "API 方式需要填写API地址",
+            pe_api_node.VALIDATE_INPUTS(**{"增强方式": "API", "API地址": "", "API密钥": "key", "API模型名": "model"}),
+            "API 方式需要填写 API地址",
         )
         module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
         with patch.object(module, "_request_api", return_value='{"rewritten_prompt":"api result"}') as request:
-            result = api_node().enhance(**{
+            result = pe_api_node().enhance(**{
                 "输入提示词": "两个人站在海边",
                 "任务模式": "自动",
                 "输出语言": "中文",
@@ -474,8 +475,7 @@ class RegistrationTests(unittest.TestCase):
                 "API模型名": "qwen-image",
                 "最大生成token": 512,
                 "最大边长": 1024,
-                "增强方式": "本地官方PE",
-                "文生图PE模型": "should-not-be-used",
+                "增强方式": "API",
             })
             self.assertEqual(result, ("api result",))
             self.assertEqual(request.call_args.args[0], "https://example.test/v1")
