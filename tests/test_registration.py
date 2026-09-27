@@ -441,10 +441,11 @@ class RegistrationTests(unittest.TestCase):
 
     def test_qwen_pe_node_contract(self):
         node = self.package.NODE_CLASS_MAPPINGS["QQQwenImage21PromptEnhancer"]
-        self.assertEqual(node.RETURN_TYPES, ("STRING", "STRING"))
-        self.assertEqual(node.RETURN_NAMES, ("增强提示词", "宽高比"))
+        self.assertEqual(node.RETURN_TYPES, ("STRING",))
+        self.assertEqual(node.RETURN_NAMES, ("增强提示词",))
         self.assertTrue(node.INPUT_IS_LIST)
         controls = node.INPUT_TYPES()["required"]
+        self.assertEqual(controls["任务模式"][0], ["自动", "文生图", "图生图"])
         self.assertEqual(controls["增强方式"][0], ["本地官方PE", "API"])
         self.assertEqual(controls["输出语言"][0], ["中文", "英文"])
         self.assertNotIn("mmproj", " ".join(controls))
@@ -476,12 +477,13 @@ class RegistrationTests(unittest.TestCase):
         )
         self.assertEqual(
             module._parse_pe_result('{"rewritten_prompt": "abc", "wh_ratio": "3:2"}'),
-            ("abc", "3:2"),
+            "abc",
         )
         fenced = "```json" + chr(10) + '{"rewritten_prompt": "abc", "wh_ratio": ""}' + chr(10) + "```"
-        self.assertEqual(module._parse_pe_result(fenced), ("abc", ""))
+        self.assertEqual(module._parse_pe_result(fenced), "abc")
         thinky = "<think>" + chr(10) + "x" + chr(10) + "</think>" + chr(10) + "plain text"
-        self.assertEqual(module._parse_pe_result(thinky), ("plain text", ""))
+        self.assertEqual(module._parse_pe_result(thinky), "plain text")
+        self.assertEqual(module._model_choices(), [])
         self.assertEqual(module.MAX_REFERENCE_IMAGES, 9)
 
         class FakeBatch:
