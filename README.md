@@ -197,7 +197,8 @@ FPS 是播放速率，不会按分段相加；目标总帧数按合计时长一�
 参考图为单个 `reference_images` 输入口：顺序即 `<imageN>` 序号，最多 9 张，可直接接 `QQ-多媒体加载` 的 `multi output`；
 任务模式支持 自动/文生图/图生图（自动=接了参考图走图生图）。模型下拉支持 gguf 文件（含分片）与
 safetensors 单文件/目录：safetensors 走 ComfyUI 自带 TE 栈加载（内置 tokenizer 与架构识别，
-调用约定同核心 TextGenerate 节点），gguf 走 llama-cpp。
+调用约定同核心 TextGenerate 节点），gguf 走 llama-cpp。本地官方PE 按纯文本策略组装系统提示词
+（剥离模板的 JSON 输出段，追加节点级纯文本与推理可见性规则），API 方式按 JSON 策略输出并抽取 rewritten_prompt。
 输出为单个「增强提示词」STRING；
 输出语言（中/英）以节点级最终语言规则追加，用户指定的画面文字保持原文。
 输入/输出类型固定为 `IMAGE`：使用通配类型时，被绕过(Bypass)的节点会让 ComfyUI 前端的

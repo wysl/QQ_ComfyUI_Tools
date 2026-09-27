@@ -463,6 +463,14 @@ class RegistrationTests(unittest.TestCase):
         system_en = module._build_system_prompt("图生图", "英文")
         self.assertIn("The selected output language is English", system_en)
         self.assertTrue(system_en.rstrip().endswith("The user's edit instruction to rewrite is:"))
+        local_system = module._build_system_prompt("文生图", "中文", "本地官方PE")
+        self.assertNotIn("## Language", local_system)
+        self.assertNotIn("## Output format", local_system)
+        self.assertIn("## Node output controls", local_system)
+        self.assertIn("当前为本地模式", local_system)
+        local_edit = module._build_system_prompt("图生图", "英文", "本地官方PE")
+        self.assertNotIn("## Output Format", local_edit)
+        self.assertTrue(local_edit.rstrip().endswith("The user's edit instruction to rewrite is:"))
         self.assertEqual(
             module._normalize_api_url("https://x.com/v1"),
             "https://x.com/v1/chat/completions",
@@ -483,6 +491,8 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(module._parse_pe_result(fenced), "abc")
         thinky = "<think>" + chr(10) + "x" + chr(10) + "</think>" + chr(10) + "plain text"
         self.assertEqual(module._parse_pe_result(thinky), "plain text")
+        self.assertEqual(module._parse_pe_result("x</think>final plain", False), "final plain")
+        self.assertEqual(module._parse_pe_result("<think" + ">abc", False), "")
         self.assertEqual(module._model_choices(), [])
         self.assertEqual(module.MAX_REFERENCE_IMAGES, 9)
         source = (Path(__file__).resolve().parents[1] / "node_modules" / "qwen_pe.py").read_text(
