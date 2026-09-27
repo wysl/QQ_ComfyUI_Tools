@@ -524,6 +524,33 @@ class RegistrationTests(unittest.TestCase):
             module._parse_pe_result('{"rewritten_prompt":"截断也能恢复"', require_json=True),
             "截断也能恢复",
         )
+        transcript = (
+            "USER Raw Input Prompt: 测试\n"
+            "ASSISTANT\n"
+            "{\"rewritten_prompt\":\"从 assistant 段提取\",\"wh_ratio\":\"\",\"ratio_follow\":\"\"}\n"
+            "USER 继续"
+        )
+        self.assertEqual(module._parse_pe_result(transcript, require_json=True), "从 assistant 段提取")
+        transcript_with_followup = (
+            "USER Raw Input Prompt: 测试\n"
+            "ASSISTANT:\n"
+            "{\"rewritten_prompt\":\"截断 assistant 段\"}\n"
+            "USER Raw Input Prompt: 后续内容"
+        )
+        self.assertEqual(
+            module._parse_pe_result(transcript_with_followup, require_json=True),
+            "截断 assistant 段",
+        )
+        plain_transcript = (
+            "USER Raw Input Prompt: 测试\n"
+            "ASSISTANT\n"
+            "一位身穿汉服的少女站在花园里，夕阳照亮她的面容。\n"
+            "USER 继续"
+        )
+        self.assertEqual(
+            module._parse_pe_result(plain_transcript, require_json=True, allow_plain_prompt=True),
+            "一位身穿汉服的少女站在花园里，夕阳照亮她的面容。",
+        )
         for malformed in (
             'USER Raw Input Prompt: 测试\\nAI\\nUSER Raw Input Prompt: 测试',
             '{"rewritten_prompt": "测试"} USER Raw Input Prompt: 测试',
