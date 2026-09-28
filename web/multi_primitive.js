@@ -126,9 +126,22 @@ function inputDisplayName(info, fallback) {
 // （重命名输出口后的 label），让红框两处显示一致；没改过名时保持原来的输入口名。
 const LABEL_SOURCE_INPUT_NAMES = ["模式", "启用", "规则"];
 
+// 只认本节点输出口上的自定义名：重命名写入的 label 优先；
+// 没有 label 但名字不像自动生成的（自动名一定以 " <序号>" 结尾）也算自定义。
+// 不读取、不拼接任何连接节点的信息。
+function customOutputName(node, slot) {
+    const output = node?.outputs?.[slot];
+    if (!output) return "";
+    const label = String(output.label || "").trim();
+    if (label) return label;
+    const name = String(output.name || "").trim();
+    if (name && !name.endsWith(` ${slot + 1}`)) return name;
+    return "";
+}
+
 function widgetLabelFor(node, slot, info, fallback) {
     const inputName = String(info?.input?.name || "");
-    const custom = String(node?.outputs?.[slot]?.label || "").trim();
+    const custom = customOutputName(node, slot);
     if (LABEL_SOURCE_INPUT_NAMES.includes(inputName) && custom) return custom;
     return inputDisplayName(info, fallback);
 }
@@ -204,14 +217,14 @@ function syncWidgetLabels(graph) {
     for (const node of (graph?._nodes || [])) {
         if (node?.type !== NODE_TYPE && node?.type !== LEGACY_NODE_TYPE) continue;
         for (let slot = 0; slot < (node.outputs?.length || 0); slot += 1) {
-            const custom = String(node.outputs[slot]?.label || "").trim();
-            if (!custom) continue;
             const info = node.resolveOutputTarget?.(slot);
             if (!LABEL_SOURCE_INPUT_NAMES.includes(String(info?.input?.name || ""))) continue;
             const widget = (node.widgets || []).find((entry) => entry?.__h3MultiPrimitiveSlot === slot);
             if (!widget) continue;
-            if (widget.label !== custom) {
-                widget.label = custom;
+            // 有自定义名就显示自定义名；自定义名被清掉后还原成目标输入口名
+            const desired = customOutputName(node, slot) || inputDisplayName(info, `输入 ${slot + 1}`);
+            if (widget.label !== desired) {
+                widget.label = desired;
                 changed = true;
             }
         }
