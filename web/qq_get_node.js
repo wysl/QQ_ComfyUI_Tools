@@ -13,6 +13,8 @@ const TAG = "[QQ-获取点]";
 const NAME_WIDGET = "名称";
 const ENABLE_WIDGET = "启用";
 const ENABLE_INPUT = "启用接线";
+const MODE_ON = "启用";
+const MODE_BYPASS = "绕过";
 
 function graphAncestors(graph) {
     const out = [];
@@ -81,7 +83,13 @@ function nameWidget(node) {
 
 function enableWidgetValue(node) {
     const widget = (node?.widgets || []).find((entry) => entry && entry.name === ENABLE_WIDGET);
-    return widget ? toBool(widget.value) : true;
+    if (!widget) return true;
+    const value = widget.value;
+    // 新版是 启用/绕过 文本选项；旧存档里可能是布尔值，一并兼容
+    if (typeof value === "string") {
+        return value !== MODE_BYPASS && value !== "关闭" && value !== "false" && value !== "";
+    }
+    return toBool(value);
 }
 
 // 启用接线口接常量源（PrimitiveNode / 其它虚拟节点）时，排队前就能读到值
@@ -162,6 +170,11 @@ function install(nodeType) {
     proto.onConfigure = function onConfigureQQGet(info) {
         const result = originalConfigure?.apply(this, arguments);
         this.isVirtualNode = true;
+        // 旧存档的布尔开关归一化成 启用/绕过 文本选项
+        const enable = (this.widgets || []).find((entry) => entry && entry.name === ENABLE_WIDGET);
+        if (enable && typeof enable.value === "boolean") {
+            enable.value = enable.value ? MODE_ON : MODE_BYPASS;
+        }
         const name = nameWidget(this)?.value;
         if (name) this.title = `${NODE_TITLE} ${name}`;
         return result;

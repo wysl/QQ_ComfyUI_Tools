@@ -1036,7 +1036,9 @@ class RegistrationTests(unittest.TestCase):
         inputs = node.INPUT_TYPES()
         self.assertEqual(list(inputs["required"]), ["名称", "启用"])
         self.assertEqual(list(inputs["optional"]), ["启用接线"])
-        self.assertTrue(inputs["required"]["启用"][1]["default"])
+        # 和 QQ-魔术贴 同款的两文本选项
+        self.assertEqual(inputs["required"]["启用"][0], ["启用", "绕过"])
+        self.assertEqual(inputs["required"]["启用"][1]["default"], "启用")
         # 虚拟解析节点不应被执行：执行即报错，提示改用界面或真实连线
         with self.assertRaisesRegex(RuntimeError, "前端虚拟解析节点"):
             node.get_value()

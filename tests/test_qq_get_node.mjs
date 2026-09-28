@@ -14,7 +14,7 @@ const cut = src.indexOf("function install(nodeType)");
 const pure = src
   .slice(0, cut)
   .replace(/^import .*$/m, "")
-  .replace(/^const (NODE_TYPE|NODE_TITLE|SET_NODE_TYPE|TAG|NAME_WIDGET|ENABLE_WIDGET|ENABLE_INPUT) = .*$/gm, "");
+  .replace(/^const (NODE_TYPE|NODE_TITLE|SET_NODE_TYPE|TAG|NAME_WIDGET|ENABLE_WIDGET|ENABLE_INPUT|MODE_ON|MODE_BYPASS) = .*$/gm, "");
 
 const factory = new Function(`
   const app = null;
@@ -25,6 +25,8 @@ const factory = new Function(`
   const NAME_WIDGET = "名称";
   const ENABLE_WIDGET = "启用";
   const ENABLE_INPUT = "启用接线";
+  const MODE_ON = "启用";
+  const MODE_BYPASS = "绕过";
   ${pure}
   return {
     graphAncestors, readLink, findSetterNode, resolveSetterLink, setNames,
@@ -68,9 +70,11 @@ const child = { _nodes: [setter], parent, getLink: (id) => links[id] ?? null };
 check("外层图的名字也在范围内", api.setNames(child).includes("outer"));
 check("跨图也能解析", api.findSetterNode(child, "outer")?.graph === parent);
 
-console.log("== 4. 开关读取 ==");
-check("默认启用", api.isEnabled({ widgets: [{ name: "启用", value: true }] }) === true);
-check("关闭识别", api.isEnabled({ widgets: [{ name: "启用", value: false }] }) === false);
+console.log("== 4. 开关读取（启用/绕过 文本选项）==");
+check("文本 启用", api.isEnabled({ widgets: [{ name: "启用", value: "启用" }] }) === true);
+check("文本 绕过", api.isEnabled({ widgets: [{ name: "启用", value: "绕过" }] }) === false);
+check("旧存档布尔 true", api.isEnabled({ widgets: [{ name: "启用", value: true }] }) === true);
+check("旧存档布尔 false", api.isEnabled({ widgets: [{ name: "启用", value: false }] }) === false);
 check("没有开关widget视为启用", api.isEnabled({ widgets: [] }) === true);
 
 console.log("== 5. 启用接线口：常量源静态可读 ==");
