@@ -455,7 +455,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(node.RETURN_NAMES, ("增强提示词",))
         self.assertTrue(node.INPUT_IS_LIST)
         self.assertTrue(node.OUTPUT_NODE)
-        self.assertEqual(node.CATEGORY, "QQ/工具")
+        self.assertEqual(node.CATEGORY, "QQ/Qwen")
         self.assertEqual(node.FUNCTION, "enhance_prompt")
         inputs = node.INPUT_TYPES()
         controls = inputs["required"]
