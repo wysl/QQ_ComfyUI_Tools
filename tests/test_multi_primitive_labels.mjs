@@ -1,6 +1,6 @@
 /**
- * Regression tests for the multi-value node's consumer-identity labels
- * (web/multi_primitive.js 的 controlDisplayName).
+ * Regression tests for QQ-多值输入 widget labels (web/multi_primitive.js).
+ * 目标输入口精确为 模式/启用/规则 时，体内控件标签继承本节点输出口的自定义名。
  * 运行：node tests/test_multi_primitive_labels.mjs
  */
 
@@ -17,7 +17,7 @@ const pure = src.slice(start, end);
 
 const factory = new Function(`
   ${pure}
-  return { inputDisplayName, controlDisplayName, LABEL_SOURCE_INPUT_NAMES };
+  return { inputDisplayName, widgetLabelFor, LABEL_SOURCE_INPUT_NAMES };
 `);
 const api = factory();
 
@@ -28,26 +28,26 @@ function check(name, cond) {
   else { fail += 1; console.log("  FAIL " + name); }
 }
 
-const info = (inputName, title, label, type) => ({
-  input: { name: inputName, label, type },
-  targetNode: { title, type: type || "SomeType" },
-});
+const info = (inputName, label) => ({ input: { name: inputName, label }, targetNode: { title: "QQ-魔术贴" } });
+const nodeWithOutputLabel = (label) => ({ outputs: [{ label }] });
 
-console.log("== 1. 白名单内：带上消费者节点身份 ==");
-check("模式 → 节点标题.模式", api.controlDisplayName(info("模式", "QQ-魔术贴"), "输入 1") === "QQ-魔术贴.模式");
-check("启用 → 节点标题.启用", api.controlDisplayName(info("启用", "QQ-获取点"), "输入 2") === "QQ-获取点.启用");
-check("规则 → 节点标题.规则", api.controlDisplayName(info("规则", "QQ-绕过规则"), "输入 3") === "QQ-绕过规则.规则");
-check("输入口自定义 label 优先于 name", api.controlDisplayName(info("模式", "QQ-魔术贴", "整组绕过"), "输入 1") === "QQ-魔术贴.整组绕过");
-check("没有标题时退化为类型", api.controlDisplayName(info("模式", "", undefined, "QQMagicTag"), "输入 1") === "QQMagicTag.模式");
+console.log("== 1. 白名单内继承输出口自定义名 ==");
+check("启用 + 输出口改名测试一下", api.widgetLabelFor(nodeWithOutputLabel("测试一下"), 0, info("启用"), "输入 1") === "测试一下");
+check("模式 + 输出口改名", api.widgetLabelFor(nodeWithOutputLabel("我希望显示的"), 0, info("模式"), "输入 2") === "我希望显示的");
+check("规则 + 输出口改名", api.widgetLabelFor(nodeWithOutputLabel("总闸"), 0, info("规则"), "输入 3") === "总闸");
 
-console.log("== 2. 白名单外：保持原样 ==");
-check("任务模式不加前缀", api.controlDisplayName(info("任务模式", "QQ-增强"), "输入 1") === "任务模式");
-check("启用接线不加前缀", api.controlDisplayName(info("启用接线", "QQ-获取点"), "输入 1") === "启用接线");
-check("select 不加前缀", api.controlDisplayName(info("select", "QQ-潜空间切换"), "输入 1") === "select");
+console.log("== 2. 没有自定义名时保持原行为 ==");
+check("启用 无自定义名 → 输入口名", api.widgetLabelFor({ outputs: [{}] }, 0, info("启用"), "输入 1") === "启用");
+check("输入口自定义 label 优先", api.widgetLabelFor({ outputs: [{}] }, 0, info("启用", "整组绕过"), "输入 1") === "整组绕过");
+check("value_N 回退 fallback", api.widgetLabelFor({ outputs: [{}] }, 0, { input: { name: "value_2" } }, "输入 2") === "输入 2");
 
-console.log("== 3. 基础回退 ==");
-check("value_N 回退到 fallback", api.inputDisplayName({ input: { name: "value_2" } }, "输入 2") === "输入 2");
-check("空名字回退到 fallback", api.inputDisplayName({ input: {} }, "输入 3") === "输入 3");
+console.log("== 3. 白名单外不继承 ==");
+check("任务模式 不继承", api.widgetLabelFor(nodeWithOutputLabel("测试一下"), 0, info("任务模式"), "输入 1") === "任务模式");
+check("启用接线 不继承", api.widgetLabelFor(nodeWithOutputLabel("测试一下"), 0, info("启用接线"), "输入 1") === "启用接线");
+check("select 不继承", api.widgetLabelFor(nodeWithOutputLabel("测试一下"), 0, info("select"), "输入 1") === "select");
+
+console.log("== 4. 白名单常量 ==");
+check("三个精确名字", JSON.stringify(api.LABEL_SOURCE_INPUT_NAMES) === JSON.stringify(["模式", "启用", "规则"]));
 
 console.log("");
 console.log(`通过 ${pass} / 失败 ${fail}`);

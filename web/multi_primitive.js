@@ -122,17 +122,15 @@ function inputDisplayName(info, fallback) {
     return !displayName || /^value_\d+$/i.test(displayName) ? fallback : displayName;
 }
 
-// 目标输入口名字精确命中这三个时，多值输入这一侧的控件标签 / 输出口名
-// 会带上消费者节点的身份（标题优先），线拉得再远也能看出每路控制的是谁。
+// 目标输入口名字精确命中这三个时，体内控件标签继承「本节点输出口的自定义名」
+// （重命名输出口后的 label），让红框两处显示一致；没改过名时保持原来的输入口名。
 const LABEL_SOURCE_INPUT_NAMES = ["模式", "启用", "规则"];
 
-function controlDisplayName(info, fallback) {
-    const base = inputDisplayName(info, fallback);
+function widgetLabelFor(node, slot, info, fallback) {
     const inputName = String(info?.input?.name || "");
-    if (!LABEL_SOURCE_INPUT_NAMES.includes(inputName)) return base;
-    const who = String(info?.targetNode?.title || info?.targetNode?.type || "").trim();
-    if (!who) return base;
-    return `${who}.${base}`;
+    const custom = String(node?.outputs?.[slot]?.label || "").trim();
+    if (LABEL_SOURCE_INPUT_NAMES.includes(inputName) && custom) return custom;
+    return inputDisplayName(info, fallback);
 }
 
 function outputHasLink(output) {
@@ -201,8 +199,42 @@ function registerLegacyNodeType(LiteGraph, BaseClass) {
     LegacyMultiPrimitiveNode.category = TEXT.category;
 }
 
+function syncWidgetLabels(graph) {
+    let changed = false;
+    for (const node of (graph?._nodes || [])) {
+        if (node?.type !== NODE_TYPE && node?.type !== LEGACY_NODE_TYPE) continue;
+        for (let slot = 0; slot < (node.outputs?.length || 0); slot += 1) {
+            const custom = String(node.outputs[slot]?.label || "").trim();
+            if (!custom) continue;
+            const info = node.resolveOutputTarget?.(slot);
+            if (!LABEL_SOURCE_INPUT_NAMES.includes(String(info?.input?.name || ""))) continue;
+            const widget = (node.widgets || []).find((entry) => entry?.__h3MultiPrimitiveSlot === slot);
+            if (!widget) continue;
+            if (widget.label !== custom) {
+                widget.label = custom;
+                changed = true;
+            }
+        }
+    }
+    if (changed) {
+        try { graph.setDirtyCanvas?.(true, true); } catch { /* 忽略 */ }
+    }
+    return changed;
+}
+
+function startLabelSync() {
+    if (globalThis.__qqMultiLabelTimer) return;
+    globalThis.__qqMultiLabelTimer = setInterval(() => {
+        if (!app || app.loading_graph || app.configuringGraph) return;
+        syncWidgetLabels(app.canvas?.graph || app.graph);
+    }, 1200);
+}
+
 app.registerExtension({
     name: "QQ.MultiPrimitive",
+    setup() {
+        startLabelSync();
+    },
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name === NODE_TYPE) installVirtualNode(nodeType);
     },
@@ -271,7 +303,7 @@ app.registerExtension({
 
                 // Keep value_N as the serialized/internal key, but expose the
                 // connected input's readable label instead of leaking it into the UI.
-                widget.label = controlDisplayName(info, `输入 ${slot + 1}`);
+                widget.label = widgetLabelFor(this, slot, info, `输入 ${slot + 1}`);
                 if (previousValues.has(name)) {
                     widget.value = previousValues.get(name);
                 } else if (info.targetWidget) {
@@ -300,7 +332,7 @@ app.registerExtension({
                     }
                     const type = configType(info.config);
                     output.type = type;
-                    output.name = `${controlDisplayName(info, type)} ${slot + 1}`;
+                    output.name = `${info.input.localized_name || info.input.label || info.input.name || type} ${slot + 1}`;
                     output.widget = info.input.widget || { name: info.widgetName };
                     this.createSlotWidget(slot, info, previousValues);
                 }

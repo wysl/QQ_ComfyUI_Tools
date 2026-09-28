@@ -1078,11 +1078,13 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('const name = `value_${slot + 1}`;', source)
         self.assertIn('function inputDisplayName(info, fallback)', source)
         self.assertIn('/^value_\\d+$/i.test(displayName)', source)
-        self.assertIn('widget.label = controlDisplayName(info, `输入 ${slot + 1}`);', source)
+        self.assertIn('widget.label = widgetLabelFor(this, slot, info, `输入 ${slot + 1}`);', source)
         self.assertIn('const LABEL_SOURCE_INPUT_NAMES = ["模式", "启用", "规则"];', source)
-        self.assertIn("function controlDisplayName(info, fallback)", source)
+        self.assertIn("function widgetLabelFor(node, slot, info, fallback)", source)
+        self.assertIn("function syncWidgetLabels(graph)", source)
         # 消费者 socket 的名字/标签不应被改写：只改多值输入自己这一侧
         self.assertFalse((Path(__file__).resolve().parents[1] / "web" / "input_label_inherit.js").exists())
+        self.assertNotIn("controlDisplayName", source)
 
     def test_media_auto_splitter_contract(self):
         splitter = self.package.NODE_CLASS_MAPPINGS["QQMediaAutoSplitter"]
