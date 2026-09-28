@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 29)
+        self.assertEqual(len(mappings), 31)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -96,6 +96,8 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(display["QQIgnoreRulesController"], "QQ-绕过规则开关")
         self.assertEqual(display["QQTextPollingSwitch"], "QQ-文本轮询切换")
         self.assertEqual(display["QQTextMerge"], "QQ-文本合并")
+        self.assertEqual(display["QQSetNode"], "QQ-设置节点")
+        self.assertEqual(display["QQGetNode"], "QQ-获取节点(可开关)")
         self.assertEqual(
             display["QQQwenImage21PromptEnhancer"],
             "QQ-Qwen Image 2.1 AI提示词增强(PE or API)",
@@ -1025,6 +1027,32 @@ class RegistrationTests(unittest.TestCase):
         # 只接一段时原样输出，不会多出分隔符
         self.assertEqual(node().merge(分隔符="\\n", 文本1="A"), ("A",))
         self.assertEqual(node().merge(分隔符="\\n"), ("",))
+
+    def test_set_get_node_pair_with_master_switch(self):
+        set_node = self.package.NODE_CLASS_MAPPINGS["QQSetNode"]
+        get_node = self.package.NODE_CLASS_MAPPINGS["QQGetNode"]
+        self.assertEqual(set_node.RETURN_TYPES, ("*",))
+        self.assertEqual(get_node.RETURN_TYPES, ("*",))
+        controls = get_node.INPUT_TYPES()["required"]
+        self.assertEqual(list(controls)[0], "启用")
+        self.assertTrue(controls["启用"][1]["default"])
+        self.assertEqual(list(get_node.INPUT_TYPES()["optional"]), ["直连值"])
+
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.set_get")
+        module._SET_REGISTRY.clear()
+        self.addCleanup(module._SET_REGISTRY.clear)
+        value = object()
+        self.assertIs(set_node.set_value(名称=" latent ", 值=value)[0], value)
+        self.assertIs(get_node.get_value(启用=True, 名称="latent")[0], value)
+        # 总开关关闭：不查注册表，直接输出 None
+        self.assertEqual(get_node.get_value(启用=False, 名称="latent"), (None,))
+        # 直连值优先于注册表
+        direct = object()
+        self.assertIs(get_node.get_value(启用=True, 名称="latent", 直连值=direct)[0], direct)
+        with self.assertRaisesRegex(ValueError, "找不到名称"):
+            get_node.get_value(启用=True, 名称="nope")
+        with self.assertRaisesRegex(ValueError, "名称不能为空"):
+            set_node.set_value(名称="   ", 值=1)
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
