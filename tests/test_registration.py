@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 31)
+        self.assertEqual(len(mappings), 32)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -98,6 +98,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(display["QQTextMerge"], "QQ-文本合并")
         self.assertEqual(display["QQSetNode"], "QQ-设置节点")
         self.assertEqual(display["QQGetNode"], "QQ-获取节点(可开关)")
+        self.assertEqual(display["QQGroupBypassTag"], "QQ-魔术贴")
         self.assertEqual(
             display["QQQwenImage21PromptEnhancer"],
             "QQ-Qwen Image 2.1 AI提示词增强(PE or API)",
@@ -1053,6 +1054,24 @@ class RegistrationTests(unittest.TestCase):
             get_node.get_value(启用=True, 名称="nope")
         with self.assertRaisesRegex(ValueError, "名称不能为空"):
             set_node.set_value(名称="   ", 值=1)
+
+    def test_group_bypass_tag_contract(self):
+        node = self.package.NODE_CLASS_MAPPINGS["QQGroupBypassTag"]
+        self.assertEqual(node.RETURN_TYPES, ("STRING",))
+        self.assertTrue(node.OUTPUT_NODE)
+        controls = node.INPUT_TYPES()["required"]
+        self.assertEqual(list(controls), ["模式"])
+        self.assertEqual(controls["模式"][0], ["启用", "绕过"])
+        self.assertEqual(controls["模式"][1]["default"], "启用")
+        self.assertEqual(node.describe("绕过"), ("[魔术贴] 绕过",))
+        web = Path(__file__).resolve().parents[1] / "web"
+        source = (web / "group_bypass_tag.js").read_text(encoding="utf-8")
+        self.assertIn('const NODE_TYPE = "QQGroupBypassTag";', source)
+        # 与绕过规则共用同一套原状态记录，才能互相恢复
+        self.assertIn('const PROP_PREV_MODE = "wyslPrevMode";', source)
+        rules = (web / "ignore_rules.js").read_text(encoding="utf-8")
+        self.assertIn('const TAG_NODE_TYPE = "QQGroupBypassTag";', rules)
+        self.assertIn("function isProtectedNode(node)", rules)
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]

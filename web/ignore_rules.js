@@ -127,6 +127,13 @@ function isRuleNode(node) {
     return node?.comfyClass === NODE_TYPE || node?.type === NODE_TYPE;
 }
 
+// QQ-魔术贴 永远不被绕过规则控制（它自己的开关只管组内其它节点）
+const TAG_NODE_TYPE = "QQGroupBypassTag";
+
+function isProtectedNode(node) {
+    return isRuleNode(node) || node?.comfyClass === TAG_NODE_TYPE || node?.type === TAG_NODE_TYPE;
+}
+
 function nodeText(node) {
     return [node?.title, node?.type, node?.comfyClass].filter((v) => typeof v === "string");
 }
@@ -224,7 +231,7 @@ function applyRules(graph) {
 
     const targets = new Set();
     for (const node of nodes) {
-        if (isRuleNode(node)) continue;
+        if (isProtectedNode(node)) continue;
         if (hitAny(nodeRules.include, nodeText(node))) targets.add(node);
     }
     for (const group of groups) {
@@ -237,7 +244,7 @@ function applyRules(graph) {
     const excluded = new Set();
     if (nodeRules.exclude.length) {
         for (const node of nodes) {
-            if (isRuleNode(node)) continue;
+            if (isProtectedNode(node)) continue;
             if (hitAny(nodeRules.exclude, nodeText(node))) excluded.add(node);
         }
     }
@@ -252,7 +259,7 @@ function applyRules(graph) {
 
     let changed = false;
     for (const node of nodes) {
-        if (isRuleNode(node)) continue;
+        if (isProtectedNode(node)) continue;
         if (setBypassed(node, targets.has(node))) changed = true;
     }
 
