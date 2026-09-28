@@ -22,7 +22,7 @@ const factory = new Function(`
   const SET_NODE_TYPE = "SetNode";
   const TAG = "[QQ-获取点]";
   ${pure}
-  return { graphAncestors, readLink, findSetterNode, resolveSetterLink, setNames, isEnabled };
+  return { graphAncestors, readLink, findSetterNode, resolveSetterLink, setNames, isEnabled, refreshNameOptions };
 `);
 const api = factory();
 
@@ -98,6 +98,31 @@ console.log("== 5. 启用输入口：常量源静态可读 ==");
     widgets: [{ name: "启用", value: true }],
   };
   check("非常量源回退到节点开关", api.isEnabled(linkedRuntime) === true);
+}
+
+console.log("== 6. 选项刷新不能踩只读 getter（载入中断回归）==");
+{
+  const widget = { name: "名称", value: "latent" };
+  widget.options = {};
+  Object.defineProperty(widget.options, "values", {
+    get: () => [],
+    enumerable: true,
+    configurable: true,
+  });
+  const node = { type: "QQGetNode", widgets: [widget], graph, setDirtyCanvas() {} };
+  let threw = false;
+  try {
+    api.refreshNameOptions(node);
+  } catch (error) {
+    threw = true;
+  }
+  check("只读 getter 下不抛异常", !threw);
+  check("选项被整体替换为数组", Array.isArray(widget.options.values) && widget.options.values.includes("latent"));
+  check("签名缓存生效（重复刷新不再替换）", (() => {
+    const before = widget.options;
+    api.refreshNameOptions(node);
+    return before === widget.options;
+  })());
 }
 
 console.log("");

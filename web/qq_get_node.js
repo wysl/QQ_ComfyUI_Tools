@@ -109,8 +109,16 @@ function refreshNameOptions(node) {
     const widget = nameWidget(node);
     if (!widget) return;
     const values = setNames(node.graph || app?.graph || null);
-    const options = widget.options || (widget.options = {});
-    options.values = values;
+    const signature = values.join("\u0001");
+    if (node.__qqNameSignature === signature) return;
+    node.__qqNameSignature = signature;
+    // 注意：options.values 可能是只读 getter（构造时用 defineProperty 装的），
+    // 直接赋值会在严格模式下抛 TypeError 并中断工作流加载，所以整体替换 options 对象。
+    try {
+        widget.options = { ...(widget.options || {}), values };
+    } catch (error) {
+        console.warn(TAG, "刷新名称选项失败", error);
+    }
     if (Array.isArray(node.widgets)) {
         const index = node.widgets.indexOf(widget);
         if (index >= 0) {
@@ -198,6 +206,17 @@ function installVirtualGet() {
     LiteGraph.registerNodeType(NODE_TYPE, QQGetNode);
 }
 
+function startNameRefresh() {
+    if (globalThis.__qqGetNodeNameTimer) return;
+    globalThis.__qqGetNodeNameTimer = setInterval(() => {
+        if (!app || app.loading_graph || app.configuringGraph) return;
+        const graph = app.canvas?.graph || app.graph;
+        for (const node of (graph?._nodes || [])) {
+            if (node?.type === NODE_TYPE) refreshNameOptions(node);
+        }
+    }, 2000);
+}
+
 app.registerExtension({
     name: "QQ.GetNodeSwitch",
     registerCustomNodes() {
@@ -205,5 +224,6 @@ app.registerExtension({
     },
     setup() {
         installVirtualGet();
+        startNameRefresh();
     },
 });
