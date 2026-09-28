@@ -1067,6 +1067,8 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("function applyLinkStyles(graph, selectedIds, hoverId)", source)
         self.assertIn("function patchLinkRenderer()", source)
         self.assertIn("link.__qqStyle = style;", source)
+        self.assertIn("if (!style.flow) skipBorder = true;", source)
+        self.assertIn("function patchCanvasLinkRenderer(canvas)", source)
         # 只改渲染属性，绝不改连线拓扑
         self.assertNotIn("removeLink", source)
         self.assertNotIn(".connect(", source)

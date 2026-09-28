@@ -12,7 +12,7 @@ const TAG = "[QQ-多值输入连线]";
 const GRASS_IDLE = "rgba(124, 199, 55, 0)";
 const GLOW_RGB = "124, 199, 55";
 // 构建戳：控制台日志里用它确认浏览器加载的是哪一版
-const BUILD = "2026-09-28.invisible-idle";
+const BUILD = "2026-09-28.no-border";
 const GRASS_ACTIVE = "rgba(154, 230, 60, 0.9)";
 
 function graphLinks(graph) {
@@ -146,10 +146,31 @@ function patchLinkRenderer() {
         if (style) {
             color = style.color;
             flow = flow || style.flow;
+            // 隐形态连黑色描边一起跳过，否则 alpha=0 的主线外面还会剩一圈淡边
+            if (!style.flow) skipBorder = true;
         }
         return original.call(this, ctx, start, end, link, skipBorder, flow, color, ...rest);
     };
     proto.__qqRenderLinkPatched = true;
+    return true;
+}
+
+// 新渲染器（CanvasPathRenderer）的描边/箭头/中心标记在 context 里，按链接临时抹掉
+function patchCanvasLinkRenderer(canvas) {
+    const renderer = canvas?.linkRenderer;
+    if (!renderer || renderer.__qqPatched || typeof renderer.drawLink !== "function") return false;
+    const originalDraw = renderer.drawLink.bind(renderer);
+    renderer.drawLink = function drawLink(ctx, link, context) {
+        const style = link?.__qqStyle;
+        if (style && !style.flow && context?.style) {
+            context = {
+                ...context,
+                style: { ...context.style, borderWidth: 0, showArrows: false, showCenterMarker: false },
+            };
+        }
+        return originalDraw(ctx, link, context);
+    };
+    renderer.__qqPatched = true;
     return true;
 }
 
@@ -159,6 +180,7 @@ function start() {
         if (!app || app.loading_graph || app.configuringGraph) return;
         const graph = app.canvas?.graph || app.graph;
         if (!graph) return;
+        patchCanvasLinkRenderer(app.canvas);
         const { selected, hover } = currentState();
         applyLinkStyles(graph, selected, hover);
     }, 160);
