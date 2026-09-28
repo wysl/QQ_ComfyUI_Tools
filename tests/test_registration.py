@@ -1062,6 +1062,8 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('const GRASS_IDLE = "rgba(124, 199, 55, 0.05)";', source)
         self.assertIn('const GRASS_ACTIVE = "rgba(154, 230, 60, 0.9)";', source)
         self.assertIn("function applyLinkStyles(graph, selectedIds, hoverId)", source)
+        self.assertIn("function patchLinkRenderer()", source)
+        self.assertIn("link.__qqStyle = style;", source)
         # 只改渲染属性，绝不改连线拓扑
         self.assertNotIn("removeLink", source)
         self.assertNotIn(".connect(", source)

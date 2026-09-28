@@ -40,9 +40,12 @@ function applyLinkStyles(graph, selectedIds, hoverId) {
         if (!isMultiSource(graph, link)) continue;
         const active = isActiveLink(graph, link, selectedIds, hoverId);
         const style = styleFor(active);
-        if (link.color !== style.color || Boolean(link.flow) !== style.flow) {
+        if (link.color !== style.color || Boolean(link.flow) !== style.flow
+            || link.__qqStyle?.color !== style.color) {
+            // 新渲染器读 link.color；旧绘制路径不读，靠 renderLink 钩子注入 __qqStyle
             link.color = style.color;
             link.flow = style.flow;
+            link.__qqStyle = style;
             touched += 1;
         }
     }
@@ -70,6 +73,25 @@ function currentState() {
     return { selected, hover };
 }
 
+// 旧绘制路径给 renderLink 传的 color 是 null，内部回退成默认色，link.color 被无视。
+// 在这里按参数位注入我们自己的颜色/流动，两种渲染器就都生效了。
+function patchLinkRenderer() {
+    const canvasClass = globalThis.LGraphCanvas;
+    const proto = canvasClass?.prototype;
+    if (!proto || typeof proto.renderLink !== "function" || proto.__qqRenderLinkPatched) return false;
+    const original = proto.renderLink;
+    proto.renderLink = function renderLink(ctx, start, end, link, skipBorder, flow, color, ...rest) {
+        const style = link?.__qqStyle;
+        if (style) {
+            color = style.color;
+            flow = flow || style.flow;
+        }
+        return original.call(this, ctx, start, end, link, skipBorder, flow, color, ...rest);
+    };
+    proto.__qqRenderLinkPatched = true;
+    return true;
+}
+
 function start() {
     if (globalThis.__qqMultiLinkTimer) return;
     globalThis.__qqMultiLinkTimer = setInterval(() => {
@@ -84,7 +106,8 @@ function start() {
 app.registerExtension({
     name: "QQ.MultiPrimitiveLinks",
     setup() {
+        const patched = patchLinkRenderer();
         start();
-        console.info(TAG, "已加载：多值输入连线为草绿色，选中/悬停端点节点时高亮");
+        console.info(TAG, "已加载：多值输入连线为草绿色，选中/悬停端点节点时高亮 | renderLink 钩子:", patched ? "已安装" : "不需要/不可用");
     },
 });

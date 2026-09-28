@@ -80,9 +80,11 @@ console.log("== 4. 应用到图 ==");
   api.applyLinkStyles(g, new Set([4]), null);
   check("选中后 90%", g.links[10].color === "rgba(154, 230, 60, 0.9)");
   check("选中后流动", g.links[10].flow === true);
+  check("旧渲染器钩子数据已写", g.links[10].__qqStyle?.color === "rgba(154, 230, 60, 0.9)");
   check("其它线仍不被改", g.links[11].color === undefined);
   api.applyLinkStyles(g, new Set(), null);
   check("取消选中回到 5%", g.links[10].color === "rgba(124, 199, 55, 0.05)");
+  check("钩子数据同步回到 5%", g.links[10].__qqStyle?.color === "rgba(124, 199, 55, 0.05)");
   check("只改渲染属性，不动拓扑", g.links[10].origin_id === 1 && g.links[10].target_id === 4);
 }
 
