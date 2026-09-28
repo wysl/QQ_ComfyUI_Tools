@@ -1034,10 +1034,14 @@ class RegistrationTests(unittest.TestCase):
         self.assertFalse((Path(__file__).resolve().parents[1] / "node_modules" / "set_get.py").exists())
         source = (Path(__file__).resolve().parents[1] / "web" / "qq_get_node.js").read_text(encoding="utf-8")
         self.assertIn('const NODE_TYPE = "QQGetNode";', source)
+        self.assertIn('const NODE_TITLE = "QQ-获取点";', source)
         self.assertIn('const SET_NODE_TYPE = "SetNode";', source)
         self.assertIn("this.isVirtualNode = true;", source)
         self.assertIn("getInputLink(slot)", source)
-        self.assertIn('this.addWidget("toggle", "启用", true);', source)
+        # 启用既是输入口也是兜底开关
+        self.assertIn('this.addInput(ENABLE_INPUT, "BOOLEAN");', source)
+        self.assertIn('this.addWidget("toggle", ENABLE_INPUT, true);', source)
+        self.assertIn("function refreshNameOptions(node)", source)
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]

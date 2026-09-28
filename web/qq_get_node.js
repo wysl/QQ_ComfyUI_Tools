@@ -1,14 +1,18 @@
 import { app } from "../../scripts/app.js";
 
-// QQ-获取节点(可开关)：参照 KJNodes「获取点」的纯前端虚拟节点做法，额外加一个总开关。
+// QQ-获取点：参照 KJNodes「获取点」的纯前端虚拟节点做法，额外加一个「启用」开关。
 //   启用 = 排队时把同名 SetNode(设置点) 的输入连线透传给本节点的消费者（编译成真实连线）
 //   关闭 = 消费者视为「未连接」，例如一键出图的 latent_image 会回退到图1分辨率
-// 本节点 isVirtualNode=true，不会进入 prompt，后端没有对应实现；
-// 名称下拉列出当前图及外层图里所有 KJ SetNode 的名字。
+// 本节点 isVirtualNode=true，不进 prompt；名称下拉列出当前图及外层图里所有设置点。
+// 「启用」是真正的输入口：可以接布尔常量（PrimitiveNode / widget 转出的口）；
+// 虚拟节点在排队前拿不到运行时计算值，接非常量源时回退到节点上的开关并给出控制台提示。
 
 const NODE_TYPE = "QQGetNode";
+const NODE_TITLE = "QQ-获取点";
 const SET_NODE_TYPE = "SetNode";
-const TAG = "[QQ-获取节点]";
+const TAG = "[QQ-获取点]";
+const ENABLE_INPUT = "启用";
+const NAME_WIDGET = "名称";
 
 function graphAncestors(graph) {
     const out = [];
@@ -64,10 +68,57 @@ function setNames(graph) {
     return names;
 }
 
+function toBool(value) {
+    if (typeof value === "boolean") return value;
+    if (typeof value === "number") return value !== 0;
+    if (typeof value === "string") return value !== "" && value !== "false" && value !== "关闭";
+    return Boolean(value);
+}
+
+function nameWidget(node) {
+    return (node?.widgets || []).find((entry) => entry && entry.name === NAME_WIDGET) || null;
+}
+
+function enableWidgetValue(node) {
+    const widget = (node?.widgets || []).find((entry) => entry && entry.name === ENABLE_INPUT);
+    return widget ? toBool(widget.value) : true;
+}
+
+// 启用口接的是常量源（PrimitiveNode / 其它虚拟节点）时，排队前就能读到值
+function readEnableInput(node) {
+    const input = (node?.inputs || []).find((entry) => entry && entry.name === ENABLE_INPUT);
+    const link = input ? readLink(node?.graph, input.link) : null;
+    if (!link) return enableWidgetValue(node);
+    const origin = node?.graph?.getNodeById?.(link.origin_id);
+    if (!origin) return enableWidgetValue(node);
+    if (origin.type === "PrimitiveNode" || origin.isVirtualNode) {
+        const widget = origin.widgets?.[0];
+        if (widget) return toBool(widget.value);
+    }
+    console.warn(TAG, "启用口接的不是常量源，虚拟节点排队前读不到运行时值，回退到节点上的开关", node);
+    return enableWidgetValue(node);
+}
+
 function isEnabled(node) {
-    const widget = (node?.widgets || []).find((entry) => entry && entry.name === "启用");
-    if (!widget) return true;
-    return widget.value !== false && widget.value !== 0 && widget.value !== "关闭";
+    return readEnableInput(node);
+}
+
+// Vue 控件会在挂载时快照 combo 的选项列表；节点刚创建时还不在图里，
+// 快照是空的，选完名字显示不出来。这里强制刷新选项并重建 widget 绑定。
+function refreshNameOptions(node) {
+    const widget = nameWidget(node);
+    if (!widget) return;
+    const values = setNames(node.graph || app?.graph || null);
+    const options = widget.options || (widget.options = {});
+    options.values = values;
+    if (Array.isArray(node.widgets)) {
+        const index = node.widgets.indexOf(widget);
+        if (index >= 0) {
+            node.widgets.splice(index, 1);
+            node.widgets.splice(index, 0, widget);
+        }
+    }
+    node.setDirtyCanvas?.(true, true);
 }
 
 function installVirtualGet() {
@@ -82,43 +133,54 @@ function installVirtualGet() {
             this.properties["Node name for S&R"] = NODE_TYPE;
             this.isVirtualNode = true;
             this.serialize_widgets = true;
-            const comboOptions = {
-                getOptionLabel: (value) => value || "",
-            };
+            this.addInput(ENABLE_INPUT, "BOOLEAN");
+            const comboOptions = { getOptionLabel: (value) => value || "" };
             Object.defineProperty(comboOptions, "values", {
                 get: () => setNames(this.graph || app?.graph || null),
                 enumerable: true,
                 configurable: true,
             });
-            this.addWidget("combo", "名称", "", () => {}, comboOptions);
-            this.addWidget("toggle", "启用", true);
+            this.addWidget("combo", NAME_WIDGET, "", (value) => {
+                this.title = value ? `${NODE_TITLE} ${value}` : NODE_TITLE;
+                refreshNameOptions(this);
+            }, comboOptions);
+            this.addWidget("toggle", ENABLE_INPUT, true);
             this.addOutput("*", "*");
+            this.title = NODE_TITLE;
+        }
+
+        onAdded(graph) {
+            this.graph = graph || this.graph;
+            refreshNameOptions(this);
         }
 
         onConfigure(info) {
-            // 旧的后端版存的是 [启用, 名称]，新的顺序是 [名称, 启用]，这里做一次交换兼容
+            // 旧存盘顺序 [启用, 名称] → 新顺序 [名称, 启用]
             const values = info?.widgets_values;
             if (Array.isArray(values) && values.length >= 2
                 && typeof values[0] === "boolean" && typeof values[1] === "string") {
                 info.widgets_values = [values[1], values[0], ...values.slice(2)];
             }
-            return super.onConfigure?.(info);
+            const result = super.onConfigure?.(info);
+            const name = nameWidget(this)?.value;
+            if (name) this.title = `${NODE_TITLE} ${name}`;
+            setTimeout(() => refreshNameOptions(this), 0);
+            return result;
         }
 
         getInputLink(slot) {
-            // 同图：前端标准解析路径会读这里返回的 link
-            const link = resolveSetterLink(this.graph, this.widgets?.[0]?.value, slot, isEnabled(this));
-            if (!link && this.widgets?.[0]?.value) {
-                if (!findSetterNode(this.graph, this.widgets[0].value)) {
-                    console.warn(TAG, `找不到名为「${this.widgets[0].value}」的设置点`, this);
-                }
+            // 同图：前端标准解析路径读这里返回的 link
+            const name = nameWidget(this)?.value;
+            const link = resolveSetterLink(this.graph, name, slot, isEnabled(this));
+            if (!link && name && isEnabled(this) && !findSetterNode(this.graph, name)) {
+                console.warn(TAG, `找不到名为「${name}」的设置点`, this);
             }
             return link;
         }
 
         resolveVirtualOutput(slot) {
             // 跨图/子图：告诉前端真正的源节点和槽位
-            const name = this.widgets?.[0]?.value;
+            const name = nameWidget(this)?.value;
             const found = findSetterNode(this.graph, name);
             if (!found || found.graph === this.graph) return undefined;
             const slotInfo = found.node.inputs?.[slot];
@@ -131,7 +193,7 @@ function installVirtualGet() {
         }
     }
 
-    QQGetNode.title = "QQ-获取节点(可开关)";
+    QQGetNode.title = NODE_TITLE;
     QQGetNode.category = "QQ/工具";
     LiteGraph.registerNodeType(NODE_TYPE, QQGetNode);
 }

@@ -20,6 +20,7 @@ const factory = new Function(`
   const app = null;
   const NODE_TYPE = "QQGetNode";
   const SET_NODE_TYPE = "SetNode";
+  const TAG = "[QQ-获取点]";
   ${pure}
   return { graphAncestors, readLink, findSetterNode, resolveSetterLink, setNames, isEnabled };
 `);
@@ -68,6 +69,36 @@ console.log("== 4. 开关读取 ==");
 check("默认启用", api.isEnabled({ widgets: [{ name: "启用", value: true }] }) === true);
 check("关闭识别", api.isEnabled({ widgets: [{ name: "启用", value: false }] }) === false);
 check("没有开关widget视为启用", api.isEnabled({ widgets: [] }) === true);
+
+console.log("== 5. 启用输入口：常量源静态可读 ==");
+{
+  const primitive = { id: 11, type: "PrimitiveNode", widgets: [{ value: false }] };
+  const linkedGraph = {
+    _nodes: [primitive],
+    getNodeById: (id) => (id === 11 ? primitive : null),
+    getLink: (id) => (id === 5 ? { id: 5, origin_id: 11, origin_slot: 0 } : null),
+  };
+  const node = {
+    graph: linkedGraph,
+    inputs: [{ name: "启用", link: 5 }],
+    widgets: [{ name: "启用", value: true }],
+  };
+  check("接布尔常量 false 时关闭", api.isEnabled(node) === false);
+  primitive.widgets[0].value = true;
+  check("常量改 true 后启用", api.isEnabled(node) === true);
+  const runtime = { id: 12, type: "SomeComputeNode", widgets: [] };
+  const runtimeGraph = {
+    _nodes: [runtime],
+    getNodeById: (id) => (id === 12 ? runtime : null),
+    getLink: (id) => (id === 6 ? { id: 6, origin_id: 12, origin_slot: 0 } : null),
+  };
+  const linkedRuntime = {
+    graph: runtimeGraph,
+    inputs: [{ name: "启用", link: 6 }],
+    widgets: [{ name: "启用", value: true }],
+  };
+  check("非常量源回退到节点开关", api.isEnabled(linkedRuntime) === true);
+}
 
 console.log("");
 console.log(`通过 ${pass} / 失败 ${fail}`);
