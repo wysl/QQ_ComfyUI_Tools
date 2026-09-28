@@ -1054,18 +1054,6 @@ class RegistrationTests(unittest.TestCase):
         self.assertNotIn("swapNameWidgetToCombo", source)
         self.assertNotIn("refreshNameOptions", source)
 
-    def test_input_label_inherit_frontend_contract(self):
-        source = (Path(__file__).resolve().parents[1] / "web" / "input_label_inherit.js").read_text(
-            encoding="utf-8",
-        )
-        self.assertIn('const TARGET_INPUT_NAMES = ["模式", "启用", "规则"];', source)
-        self.assertIn("function syncLabels(graph)", source)
-        self.assertIn("input.__qqLabelOwned", source)
-        self.assertIn('name: "QQ.InputLabelInherit"', source)
-        # 只改显示标签，不改输入名，避免影响匹配与执行
-        self.assertIn("input.label = wanted;", source)
-        self.assertNotIn("input.name =", source)
-
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
         controls = lightroom.INPUT_TYPES()["required"]
@@ -1090,7 +1078,11 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('const name = `value_${slot + 1}`;', source)
         self.assertIn('function inputDisplayName(info, fallback)', source)
         self.assertIn('/^value_\\d+$/i.test(displayName)', source)
-        self.assertIn('widget.label = inputDisplayName(info, `输入 ${slot + 1}`);', source)
+        self.assertIn('widget.label = controlDisplayName(info, `输入 ${slot + 1}`);', source)
+        self.assertIn('const LABEL_SOURCE_INPUT_NAMES = ["模式", "启用", "规则"];', source)
+        self.assertIn("function controlDisplayName(info, fallback)", source)
+        # 消费者 socket 的名字/标签不应被改写：只改多值输入自己这一侧
+        self.assertFalse((Path(__file__).resolve().parents[1] / "web" / "input_label_inherit.js").exists())
 
     def test_media_auto_splitter_contract(self):
         splitter = self.package.NODE_CLASS_MAPPINGS["QQMediaAutoSplitter"]

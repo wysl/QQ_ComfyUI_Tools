@@ -122,6 +122,19 @@ function inputDisplayName(info, fallback) {
     return !displayName || /^value_\d+$/i.test(displayName) ? fallback : displayName;
 }
 
+// 目标输入口名字精确命中这三个时，多值输入这一侧的控件标签 / 输出口名
+// 会带上消费者节点的身份（标题优先），线拉得再远也能看出每路控制的是谁。
+const LABEL_SOURCE_INPUT_NAMES = ["模式", "启用", "规则"];
+
+function controlDisplayName(info, fallback) {
+    const base = inputDisplayName(info, fallback);
+    const inputName = String(info?.input?.name || "");
+    if (!LABEL_SOURCE_INPUT_NAMES.includes(inputName)) return base;
+    const who = String(info?.targetNode?.title || info?.targetNode?.type || "").trim();
+    if (!who) return base;
+    return `${who}.${base}`;
+}
+
 function outputHasLink(output) {
     return Boolean(output?.links?.length);
 }
@@ -258,7 +271,7 @@ app.registerExtension({
 
                 // Keep value_N as the serialized/internal key, but expose the
                 // connected input's readable label instead of leaking it into the UI.
-                widget.label = inputDisplayName(info, `输入 ${slot + 1}`);
+                widget.label = controlDisplayName(info, `输入 ${slot + 1}`);
                 if (previousValues.has(name)) {
                     widget.value = previousValues.get(name);
                 } else if (info.targetWidget) {
@@ -287,7 +300,7 @@ app.registerExtension({
                     }
                     const type = configType(info.config);
                     output.type = type;
-                    output.name = `${info.input.localized_name || info.input.label || info.input.name || type} ${slot + 1}`;
+                    output.name = `${controlDisplayName(info, type)} ${slot + 1}`;
                     output.widget = info.input.widget || { name: info.widgetName };
                     this.createSlotWidget(slot, info, previousValues);
                 }
