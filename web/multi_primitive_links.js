@@ -12,7 +12,7 @@ const TAG = "[QQ-多值输入连线]";
 const GRASS_IDLE = "rgba(124, 199, 55, 0)";
 const GLOW_RGB = "124, 199, 55";
 // 构建戳：控制台日志里用它确认浏览器加载的是哪一版
-const BUILD = "2026-09-28.no-border";
+const BUILD = "2026-09-28.socket-ripple-3";
 const GRASS_ACTIVE = "rgba(154, 230, 60, 0.9)";
 
 function graphLinks(graph) {
@@ -36,13 +36,18 @@ function styleFor(active) {
     return { color: active ? GRASS_ACTIVE : GRASS_IDLE, flow: active };
 }
 
-// 输出口上的呼吸光晕：半径在 2px 基础上微微扩散 1px，透明度反向呼吸
+// 输出口接点圆点的外缘半径（LiteGraph 槽点约 4~5px），涟漪从它向外扩散 1px
+const SOCKET_RADIUS = 4.5;
+
+// 呼吸涟漪：半径 = 接点半径 + 0~1px，透明度反向呼吸；第二圈更淡做光晕感
 function glowStyle(time, slot) {
-    const wave = (Math.sin(time / 500 + slot * 1.7) + 1) / 2;
+    const wave = (Math.sin(time / 600 + slot * 1.7) + 1) / 2;
     return {
-        radius: 2 + wave,
-        alpha: 0.5 - wave * 0.35,
+        radius: SOCKET_RADIUS + wave,
+        alpha: 0.65 - wave * 0.45,
         lineWidth: 1,
+        haloRadius: SOCKET_RADIUS + wave + 1.5,
+        haloAlpha: (0.65 - wave * 0.45) * 0.4,
     };
 }
 
@@ -66,29 +71,35 @@ function drawOutputGlows(node, ctx, time) {
         if (!pos) continue;
         const glow = glowStyle(time, slot);
         ctx.save();
-        ctx.strokeStyle = `rgba(${GLOW_RGB}, ${glow.alpha.toFixed(3)})`;
         ctx.lineWidth = glow.lineWidth;
+        // 外圈淡光晕
+        ctx.strokeStyle = `rgba(${GLOW_RGB}, ${glow.haloAlpha.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, glow.haloRadius, 0, Math.PI * 2);
+        ctx.stroke();
+        // 贴着接点圆点外缘的主涟漪
+        ctx.strokeStyle = `rgba(${GLOW_RGB}, ${glow.alpha.toFixed(3)})`;
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, glow.radius, 0, Math.PI * 2);
         ctx.stroke();
-        ctx.fillStyle = `rgba(${GLOW_RGB}, 0.5)`;
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 1.2, 0, Math.PI * 2);
-        ctx.fill();
         ctx.restore();
     }
 }
 
-// 光晕画在节点前景层：只有「有连线的输出口」才画，随画布每帧刷新
-function installGlow(nodeType) {
-    const proto = nodeType?.prototype;
-    if (!proto || proto.__qqGlowInstalled) return;
-    proto.__qqGlowInstalled = true;
-    const original = proto.onDrawForeground;
-    proto.onDrawForeground = function onDrawForegroundQQGlow(ctx, ...rest) {
-        const result = original?.apply(this, [ctx, ...rest]);
+// 光晕画在节点前景层：只有「有连线的输出口」才画。
+// 挂在实例上而不是原型上——多值输入是虚拟节点，原型会被它自己的安装流程替换。
+function installGlow(node) {
+    if (!node || node.__qqGlowInstalled) return;
+    node.__qqGlowInstalled = true;
+    const original = typeof node.onDrawForeground === "function" ? node.onDrawForeground.bind(node) : null;
+    node.onDrawForeground = function onDrawForegroundQQGlow(ctx, ...rest) {
+        const result = original?.(ctx, ...rest);
         try {
-            if (ctx && !this.flags?.collapsed) drawOutputGlows(this, ctx, performance.now());
+            if (ctx && !this.flags?.collapsed) {
+                drawOutputGlows(this, ctx, performance.now());
+                // 请求下一帧重绘，呼吸动画才能连续
+                this.setDirtyCanvas?.(true, false);
+            }
         } catch { /* 绘制失败不影响节点 */ }
         return result;
     };
@@ -134,6 +145,25 @@ function currentState() {
     return { selected, hover };
 }
 
+// 新渲染器（CanvasPathRenderer）的描边/箭头/中心标记在 context 里，按链接临时抹掉
+function patchCanvasLinkRenderer(canvas) {
+    const renderer = canvas?.linkRenderer;
+    if (!renderer || renderer.__qqPatched || typeof renderer.drawLink !== "function") return false;
+    const originalDraw = renderer.drawLink.bind(renderer);
+    renderer.drawLink = function drawLink(ctx, link, context) {
+        const style = link?.__qqStyle;
+        if (style && !style.flow && context?.style) {
+            context = {
+                ...context,
+                style: { ...context.style, borderWidth: 0, showArrows: false, showCenterMarker: false },
+            };
+        }
+        return originalDraw(ctx, link, context);
+    };
+    renderer.__qqPatched = true;
+    return true;
+}
+
 // 旧绘制路径给 renderLink 传的 color 是 null，内部回退成默认色，link.color 被无视。
 // 在这里按参数位注入我们自己的颜色/流动，两种渲染器就都生效了。
 function patchLinkRenderer() {
@@ -155,25 +185,6 @@ function patchLinkRenderer() {
     return true;
 }
 
-// 新渲染器（CanvasPathRenderer）的描边/箭头/中心标记在 context 里，按链接临时抹掉
-function patchCanvasLinkRenderer(canvas) {
-    const renderer = canvas?.linkRenderer;
-    if (!renderer || renderer.__qqPatched || typeof renderer.drawLink !== "function") return false;
-    const originalDraw = renderer.drawLink.bind(renderer);
-    renderer.drawLink = function drawLink(ctx, link, context) {
-        const style = link?.__qqStyle;
-        if (style && !style.flow && context?.style) {
-            context = {
-                ...context,
-                style: { ...context.style, borderWidth: 0, showArrows: false, showCenterMarker: false },
-            };
-        }
-        return originalDraw(ctx, link, context);
-    };
-    renderer.__qqPatched = true;
-    return true;
-}
-
 function start() {
     if (globalThis.__qqMultiLinkTimer) return;
     globalThis.__qqMultiLinkTimer = setInterval(() => {
@@ -188,9 +199,9 @@ function start() {
 
 app.registerExtension({
     name: "QQ.MultiPrimitiveLinks",
-    async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (nodeData?.name !== NODE_TYPE && nodeData?.name !== LEGACY_NODE_TYPE) return;
-        installGlow(nodeType);
+    nodeCreated(node) {
+        if (node?.type !== NODE_TYPE && node?.type !== LEGACY_NODE_TYPE) return;
+        installGlow(node);
     },
     setup() {
         const patched = patchLinkRenderer();

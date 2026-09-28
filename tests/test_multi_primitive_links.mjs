@@ -92,8 +92,9 @@ console.log("== 5. 输出口呼吸光晕参数 ==");
 {
   const g0 = api.glowStyle(0, 0);
   check("线宽 1px", g0.lineWidth === 1);
-  check("半径在 2~3px（1px 级扩散）", g0.radius >= 2 && g0.radius <= 3);
-  check("透明度在呼吸区间", g0.alpha > 0.1 && g0.alpha <= 0.5);
+  check("半径贴合接点并向外扩散 1px", g0.radius >= 4.5 && g0.radius <= 5.5);
+  check("透明度在呼吸区间", g0.alpha >= 0.2 && g0.alpha <= 0.65);
+  check("外圈光晕比主涟漪大且更淡", g0.haloRadius === g0.radius + 1.5 && g0.haloAlpha < g0.alpha);
   const g1 = api.glowStyle(0, 1);
   check("不同口相位错开", g1.radius !== g0.radius || g1.alpha !== g0.alpha);
   const half = api.glowStyle(785, 0);
