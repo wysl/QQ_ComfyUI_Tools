@@ -459,6 +459,9 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(node.FUNCTION, "enhance_prompt")
         inputs = node.INPUT_TYPES()
         controls = inputs["required"]
+        self.assertEqual(list(controls)[0], "启用")
+        self.assertEqual(controls["启用"][0], "BOOLEAN")
+        self.assertTrue(controls["启用"][1]["default"])
         self.assertEqual(controls["任务模式"][0], ["自动", "文生图", "图生图"])
         self.assertEqual(controls["任务模式"][1]["default"], "自动")
         self.assertEqual(controls["增强方式"][0], ["本地官方PE", "API"])
@@ -497,6 +500,30 @@ class RegistrationTests(unittest.TestCase):
         self.assertNotIn("llama_cpp", source)
         self.assertNotIn("mmproj", source)
         self.assertNotIn("AutoModelForCausalLM", source)
+
+    def test_qwen_pe_master_switch_bypasses_the_node(self):
+        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")
+        node = module.QQQwenImage21PromptEnhancer
+        with patch.object(module, "_request_api", side_effect=AssertionError("关闭时不应调用 API")), \
+                patch.object(module, "_request_official_pe", side_effect=AssertionError("关闭时不应调用 PE")):
+            self.assertEqual(
+                node().enhance_prompt(**{"启用": [False], "输入提示词": ["原始提示词"], "增强方式": ["API"]}),
+                ("原始提示词",),
+            )
+            # 关闭时连校验都跳过，缺 api 配置也不报错
+            self.assertTrue(node.VALIDATE_INPUTS(**{
+                "启用": [False], "增强方式": ["API"], "api_url": [""], "api_key": [""], "model": [""],
+            }))
+        # 开启时照常走增强
+        with patch.object(module, "_request_api", return_value='{"rewritten_prompt":"增强后"}') as request:
+            self.assertEqual(
+                node().enhance_prompt(**{
+                    "启用": [True], "输入提示词": ["原始提示词"], "增强方式": ["API"],
+                    "api_url": ["https://x"], "api_key": ["k"], "model": ["m"],
+                }),
+                ("增强后",),
+            )
+            self.assertEqual(request.call_count, 1)
 
     def test_qwen_pe_prompt_templates_follow_the_official_rules(self):
         module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.qwen_pe")

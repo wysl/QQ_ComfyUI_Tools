@@ -58,7 +58,7 @@ MiniMax H3 Easy Segment Render.segments
 
 ## 图像生成
 
-`QQ-Qwen Image 2.1 AI提示词增强(PE or API)` 提供自动、文生图、图生图三种任务模式；自动模式按是否接入参考图选择。`参考图` 是一个列表输入口，按图片顺序编号，最多 9 张，可接 `QQ-多媒体加载` 的 `multi output`。本地官方 PE 从 ComfyUI 的文本编码器模型目录读取 safetensors；API 使用 OpenAI 兼容接口。最大生成 token 默认 4096，最大边长默认 1024。
+`QQ-Qwen Image 2.1 AI提示词增强(PE or API)` 提供自动、文生图、图生图三种任务模式；自动模式按是否接入参考图选择。`参考图` 是一个列表输入口，按图片顺序编号，最多 9 张，可接 `QQ-多媒体加载` 的 `multi output`。本地官方 PE 从 ComfyUI 的文本编码器模型目录读取 safetensors；API 使用 OpenAI 兼容接口。最大生成 token 默认 4096，最大边长默认 1024。首行 `启用` 是总开关：关闭时不调用 API/PE、也不做校验，`输入提示词` 原样从 `增强提示词` 口输出，等价于越过本节点。
 
 `QQ-Qwen Image 2.1 一键出图(编码+K采样+VAE解码)` 合并 Qwen 图像编码、KSampler 和 VAE 解码。可接参考图以及可选的 `latent_image` 指定输出画布；需要分别控制采样环节时使用原生节点。
 
