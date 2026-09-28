@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 32)
+        self.assertEqual(len(mappings), 30)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -96,8 +96,6 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(display["QQIgnoreRulesController"], "QQ-绕过规则开关")
         self.assertEqual(display["QQTextPollingSwitch"], "QQ-文本轮询切换")
         self.assertEqual(display["QQTextMerge"], "QQ-文本合并")
-        self.assertEqual(display["QQSetNode"], "QQ-设置节点")
-        self.assertEqual(display["QQGetNode"], "QQ-获取节点(可开关)")
         self.assertEqual(display["QQGroupBypassTag"], "QQ-魔术贴")
         self.assertEqual(
             display["QQQwenImage21PromptEnhancer"],
@@ -1029,49 +1027,17 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(node().merge(分隔符="\\n", 文本1="A"), ("A",))
         self.assertEqual(node().merge(分隔符="\\n"), ("",))
 
-    def test_set_get_node_pair_with_master_switch(self):
-        set_node = self.package.NODE_CLASS_MAPPINGS["QQSetNode"]
-        get_node = self.package.NODE_CLASS_MAPPINGS["QQGetNode"]
-        self.assertEqual(set_node.RETURN_TYPES, ("*",))
-        self.assertEqual(get_node.RETURN_TYPES, ("*",))
-        controls = get_node.INPUT_TYPES()["required"]
-        self.assertEqual(list(controls)[0], "启用")
-        self.assertTrue(controls["启用"][1]["default"])
-        self.assertEqual(list(get_node.INPUT_TYPES()["optional"]), ["直连值"])
-
-        module = importlib.import_module("QQ_ComfyUI_Tools.node_modules.set_get")
-        module._SET_REGISTRY.clear()
-        self.addCleanup(module._SET_REGISTRY.clear)
-        value = object()
-        self.assertIs(set_node.set_value(名称=" latent ", 值=value)[0], value)
-        self.assertIs(get_node.get_value(启用=True, 名称="latent")[0], value)
-        # 总开关关闭：不查注册表，直接输出 None
-        self.assertEqual(get_node.get_value(启用=False, 名称="latent"), (None,))
-        # 直连值优先于注册表
-        direct = object()
-        self.assertIs(get_node.get_value(启用=True, 名称="latent", 直连值=direct)[0], direct)
-        with self.assertRaisesRegex(ValueError, "找不到名称"):
-            get_node.get_value(启用=True, 名称="nope")
-        with self.assertRaisesRegex(ValueError, "名称不能为空"):
-            set_node.set_value(名称="   ", 值=1)
-
-    def test_group_bypass_tag_contract(self):
-        node = self.package.NODE_CLASS_MAPPINGS["QQGroupBypassTag"]
-        self.assertEqual(node.RETURN_TYPES, ("STRING",))
-        self.assertTrue(node.OUTPUT_NODE)
-        controls = node.INPUT_TYPES()["required"]
-        self.assertEqual(list(controls), ["模式"])
-        self.assertEqual(controls["模式"][0], ["启用", "绕过"])
-        self.assertEqual(controls["模式"][1]["default"], "启用")
-        self.assertEqual(node.describe("绕过"), ("[魔术贴] 绕过",))
-        web = Path(__file__).resolve().parents[1] / "web"
-        source = (web / "group_bypass_tag.js").read_text(encoding="utf-8")
-        self.assertIn('const NODE_TYPE = "QQGroupBypassTag";', source)
-        # 与绕过规则共用同一套原状态记录，才能互相恢复
-        self.assertIn('const PROP_PREV_MODE = "wyslPrevMode";', source)
-        rules = (web / "ignore_rules.js").read_text(encoding="utf-8")
-        self.assertIn('const TAG_NODE_TYPE = "QQGroupBypassTag";', rules)
-        self.assertIn("function isProtectedNode(node)", rules)
+    def test_set_get_backend_removed_in_favor_of_virtual_get(self):
+        # 设置/获取改走纯前端虚拟节点（和 KJ 获取点同机制），后端不再注册
+        self.assertNotIn("QQSetNode", self.package.NODE_CLASS_MAPPINGS)
+        self.assertNotIn("QQGetNode", self.package.NODE_CLASS_MAPPINGS)
+        self.assertFalse((Path(__file__).resolve().parents[1] / "node_modules" / "set_get.py").exists())
+        source = (Path(__file__).resolve().parents[1] / "web" / "qq_get_node.js").read_text(encoding="utf-8")
+        self.assertIn('const NODE_TYPE = "QQGetNode";', source)
+        self.assertIn('const SET_NODE_TYPE = "SetNode";', source)
+        self.assertIn("this.isVirtualNode = true;", source)
+        self.assertIn("getInputLink(slot)", source)
+        self.assertIn('this.addWidget("toggle", "启用", true);', source)
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
