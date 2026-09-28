@@ -132,6 +132,10 @@ function refreshNameOptions(node) {
 function installVirtualGet() {
     const LiteGraph = globalThis.LiteGraph;
     if (!LiteGraph || LiteGraph.__qqGetNodeRegistered) return;
+    if (typeof LGraphNode === "undefined") {
+        console.error(TAG, "当前前端没有全局 LGraphNode，无法注册虚拟节点");
+        return;
+    }
     LiteGraph.__qqGetNodeRegistered = true;
 
     class QQGetNode extends LGraphNode {
@@ -220,7 +224,14 @@ function startNameRefresh() {
 app.registerExtension({
     name: "QQ.GetNodeSwitch",
     registerCustomNodes() {
-        installVirtualGet();
+        try {
+            installVirtualGet();
+            if (globalThis.LiteGraph?.registered_node_types?.[NODE_TYPE]) {
+                console.info(TAG, "已注册虚拟节点", NODE_TYPE, "（菜单名：QQ-获取点）");
+            }
+        } catch (error) {
+            console.error(TAG, "注册失败", error);
+        }
     },
     setup() {
         installVirtualGet();
