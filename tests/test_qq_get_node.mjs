@@ -10,17 +10,20 @@ import { dirname, join } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, "..", "web", "qq_get_node.js"), "utf8");
 
-const cut = src.indexOf("function installVirtualGet");
+const cut = src.indexOf("function makeCombo");
 const pure = src
   .slice(0, cut)
   .replace(/^import .*$/m, "")
-  .replace(/^const (NODE_TYPE|SET_NODE_TYPE|TAG) = .*$/gm, "");
+  .replace(/^const (NODE_TYPE|NODE_TITLE|SET_NODE_TYPE|TAG|NAME_WIDGET|ENABLE_WIDGET|ENABLE_INPUT) = .*$/gm, "");
 
 const factory = new Function(`
   const app = null;
   const NODE_TYPE = "QQGetNode";
   const SET_NODE_TYPE = "SetNode";
   const TAG = "[QQ-获取点]";
+  const NAME_WIDGET = "名称";
+  const ENABLE_WIDGET = "启用";
+  const ENABLE_INPUT = "启用接线";
   ${pure}
   return { graphAncestors, readLink, findSetterNode, resolveSetterLink, setNames, isEnabled, refreshNameOptions };
 `);
@@ -80,7 +83,7 @@ console.log("== 5. 启用输入口：常量源静态可读 ==");
   };
   const node = {
     graph: linkedGraph,
-    inputs: [{ name: "启用", link: 5 }],
+    inputs: [{ name: "启用接线", link: 5 }],
     widgets: [{ name: "启用", value: true }],
   };
   check("接布尔常量 false 时关闭", api.isEnabled(node) === false);
@@ -94,7 +97,7 @@ console.log("== 5. 启用输入口：常量源静态可读 ==");
   };
   const linkedRuntime = {
     graph: runtimeGraph,
-    inputs: [{ name: "启用", link: 6 }],
+    inputs: [{ name: "启用接线", link: 6 }],
     widgets: [{ name: "启用", value: true }],
   };
   check("非常量源回退到节点开关", api.isEnabled(linkedRuntime) === true);

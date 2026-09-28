@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 30)
+        self.assertEqual(len(mappings), 31)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -97,6 +97,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(display["QQTextPollingSwitch"], "QQ-文本轮询切换")
         self.assertEqual(display["QQTextMerge"], "QQ-文本合并")
         self.assertEqual(display["QQGroupBypassTag"], "QQ-魔术贴")
+        self.assertEqual(display["QQGetNode"], "QQ-获取点")
         self.assertEqual(
             display["QQQwenImage21PromptEnhancer"],
             "QQ-Qwen Image 2.1 AI提示词增强(PE or API)",
@@ -1027,21 +1028,25 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(node().merge(分隔符="\\n", 文本1="A"), ("A",))
         self.assertEqual(node().merge(分隔符="\\n"), ("",))
 
-    def test_set_get_backend_removed_in_favor_of_virtual_get(self):
-        # 设置/获取改走纯前端虚拟节点（和 KJ 获取点同机制），后端不再注册
-        self.assertNotIn("QQSetNode", self.package.NODE_CLASS_MAPPINGS)
-        self.assertNotIn("QQGetNode", self.package.NODE_CLASS_MAPPINGS)
-        self.assertFalse((Path(__file__).resolve().parents[1] / "node_modules" / "set_get.py").exists())
-        source = (Path(__file__).resolve().parents[1] / "web" / "qq_get_node.js").read_text(encoding="utf-8")
-        self.assertIn('const NODE_TYPE = "QQGetNode";', source)
-        self.assertIn('const NODE_TITLE = "QQ-获取点";', source)
-        self.assertIn('const SET_NODE_TYPE = "SetNode";', source)
+    def test_get_point_backend_shell_with_virtual_frontend(self):
+        node = self.package.NODE_CLASS_MAPPINGS["QQGetNode"]
+        self.assertEqual(node.CATEGORY, "QQ/工具")
+        self.assertEqual(node.RETURN_TYPES, ("*",))
+        self.assertEqual(node.RETURN_NAMES, ("值",))
+        inputs = node.INPUT_TYPES()
+        self.assertEqual(list(inputs["required"]), ["名称", "启用"])
+        self.assertEqual(list(inputs["optional"]), ["启用接线"])
+        self.assertTrue(inputs["required"]["启用"][1]["default"])
+        # 虚拟解析节点不应被执行：执行即报错，提示改用界面或真实连线
+        with self.assertRaisesRegex(RuntimeError, "前端虚拟解析节点"):
+            node.get_value()
+        source = (Path(__file__).resolve().parents[1] / "web" / "qq_get_node.js").read_text(
+            encoding="utf-8",
+        )
         self.assertIn("this.isVirtualNode = true;", source)
-        self.assertIn("getInputLink(slot)", source)
-        # 启用既是输入口也是兜底开关
-        self.assertIn('this.addInput(ENABLE_INPUT, "BOOLEAN");', source)
-        self.assertIn('this.addWidget("toggle", ENABLE_INPUT, true);', source)
-        self.assertIn("function refreshNameOptions(node)", source)
+        self.assertIn("proto.getInputLink = function getInputLink(slot)", source)
+        self.assertIn('const SET_NODE_TYPE = "SetNode";', source)
+        self.assertIn("function swapNameWidgetToCombo(node)", source)
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
