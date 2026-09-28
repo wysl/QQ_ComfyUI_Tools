@@ -1059,7 +1059,10 @@ class RegistrationTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertIn('const NODE_TYPE = "QQ-多值输入";', source)
-        self.assertIn('const GRASS_IDLE = "rgba(124, 199, 55, 0.05)";', source)
+        self.assertIn('const GRASS_IDLE = "rgba(124, 199, 55, 0)";', source)
+        self.assertIn("function glowStyle(time, slot)", source)
+        self.assertIn("function installGlow(nodeType)", source)
+        self.assertIn("function drawOutputGlows(node, ctx, time)", source)
         self.assertIn('const GRASS_ACTIVE = "rgba(154, 230, 60, 0.9)";', source)
         self.assertIn("function applyLinkStyles(graph, selectedIds, hoverId)", source)
         self.assertIn("function patchLinkRenderer()", source)

@@ -9,7 +9,8 @@ import { app } from "../../scripts/app.js";
 const NODE_TYPE = "QQ-多值输入";
 const LEGACY_NODE_TYPE = "QQMultiPrimitive";
 const TAG = "[QQ-多值输入连线]";
-const GRASS_IDLE = "rgba(124, 199, 55, 0.05)";
+const GRASS_IDLE = "rgba(124, 199, 55, 0)";
+const GLOW_RGB = "124, 199, 55";
 const GRASS_ACTIVE = "rgba(154, 230, 60, 0.9)";
 
 function graphLinks(graph) {
@@ -31,6 +32,64 @@ function isActiveLink(graph, link, selectedIds, hoverId) {
 
 function styleFor(active) {
     return { color: active ? GRASS_ACTIVE : GRASS_IDLE, flow: active };
+}
+
+// 输出口上的呼吸光晕：半径在 2px 基础上微微扩散 1px，透明度反向呼吸
+function glowStyle(time, slot) {
+    const wave = (Math.sin(time / 500 + slot * 1.7) + 1) / 2;
+    return {
+        radius: 2 + wave,
+        alpha: 0.5 - wave * 0.35,
+        lineWidth: 1,
+    };
+}
+
+function slotLocalPos(node, slot) {
+    let absolute = null;
+    try {
+        absolute = node.getConnectionPos?.(false, slot);
+    } catch { /* 忽略 */ }
+    if (!absolute) return null;
+    const x = Array.isArray(absolute) ? absolute[0] : absolute.x;
+    const y = Array.isArray(absolute) ? absolute[1] : absolute.y;
+    if (typeof x !== "number" || typeof y !== "number") return null;
+    const origin = node.pos || [0, 0];
+    return { x: x - origin[0], y: y - origin[1] };
+}
+
+function drawOutputGlows(node, ctx, time) {
+    for (let slot = 0; slot < (node.outputs?.length || 0); slot += 1) {
+        if (!node.outputs[slot]?.links?.length) continue;
+        const pos = slotLocalPos(node, slot);
+        if (!pos) continue;
+        const glow = glowStyle(time, slot);
+        ctx.save();
+        ctx.strokeStyle = `rgba(${GLOW_RGB}, ${glow.alpha.toFixed(3)})`;
+        ctx.lineWidth = glow.lineWidth;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, glow.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = `rgba(${GLOW_RGB}, 0.5)`;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 1.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+// 光晕画在节点前景层：只有「有连线的输出口」才画，随画布每帧刷新
+function installGlow(nodeType) {
+    const proto = nodeType?.prototype;
+    if (!proto || proto.__qqGlowInstalled) return;
+    proto.__qqGlowInstalled = true;
+    const original = proto.onDrawForeground;
+    proto.onDrawForeground = function onDrawForegroundQQGlow(ctx, ...rest) {
+        const result = original?.apply(this, [ctx, ...rest]);
+        try {
+            if (ctx && !this.flags?.collapsed) drawOutputGlows(this, ctx, performance.now());
+        } catch { /* 绘制失败不影响节点 */ }
+        return result;
+    };
 }
 
 function applyLinkStyles(graph, selectedIds, hoverId) {
@@ -105,9 +164,13 @@ function start() {
 
 app.registerExtension({
     name: "QQ.MultiPrimitiveLinks",
+    async beforeRegisterNodeDef(nodeType, nodeData) {
+        if (nodeData?.name !== NODE_TYPE && nodeData?.name !== LEGACY_NODE_TYPE) return;
+        installGlow(nodeType);
+    },
     setup() {
         const patched = patchLinkRenderer();
         start();
-        console.info(TAG, "已加载：多值输入连线为草绿色，选中/悬停端点节点时高亮 | renderLink 钩子:", patched ? "已安装" : "不需要/不可用");
+        console.info(TAG, "已加载：多值输入连线平时隐形，输出口带草绿呼吸光晕，选中/悬停端点时连线高亮 | renderLink 钩子:", patched ? "已安装" : "不需要/不可用");
     },
 });

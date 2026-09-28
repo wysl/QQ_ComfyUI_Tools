@@ -20,10 +20,10 @@ const factory = new Function(`
   const NODE_TYPE = "QQ-多值输入";
   const LEGACY_NODE_TYPE = "QQMultiPrimitive";
   const TAG = "[QQ-多值输入连线]";
-  const GRASS_IDLE = "rgba(124, 199, 55, 0.05)";
+  const GRASS_IDLE = "rgba(124, 199, 55, 0)";
   const GRASS_ACTIVE = "rgba(154, 230, 60, 0.9)";
   ${pure}
-  return { graphLinks, isMultiSource, isActiveLink, styleFor, applyLinkStyles };
+  return { graphLinks, isMultiSource, isActiveLink, styleFor, applyLinkStyles, glowStyle };
 `);
 const api = factory();
 
@@ -63,7 +63,7 @@ check("悬停源节点激活", api.isActiveLink(graph, link, new Set(), 1) === t
 check("无关选择不激活", api.isActiveLink(graph, link, new Set([9]), 9) === false);
 
 console.log("== 3. 样式 ==");
-check("平时 5% 草绿", api.styleFor(false).color === "rgba(124, 199, 55, 0.05)");
+check("平时 100% 透明", api.styleFor(false).color === "rgba(124, 199, 55, 0)");
 check("平时不流动", api.styleFor(false).flow === false);
 check("激活 90% 亮草绿", api.styleFor(true).color === "rgba(154, 230, 60, 0.9)");
 check("激活带流动高亮", api.styleFor(true).flow === true);
@@ -75,7 +75,7 @@ console.log("== 4. 应用到图 ==");
     11: { id: 11, origin_id: 3, origin_slot: 0, target_id: 4, target_slot: 1 },
   }, nodes);
   api.applyLinkStyles(g, new Set(), null);
-  check("多值线平时 5%", g.links[10].color === "rgba(124, 199, 55, 0.05)");
+  check("多值线平时全透明", g.links[10].color === "rgba(124, 199, 55, 0)");
   check("其它线不被改", g.links[11].color === undefined);
   api.applyLinkStyles(g, new Set([4]), null);
   check("选中后 90%", g.links[10].color === "rgba(154, 230, 60, 0.9)");
@@ -83,9 +83,21 @@ console.log("== 4. 应用到图 ==");
   check("旧渲染器钩子数据已写", g.links[10].__qqStyle?.color === "rgba(154, 230, 60, 0.9)");
   check("其它线仍不被改", g.links[11].color === undefined);
   api.applyLinkStyles(g, new Set(), null);
-  check("取消选中回到 5%", g.links[10].color === "rgba(124, 199, 55, 0.05)");
-  check("钩子数据同步回到 5%", g.links[10].__qqStyle?.color === "rgba(124, 199, 55, 0.05)");
+  check("取消选中回到全透明", g.links[10].color === "rgba(124, 199, 55, 0)");
+  check("钩子数据同步回到全透明", g.links[10].__qqStyle?.color === "rgba(124, 199, 55, 0)");
   check("只改渲染属性，不动拓扑", g.links[10].origin_id === 1 && g.links[10].target_id === 4);
+}
+
+console.log("== 5. 输出口呼吸光晕参数 ==");
+{
+  const g0 = api.glowStyle(0, 0);
+  check("线宽 1px", g0.lineWidth === 1);
+  check("半径在 2~3px（1px 级扩散）", g0.radius >= 2 && g0.radius <= 3);
+  check("透明度在呼吸区间", g0.alpha > 0.1 && g0.alpha <= 0.5);
+  const g1 = api.glowStyle(0, 1);
+  check("不同口相位错开", g1.radius !== g0.radius || g1.alpha !== g0.alpha);
+  const half = api.glowStyle(785, 0);
+  check("随时间变化", half.radius !== g0.radius || half.alpha !== g0.alpha);
 }
 
 console.log("");
