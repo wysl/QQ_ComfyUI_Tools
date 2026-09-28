@@ -170,6 +170,45 @@ console.log("== 8. group.nodes 过期（漏了魔术贴）时仍能定位组 =="
   check("成员被绕过", inner.mode === 4);
 }
 
+// 绕过规则的纯函数部分，用来验证两套机制不再互相撤销
+const rulesSrc = readFileSync(join(here, "..", "web", "ignore_rules.js"), "utf8");
+const rulesCut = rulesSrc.indexOf("function applyRules");
+const rulesPure = rulesSrc
+  .slice(0, rulesCut)
+  .replace(/^import .*$/m, "")
+  .replace(/^const (NODE_TYPE|TAG|EXCLUDE_PREFIX|PROP_PREV_MODE) = .*$/gm, "");
+const rulesApi = new Function(`
+  const globalThis = {};
+  const NODE_TYPE = "QQIgnoreRules";
+  const EXCLUDE_PREFIX = "!";
+  const PROP_PREV_MODE = "wyslPrevMode";
+  ${rulesPure}
+  return { setBypassed, readPrevMode, hasOwnRecord };
+`)();
+
+console.log("== 9. 所有权：与绕过规则不互相撤销 ==");
+{
+  const tag = makeTag("绕过");
+  const a = makeNode("Foo");
+  const group = { size: [200, 200], nodes: [tag, a] };
+  const graph = makeGraph([tag, a], [group]);
+  api.applyTag(graph);
+  check("成员被绕过", a.mode === 4);
+  check("所有权标记已写", a.properties.wyslTagOwned === true);
+  for (let i = 0; i < 5; i += 1) {
+    rulesApi.setBypassed(a, false);
+    api.applyTag(graph);
+    rulesApi.setBypassed(a, false);
+  }
+  check("交替运行后仍稳定为绕过（不再闪烁）", a.mode === 4);
+  check("规则想绕过也归魔术贴管", rulesApi.setBypassed(a, true) === false);
+  tag.widgets[0].value = "启用";
+  api.applyTag(graph);
+  check("启用后恢复 ALWAYS", a.mode === 0);
+  check("所有权标记清除", a.properties.wyslTagOwned === undefined);
+  check("之后规则恢复接管", rulesApi.setBypassed(a, true) === true && a.mode === 4);
+}
+
 console.log("");
 console.log(`通过 ${pass} / 失败 ${fail}`);
 process.exit(fail === 0 ? 0 : 1);

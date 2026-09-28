@@ -196,6 +196,8 @@ function clearPrevMode(node) {
 // 用户手动绕过的节点没有任何标记，必须原样保留，绝不启用。
 function setBypassed(node, bypass) {
     const { ALWAYS, BYPASS } = enums();
+    // 被 QQ-魔术贴 接管的节点归它管，绕过规则两个方向都不碰，避免两边互相撤销造成闪烁
+    if (node?.properties?.wyslTagOwned === true) return false;
     const marked = hasOwnRecord(node);
     const prev = readPrevMode(node);
 

@@ -14,6 +14,8 @@ import { app } from "../../scripts/app.js";
 const NODE_TYPE = "QQGroupBypassTag";
 const TAG = "[QQ-魔术贴]";
 const PROP_PREV_MODE = "wyslPrevMode";
+// 所有权标记：被魔术贴接管的节点，QQ-绕过规则 一律不碰（见 ignore_rules.js）
+const PROP_TAG_OWNED = "wyslTagOwned";
 const MODE_ON = "启用";
 const MODE_BYPASS = "绕过";
 
@@ -135,14 +137,23 @@ function setBypassed(node, bypass) {
     const marked = hasOwnRecord(node);
     const prev = readPrevMode(node);
     if (bypass) {
-        if (node.mode === BYPASS) return false;
+        if (node.mode === BYPASS) {
+            // 已经是绕过（可能由绕过规则先做的），接管所有权但不动原状态记录
+            if (node.properties) node.properties[PROP_TAG_OWNED] = true;
+            return false;
+        }
         writePrevMode(node, node.mode ?? ALWAYS);
+        if (node.properties) node.properties[PROP_TAG_OWNED] = true;
         node.mode = BYPASS;
         return true;
     }
-    if (!marked) return false;
+    if (!marked) {
+        if (node.properties) delete node.properties[PROP_TAG_OWNED];
+        return false;
+    }
     node.mode = prev !== undefined ? prev : ALWAYS;
     clearPrevMode(node);
+    if (node.properties) delete node.properties[PROP_TAG_OWNED];
     return true;
 }
 
