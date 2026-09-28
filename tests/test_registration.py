@@ -1054,6 +1054,18 @@ class RegistrationTests(unittest.TestCase):
         self.assertNotIn("swapNameWidgetToCombo", source)
         self.assertNotIn("refreshNameOptions", source)
 
+    def test_multi_primitive_link_style_is_render_only(self):
+        source = (Path(__file__).resolve().parents[1] / "web" / "multi_primitive_links.js").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn('const NODE_TYPE = "QQ-多值输入";', source)
+        self.assertIn('const GRASS_IDLE = "rgba(124, 199, 55, 0.05)";', source)
+        self.assertIn('const GRASS_ACTIVE = "rgba(154, 230, 60, 0.9)";', source)
+        self.assertIn("function applyLinkStyles(graph, selectedIds, hoverId)", source)
+        # 只改渲染属性，绝不改连线拓扑
+        self.assertNotIn("removeLink", source)
+        self.assertNotIn(".connect(", source)
+
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
         controls = lightroom.INPUT_TYPES()["required"]
