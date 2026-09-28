@@ -11,6 +11,8 @@ const LEGACY_NODE_TYPE = "QQMultiPrimitive";
 const TAG = "[QQ-多值输入连线]";
 const GRASS_IDLE = "rgba(124, 199, 55, 0)";
 const GLOW_RGB = "124, 199, 55";
+// 构建戳：控制台日志里用它确认浏览器加载的是哪一版
+const BUILD = "2026-09-28.invisible-idle";
 const GRASS_ACTIVE = "rgba(154, 230, 60, 0.9)";
 
 function graphLinks(graph) {
@@ -171,6 +173,6 @@ app.registerExtension({
     setup() {
         const patched = patchLinkRenderer();
         start();
-        console.info(TAG, "已加载：多值输入连线平时隐形，输出口带草绿呼吸光晕，选中/悬停端点时连线高亮 | renderLink 钩子:", patched ? "已安装" : "不需要/不可用");
+        console.info(TAG, "已加载：多值输入连线平时隐形，输出口带草绿呼吸光晕，选中/悬停端点时连线高亮 | renderLink 钩子:", patched ? "已安装" : "不需要/不可用", "| build:", BUILD, "| idle:", GRASS_IDLE);
     },
 });
