@@ -3,8 +3,8 @@ import { app } from "../../scripts/app.js";
 // QQ-获取点：后端注册（菜单/搜索/存档），前端虚拟解析（和 KJ 获取点同机制）。
 //   启用 = 排队时把同名 SetNode(设置点) 的输入连线透传给消费者（编译成真实连线）
 //   关闭 = 消费者视为「未连接」，例如一键出图的 latent_image 回退到图1分辨率
-// 实例被标记 isVirtualNode，所以不进 prompt；名称 widget 会被原地替换成下拉框
-// （保持 widget 索引不变，存档兼容）。
+// 名称是普通文本框（任何前端模式下都能正常显示/编辑），
+// 另外在节点右键菜单里提供「选择设置点…」列表一键填入，避免和下拉控件搏斗。
 
 const NODE_TYPE = "QQGetNode";
 const NODE_TITLE = "QQ-获取点";
@@ -103,65 +103,15 @@ function isEnabled(node) {
     return readEnableInput(node);
 }
 
-// Vue 控件会在挂载时快照 combo 的选项列表；节点刚创建时还不在图里，快照是空的，
-// 选完名字显示不出来。这里整体替换 options 对象并重建 widget 绑定。
-// 注意：options.values 可能是只读 getter，绝不能直接赋值（严格模式会抛错中断载入）。
-// 下拉/选择器开着的时候绝不能替换 options 或摘插 widget，
-// 否则菜单项的点击会落到被换掉的旧 widget 上，出现「选了好几次才选上」。
-function menuOpen() {
-    if (typeof document === "undefined" || !document.querySelector) return false;
-    return Boolean(document.querySelector(
-        ".litecontextmenu, .litemenu, .el-select-dropdown, .el-popper, .comfy-select-dropdown",
-    ));
-}
-
-function refreshNameOptions(node) {
+function setNameValue(node, value) {
     const widget = nameWidget(node);
-    if (!widget) return;
-    if (menuOpen()) return;
-    const values = setNames(node.graph || app?.graph || null);
-    const signature = values.join("\u0001");
-    if (node.__qqNameSignature === signature) return;
-    node.__qqNameSignature = signature;
-    try {
-        widget.options = { ...(widget.options || {}), values };
-    } catch (error) {
-        console.warn(TAG, "刷新名称选项失败", error);
-    }
-    if (Array.isArray(node.widgets)) {
-        const index = node.widgets.indexOf(widget);
-        if (index >= 0 && node.widgets[index] === widget) {
-            node.widgets.splice(index, 1);
-            node.widgets.splice(index, 0, widget);
-        }
-    }
+    if (!widget) return false;
+    widget.value = value;
+    node.title = value ? `${NODE_TITLE} ${value}` : NODE_TITLE;
+    widget.callback?.(value);
     node.setDirtyCanvas?.(true, true);
-}
-
-function makeCombo(node, currentValue) {
-    const comboOptions = { getOptionLabel: (value) => value || "" };
-    Object.defineProperty(comboOptions, "values", {
-        get: () => setNames(node.graph || app?.graph || null),
-        enumerable: true,
-        configurable: true,
-    });
-    return node.addWidget("combo", NAME_WIDGET, currentValue || "", (value) => {
-        node.title = value ? `${NODE_TITLE} ${value}` : NODE_TITLE;
-        node.__qqNameSignature = null;
-        // 等菜单关闭后再刷新，避免和点击事件抢 widget
-        setTimeout(() => refreshNameOptions(node), 120);
-    }, comboOptions);
-}
-
-// 原地替换：addWidget 会追加到末尾，先摘掉追加的再按原索引插入，保持存档顺序
-function swapNameWidgetToCombo(node) {
-    const index = (node.widgets || []).findIndex((entry) => entry && entry.name === NAME_WIDGET);
-    if (index < 0) return;
-    const current = node.widgets[index];
-    if (current?.type === "combo") return;
-    const combo = makeCombo(node, current?.value);
-    node.widgets.splice(node.widgets.length - 1, 1);
-    node.widgets.splice(index, 1, combo);
+    try { node.graph?.change?.(); } catch { /* 忽略 */ }
+    return true;
 }
 
 function install(nodeType) {
@@ -196,10 +146,15 @@ function install(nodeType) {
         const result = originalCreated?.apply(this, arguments);
         this.isVirtualNode = true;
         this.serialize_widgets = true;
-        swapNameWidgetToCombo(this);
-        const name = nameWidget(this)?.value;
-        if (name) this.title = `${NODE_TITLE} ${name}`;
-        refreshNameOptions(this);
+        const widget = nameWidget(this);
+        if (widget && !widget.__qqTitleHook) {
+            widget.__qqTitleHook = true;
+            const originalCallback = widget.callback;
+            widget.callback = (value, ...rest) => {
+                this.title = value ? `${NODE_TITLE} ${value}` : NODE_TITLE;
+                return originalCallback?.call(this, value, ...rest);
+            };
+        }
         return result;
     };
 
@@ -207,24 +162,37 @@ function install(nodeType) {
     proto.onConfigure = function onConfigureQQGet(info) {
         const result = originalConfigure?.apply(this, arguments);
         this.isVirtualNode = true;
-        swapNameWidgetToCombo(this);
         const name = nameWidget(this)?.value;
         if (name) this.title = `${NODE_TITLE} ${name}`;
-        setTimeout(() => refreshNameOptions(this), 0);
         return result;
     };
-}
 
-function startNameRefresh() {
-    if (globalThis.__qqGetNodeNameTimer) return;
-    globalThis.__qqGetNodeNameTimer = setInterval(() => {
-        if (!app || app.loading_graph || app.configuringGraph) return;
-        if (menuOpen()) return;
-        const graph = app.canvas?.graph || app.graph;
-        for (const node of (graph?._nodes || [])) {
-            if (node?.type === NODE_TYPE) refreshNameOptions(node);
+    // 右键菜单：列出当前图及外层图里的所有设置点，点一下填入名称
+    const originalMenu = proto.getExtraMenuOptions;
+    proto.getExtraMenuOptions = function getExtraMenuOptionsQQGet(_, options) {
+        const result = originalMenu?.apply(this, arguments);
+        const names = setNames(this.graph || app?.graph || null);
+        if (!names.length) {
+            options?.unshift({ content: "选择设置点…（图里还没有设置点）", disabled: true });
+            return result;
         }
-    }, 3000);
+        options?.unshift({
+            content: "选择设置点…",
+            has_submenu: true,
+            callback: () => {
+                const LiteGraph = globalThis.LiteGraph;
+                if (!LiteGraph?.ContextMenu) return;
+                const node = this;
+                new LiteGraph.ContextMenu(names, {
+                    event: globalThis.event,
+                    className: "dark",
+                    title: "设置点",
+                    callback: (value) => setNameValue(node, value),
+                });
+            },
+        });
+        return result;
+    };
 }
 
 app.registerExtension({
@@ -232,7 +200,6 @@ app.registerExtension({
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name !== NODE_TYPE) return;
         install(nodeType);
-        startNameRefresh();
         console.info(TAG, "前端扩展已挂载到后端节点", NODE_TYPE);
     },
 });

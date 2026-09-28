@@ -1046,7 +1046,11 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("this.isVirtualNode = true;", source)
         self.assertIn("proto.getInputLink = function getInputLink(slot)", source)
         self.assertIn('const SET_NODE_TYPE = "SetNode";', source)
-        self.assertIn("function swapNameWidgetToCombo(node)", source)
+        # 名称是普通文本框 + 右键菜单选择，不再替换 widget / options（下拉选不上的根因）
+        self.assertIn("function setNameValue(node, value)", source)
+        self.assertIn("选择设置点…", source)
+        self.assertNotIn("swapNameWidgetToCombo", source)
+        self.assertNotIn("refreshNameOptions", source)
 
     def test_lightroom_controls_default_to_zero(self):
         lightroom = self.package.NODE_CLASS_MAPPINGS["QQLightroomColor"]
