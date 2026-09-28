@@ -18,6 +18,8 @@ const pure = src
 
 const factory = new Function(`
   const app = null;
+  let menuElement = null;
+  const document = { querySelector: () => menuElement };
   const NODE_TYPE = "QQGetNode";
   const SET_NODE_TYPE = "SetNode";
   const TAG = "[QQ-获取点]";
@@ -25,7 +27,11 @@ const factory = new Function(`
   const ENABLE_WIDGET = "启用";
   const ENABLE_INPUT = "启用接线";
   ${pure}
-  return { graphAncestors, readLink, findSetterNode, resolveSetterLink, setNames, isEnabled, refreshNameOptions };
+  return {
+    graphAncestors, readLink, findSetterNode, resolveSetterLink, setNames, isEnabled,
+    refreshNameOptions, menuOpen,
+    _setMenuElement: (value) => { menuElement = value; },
+  };
 `);
 const api = factory();
 
@@ -126,6 +132,26 @@ console.log("== 6. 选项刷新不能踩只读 getter（载入中断回归）=="
     api.refreshNameOptions(node);
     return before === widget.options;
   })());
+}
+
+console.log("== 7. 菜单开着时不刷新（选值丢失回归）==");
+{
+  const widget = { name: "名称", value: "latent", options: { values: ["latent"] } };
+  const node = { type: "QQGetNode", widgets: [widget], graph, setDirtyCanvas() {} };
+  api._setMenuElement(null);
+  api.refreshNameOptions(node);
+  check("无菜单时正常刷新", Array.isArray(widget.options.values));
+  const before = widget.options;
+  api._setMenuElement({ fake: true });
+  check("检测到菜单打开", api.menuOpen() === true);
+  widget.options = { values: ["stale"] };
+  node.__qqNameSignature = null;
+  api.refreshNameOptions(node);
+  check("菜单打开时不替换 options", widget.options.values[0] === "stale");
+  check("菜单打开时不摘插 widget", node.widgets[0] === widget);
+  api._setMenuElement(null);
+  api.refreshNameOptions(node);
+  check("菜单关闭后恢复刷新", widget.options !== before && Array.isArray(widget.options.values));
 }
 
 console.log("");

@@ -106,9 +106,19 @@ function isEnabled(node) {
 // Vue 控件会在挂载时快照 combo 的选项列表；节点刚创建时还不在图里，快照是空的，
 // 选完名字显示不出来。这里整体替换 options 对象并重建 widget 绑定。
 // 注意：options.values 可能是只读 getter，绝不能直接赋值（严格模式会抛错中断载入）。
+// 下拉/选择器开着的时候绝不能替换 options 或摘插 widget，
+// 否则菜单项的点击会落到被换掉的旧 widget 上，出现「选了好几次才选上」。
+function menuOpen() {
+    if (typeof document === "undefined" || !document.querySelector) return false;
+    return Boolean(document.querySelector(
+        ".litecontextmenu, .litemenu, .el-select-dropdown, .el-popper, .comfy-select-dropdown",
+    ));
+}
+
 function refreshNameOptions(node) {
     const widget = nameWidget(node);
     if (!widget) return;
+    if (menuOpen()) return;
     const values = setNames(node.graph || app?.graph || null);
     const signature = values.join("\u0001");
     if (node.__qqNameSignature === signature) return;
@@ -120,7 +130,7 @@ function refreshNameOptions(node) {
     }
     if (Array.isArray(node.widgets)) {
         const index = node.widgets.indexOf(widget);
-        if (index >= 0) {
+        if (index >= 0 && node.widgets[index] === widget) {
             node.widgets.splice(index, 1);
             node.widgets.splice(index, 0, widget);
         }
@@ -138,7 +148,8 @@ function makeCombo(node, currentValue) {
     return node.addWidget("combo", NAME_WIDGET, currentValue || "", (value) => {
         node.title = value ? `${NODE_TITLE} ${value}` : NODE_TITLE;
         node.__qqNameSignature = null;
-        refreshNameOptions(node);
+        // 等菜单关闭后再刷新，避免和点击事件抢 widget
+        setTimeout(() => refreshNameOptions(node), 120);
     }, comboOptions);
 }
 
@@ -208,11 +219,12 @@ function startNameRefresh() {
     if (globalThis.__qqGetNodeNameTimer) return;
     globalThis.__qqGetNodeNameTimer = setInterval(() => {
         if (!app || app.loading_graph || app.configuringGraph) return;
+        if (menuOpen()) return;
         const graph = app.canvas?.graph || app.graph;
         for (const node of (graph?._nodes || [])) {
             if (node?.type === NODE_TYPE) refreshNameOptions(node);
         }
-    }, 2000);
+    }, 3000);
 }
 
 app.registerExtension({
