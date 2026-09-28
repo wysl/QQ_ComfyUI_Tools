@@ -7,6 +7,9 @@ import { app } from "../../scripts/app.js";
 //
 // 绕过记录与 ignore_rules.js 共用 node.properties.wyslPrevMode，
 // 两套机制改同一个节点时靠「已标记才恢复」的规则收敛，不会互相踩坏原状态。
+//
+// 组归属判定：优先用 group.recomputeInsideNodes() 后的 group.nodes；
+// 取不到时退化为按位置矩形包含判定（不同前端版本组 API 有差异，双保险）。
 
 const NODE_TYPE = "QQGroupBypassTag";
 const TAG = "[QQ-魔术贴]";
@@ -52,6 +55,7 @@ function allGroups(graph) {
     const visit = (g, depth = 0) => {
         if (!g || depth > 8) return;
         if (Array.isArray(g._groups)) out.push(...g._groups);
+        if (Array.isArray(g.groups)) out.push(...g.groups);
         for (const node of (g._nodes || [])) {
             if (node && node.subgraph) visit(node.subgraph, depth + 1);
         }
@@ -60,12 +64,34 @@ function allGroups(graph) {
     return out;
 }
 
+function groupRect(group) {
+    const pos = group?.pos || group?._pos;
+    const size = group?.size || group?._size;
+    if (!Array.isArray(pos) || !Array.isArray(size)) return null;
+    return { x: pos[0], y: pos[1], w: size[0], h: size[1] };
+}
+
+function nodeInGroupRect(node, group) {
+    const rect = groupRect(group);
+    const pos = node?.pos;
+    if (!rect || !Array.isArray(pos)) return false;
+    return pos[0] >= rect.x && pos[1] >= rect.y
+        && pos[0] <= rect.x + rect.w && pos[1] <= rect.y + rect.h;
+}
+
 function nodesInGroup(group) {
     if (!group) return [];
     try { group.recomputeInsideNodes?.(); } catch { /* 忽略 */ }
-    if (Array.isArray(group.nodes)) return group.nodes;
-    if (Array.isArray(group._nodes)) return group._nodes;
+    if (Array.isArray(group.nodes) && group.nodes.length) return group.nodes;
+    if (Array.isArray(group._nodes) && group._nodes.length) return group._nodes;
     return [];
+}
+
+// 组成员：官方 nodes 列表优先，空时按位置兜底
+function membersOf(group, nodes) {
+    const listed = nodesInGroup(group);
+    if (listed.length) return listed;
+    return nodes.filter((node) => nodeInGroupRect(node, group));
 }
 
 function isTagNode(node) {
@@ -121,19 +147,24 @@ function setBypassed(node, bypass) {
 }
 
 function groupSize(group) {
-    const size = group?.size || group?._size;
-    if (Array.isArray(size) && size.length > 1) return Math.abs(size[0] * size[1]);
-    return Number.POSITIVE_INFINITY;
+    const rect = groupRect(group);
+    return rect ? Math.abs(rect.w * rect.h) : Number.POSITIVE_INFINITY;
 }
 
-// 取包含该节点的最内层组（面积最小）
-function groupOf(node, groups) {
+// 取包含该节点的最内层组（面积最小）；官方列表和位置判定都算
+function groupOf(node, groups, nodes) {
     let best = null;
+    let bestCount = Number.POSITIVE_INFINITY;
     let bestArea = Number.POSITIVE_INFINITY;
     for (const group of groups) {
-        if (!nodesInGroup(group).includes(node)) continue;
+        const listed = nodesInGroup(group);
+        const inside = listed.includes(node) || nodeInGroupRect(node, group);
+        if (!inside) continue;
+        // 成员更少 = 更内层；成员数相同再比面积
+        const count = listed.length || Number.POSITIVE_INFINITY;
         const area = groupSize(group);
-        if (area < bestArea) {
+        if (best === null || count < bestCount || (count === bestCount && area < bestArea)) {
+            bestCount = count;
             bestArea = area;
             best = group;
         }
@@ -149,6 +180,7 @@ function applyTag(graph) {
     let changed = false;
     let tags = 0;
     let bypassed = 0;
+    const report = [];
 
     // 先收集每个组里的魔术贴：同组多个魔术贴时，只要有一个选「绕过」就整组绕过
     const tagsByGroup = new Map();
@@ -160,26 +192,30 @@ function applyTag(graph) {
             node.mode = ALWAYS;
             changed = true;
         }
-        const group = groupOf(node, groups);
-        if (!group) continue;
+        const group = groupOf(node, groups, nodes);
+        if (!group) {
+            report.push(`#${node.id} ${tagMode(node)} 不在任何组内`);
+            continue;
+        }
         if (!tagsByGroup.has(group)) tagsByGroup.set(group, []);
         tagsByGroup.get(group).push(node);
     }
 
     for (const [group, groupTags] of tagsByGroup) {
         const bypass = groupTags.some((tag) => tagMode(tag) === MODE_BYPASS);
-        for (const node of nodesInGroup(group)) {
-            if (isTagNode(node)) continue;
+        const members = membersOf(group, nodes).filter((node) => !isTagNode(node));
+        for (const node of members) {
             if (setBypassed(node, bypass)) changed = true;
             if (bypass && node.mode === BYPASS) bypassed += 1;
         }
+        report.push(`组「${group.title || group.name || "?"}」${bypass ? "绕过" : "启用"} 成员 ${members.length}`);
     }
 
     if (changed) {
         try { graph.setDirtyCanvas?.(true, true); } catch { /* 忽略 */ }
         try { graph.change?.(); } catch { /* 忽略 */ }
     }
-    return { tags, bypassed, changed };
+    return { tags, bypassed, changed, report };
 }
 
 function safeApply() {
@@ -191,14 +227,36 @@ function safeApply() {
     }
 }
 
+let lastLog = 0;
+function loggedApply() {
+    const result = safeApply();
+    if (!result || !result.tags) return result;
+    const now = Date.now();
+    if (now - lastLog > 5000 || result.changed) {
+        lastLog = now;
+        console.log(TAG, `魔术贴 ${result.tags} | 已绕过 ${result.bypassed} | 变更 ${result.changed} | ${result.report.join(" ; ")}`);
+    }
+    return result;
+}
+
 function start() {
     if (globalThis.__wyslGroupTagTimer) return;
     const tick = () => {
         if (!app || app.loading_graph || app.configuringGraph) return;
-        safeApply();
+        loggedApply();
     };
     globalThis.__wyslGroupTagTimer = setInterval(tick, 900);
     setTimeout(tick, 1500);
+
+    // 排队前再同步一次，保证提交出去的 prompt 里绕过状态是最新的
+    const originalGraphToPrompt = app.graphToPrompt?.bind(app);
+    if (originalGraphToPrompt && !globalThis.__wyslGroupTagPromptHook) {
+        globalThis.__wyslGroupTagPromptHook = true;
+        app.graphToPrompt = async function (...args) {
+            if (!app.loading_graph && !app.configuringGraph) safeApply();
+            return originalGraphToPrompt(...args);
+        };
+    }
 }
 
 function install(nodeType) {
@@ -213,7 +271,7 @@ function install(nodeType) {
             const originalCallback = widget.callback;
             widget.callback = (...args) => {
                 const value = originalCallback?.apply(this, args);
-                queueMicrotask(() => safeApply());
+                queueMicrotask(() => loggedApply());
                 return value;
             };
         }

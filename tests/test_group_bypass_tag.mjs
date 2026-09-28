@@ -144,6 +144,32 @@ console.log("== 6. 嵌套组只作用最内层 ==");
   check("外层节点不动", outer.mode === 0);
 }
 
+console.log("== 7. group.nodes 缺失时按位置兜底 ==");
+{
+  const tag = makeTag("绕过");
+  tag.pos = [10, 10];
+  const inner = makeNode("Foo");
+  inner.pos = [20, 20];
+  const outside = makeNode("Out");
+  outside.pos = [500, 500];
+  const group = { title: "G", pos: [0, 0], size: [300, 300] };
+  api.applyTag(makeGraph([tag, inner, outside], [group]));
+  check("组内节点被绕过", inner.mode === 4);
+  check("组外节点不动", outside.mode === 0);
+  check("魔术贴不受影响", tag.mode === 0);
+}
+
+console.log("== 8. group.nodes 过期（漏了魔术贴）时仍能定位组 ==");
+{
+  const tag = makeTag("绕过");
+  tag.pos = [10, 10];
+  const inner = makeNode("Foo");
+  inner.pos = [20, 20];
+  const group = { title: "G", pos: [0, 0], size: [300, 300], nodes: [inner] };
+  api.applyTag(makeGraph([tag, inner], [group]));
+  check("成员被绕过", inner.mode === 4);
+}
+
 console.log("");
 console.log(`通过 ${pass} / 失败 ${fail}`);
 process.exit(fail === 0 ? 0 : 1);
