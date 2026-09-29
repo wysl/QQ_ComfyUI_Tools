@@ -1110,6 +1110,17 @@ class RegistrationTests(unittest.TestCase):
         self.assertFalse((Path(__file__).resolve().parents[1] / "web" / "input_label_inherit.js").exists())
         self.assertNotIn("controlDisplayName", source)
 
+    def test_media_loader_external_row_respects_upstream_bypass(self):
+        source = (Path(__file__).resolve().parents[1] / "web" / "media_loader.js").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn("const BYPASS_MODE = 4;", source)
+        self.assertIn("function externalUpstreamBypassed(node)", source)
+        self.assertIn("function externalActive(node)", source)
+        # 序号框的显隐必须走 externalActive，而不是只看有没有连线
+        self.assertIn("const linked = externalActive(node);", source)
+        self.assertNotIn("const linked = externalLinked(node);", source)
+
     def test_media_auto_splitter_contract(self):
         splitter = self.package.NODE_CLASS_MAPPINGS["QQMediaAutoSplitter"]
         self.assertEqual(splitter.RETURN_NAMES, ("图像", "音频", "视频", "图片组合"))

@@ -1846,14 +1846,38 @@ function installPasteHandling() {
     }, { capture: true });
 }
 
+const BYPASS_MODE = 4;
+
+function graphLink(graph, linkId) {
+    if (!graph || linkId == null) return null;
+    if (typeof graph.getLink === "function") return graph.getLink(linkId);
+    if (graph._links instanceof Map) return graph._links.get(linkId) ?? null;
+    return graph.links?.[linkId] ?? null;
+}
+
+// 上游被绕过(Bypass)时 ComfyUI 会把它的输出原样透传给下游，
+// 所以这里要区分「连线存在」和「实际有外部图片」。
+function externalUpstreamBypassed(node) {
+    const input = node?.inputs?.find((entry) => entry.name === EXTERNAL_INPUT_NAME);
+    const link = graphLink(node?.graph, input?.link);
+    if (!link) return false;
+    const source = node?.graph?.getNodeById?.(link.origin_id);
+    return Number(source?.mode) === BYPASS_MODE;
+}
+
 function externalLinked(node) {
     return Boolean(node?.inputs?.some((input) => input.name === EXTERNAL_INPUT_NAME && input.link));
+}
+
+// 序号框只在「接了线且上游没有被绕过」时出现：绕过态视为没有外部图片。
+function externalActive(node) {
+    return externalLinked(node) && !externalUpstreamBypassed(node);
 }
 
 function syncExternalRow(node) {
     const row = node?.__wyslMediaLoaderExternalRow;
     if (!row) return;
-    const linked = externalLinked(node);
+    const linked = externalActive(node);
     if (!linked) node.__wyslMediaLoaderExternalInfo = null;
     const wasHidden = row.hidden;
     row.hidden = !linked;
@@ -1872,6 +1896,22 @@ function syncExternalRow(node) {
         status.title = text;
     }
     if (wasHidden !== row.hidden) updatePanelHeight(node);
+}
+
+// 上游节点 mode 变化不会触发本节点的 onConnectionsChange，用低频巡检兜底。
+function startExternalWatch(node) {
+    if (node.__wyslMediaLoaderExternalTimer) return;
+    let lastSignature = "";
+    node.__wyslMediaLoaderExternalTimer = setInterval(() => {
+        if (!document.body.contains?.(node.__wyslMediaLoaderExternalRow) && !node.graph) return;
+        const input = node.inputs?.find((entry) => entry.name === EXTERNAL_INPUT_NAME);
+        const link = graphLink(node.graph, input?.link);
+        const source = link ? node.graph?.getNodeById?.(link.origin_id) : null;
+        const signature = `${link?.id ?? ""}:${source?.mode ?? ""}:${source?.title ?? ""}`;
+        if (signature === lastSignature) return;
+        lastSignature = signature;
+        syncExternalRow(node);
+    }, 500);
 }
 
 function installExecutedListener() {
@@ -1898,6 +1938,7 @@ function setup(node) {
     installStyles();
     installPasteHandling();
     installExecutedListener();
+    startExternalWatch(node);
     hideWidget(node);
 
     const panel = document.createElement("div");
@@ -2062,6 +2103,10 @@ function teardown(node) {
     if (node.__wyslMediaLoaderStatusTimer) {
         clearTimeout(node.__wyslMediaLoaderStatusTimer);
         node.__wyslMediaLoaderStatusTimer = null;
+    }
+    if (node.__wyslMediaLoaderExternalTimer) {
+        clearInterval(node.__wyslMediaLoaderExternalTimer);
+        node.__wyslMediaLoaderExternalTimer = null;
     }
 }
 
