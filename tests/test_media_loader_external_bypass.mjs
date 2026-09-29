@@ -94,6 +94,43 @@ console.log("== 6. 上游节点缺失时不误判 ==");
   check("找不到来源 → 视为活跃", api.externalActive(node) === true);
 }
 
+console.log("== 7. 占位块跟随绕过状态（本次修复）==");
+{
+  const displayStart = src.indexOf("function expandPositionToken");
+  const displayEnd = src.indexOf("function createExternalPlaceholderCard");
+  const displaySrc = src.slice(displayStart, displayEnd);
+  const modelFactory = new Function(`
+    const EXTERNAL_WIDGET = "external_positions";
+    const EXTERNAL_INPUT_NAME = "external_images";
+    const widget = (node, name) => (node.widgets || []).find((w) => w.name === name) || null;
+    ${block}
+    ${displaySrc}
+    return { externalDisplayModel };
+  `);
+  const makeNode = (mode) => {
+    const sourceNode = { id: 10, type: "Src", title: "上游", mode };
+    const graph = {
+      _nodes: [sourceNode],
+      _links: new Map([[1, { id: 1, origin_id: 10, origin_slot: 0 }]]),
+      getNodeById(id) { return this._nodes.find((n) => n.id === id) || null; },
+    };
+    return {
+      graph,
+      inputs: [{ name: "external_images", link: 1 }],
+      widgets: [{ name: "external_positions", value: "2" }],
+      __wyslMediaLoaderExternalSpec: "2",
+    };
+  };
+  const normal = makeNode(0);
+  const bypassed = makeNode(4);
+  const a = modelFactory().externalDisplayModel(normal, 2);
+  const b = modelFactory().externalDisplayModel(bypassed, 2);
+  check("正常时插入外部占位", a.placeholders.length === 1);
+  check("绕过时没有占位（本次修复）", b.placeholders.length === 0);
+  check("绕过时序号回到连续", JSON.stringify(b.numbers) === JSON.stringify([1, 2]));
+}
+
+console.log("");
 console.log("");
 console.log(`通过 ${pass} / 失败 ${fail}`);
 process.exit(fail === 0 ? 0 : 1);

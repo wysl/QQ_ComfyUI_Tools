@@ -908,7 +908,8 @@ function externalDisplayModel(node, count) {
     // Final 1-based number of each internal image plus external placeholder slots.
     const identity = Array.from({ length: count }, (_, index) => index + 1);
     const empty = { numbers: identity, placeholders: [] };
-    if (!externalLinked(node)) return empty;
+    // 与序号框一致：上游被绕过时视为没有外部图片，占位块也要一起消失
+    if (!externalActive(node)) return empty;
     if (node.__wyslMediaLoaderExternalSpec === undefined) {
         node.__wyslMediaLoaderExternalSpec = String(widget(node, EXTERNAL_WIDGET)?.value || "");
     }
@@ -1911,6 +1912,7 @@ function startExternalWatch(node) {
         if (signature === lastSignature) return;
         lastSignature = signature;
         syncExternalRow(node);
+        render(node);
     }, 500);
 }
 

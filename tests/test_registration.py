@@ -1117,9 +1117,11 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("const BYPASS_MODE = 4;", source)
         self.assertIn("function externalUpstreamBypassed(node)", source)
         self.assertIn("function externalActive(node)", source)
-        # 序号框的显隐必须走 externalActive，而不是只看有没有连线
+        # 序号框与占位块都必须走 externalActive，而不是只看有没有连线
         self.assertIn("const linked = externalActive(node);", source)
+        self.assertIn("if (!externalActive(node)) return empty;", source)
         self.assertNotIn("const linked = externalLinked(node);", source)
+        self.assertNotIn("if (!externalLinked(node)) return empty;", source)
 
     def test_media_auto_splitter_contract(self):
         splitter = self.package.NODE_CLASS_MAPPINGS["QQMediaAutoSplitter"]
