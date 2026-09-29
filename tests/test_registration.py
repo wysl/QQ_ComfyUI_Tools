@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 31)
+        self.assertEqual(len(mappings), 33)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -106,6 +106,8 @@ class RegistrationTests(unittest.TestCase):
             display["QQQwenImage21AllInOne"],
             "QQ-Qwen Image 2.1 一键出图(编码+K采样+VAE解码)",
         )
+        self.assertEqual(display["QQIlluminationBalance"], "QQ-照度均衡")
+        self.assertEqual(display["QQDepthFusion"], "QQ-深度融合")
 
     def test_ignore_rules_controller_is_frontend_only_and_keeps_stable_bindings(self):
         controller = self.package.NODE_CLASS_MAPPINGS["QQIgnoreRulesController"]
