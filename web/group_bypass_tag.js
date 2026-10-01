@@ -259,15 +259,41 @@ function applyTag(graph) {
         tagsByGroup.get(group).push({ node, depth: tagDepth(node) });
     }
 
+    // 本组管到的全部候选成员（忽略深度），用于把「掉出当前深度」的节点放回来
+    const covered = new Set();
+
     for (const [group, groupTags] of tagsByGroup) {
         const bypass = groupTags.some(({ node }) => tagMode(node) === MODE_BYPASS);
         const depth = Math.max(...groupTags.map(({ depth: value }) => value));
+        const allMembers = membersOf(group, nodes).filter((node) => !isTagNode(node));
         const members = membersAtDepth(group, nodes, groups, depth).filter((node) => !isTagNode(node));
+        const keep = new Set(members);
+        for (const node of allMembers) covered.add(node);
+        let released = 0;
+        // 深度调小后，之前被本组接管的节点必须放回原状态，否则会永远停在绕过
+        for (const node of allMembers) {
+            if (keep.has(node)) continue;
+            if (setBypassed(node, false)) {
+                changed = true;
+                released += 1;
+            }
+        }
         for (const node of members) {
             if (setBypassed(node, bypass)) changed = true;
             if (bypass && node.mode === BYPASS) bypassed += 1;
         }
-        report.push(`组「${group.title || group.name || "?"}」${bypass ? "绕过" : "启用"} 深度 ${depth} 成员 ${members.length}`);
+        report.push(
+            `组「${group.title || group.name || "?"}」${bypass ? "绕过" : "启用"}`
+            + ` 深度 ${depth} 成员 ${members.length}`
+            + (released ? ` 释放 ${released}` : ""),
+        );
+    }
+
+    // 节点被移出组、或魔术贴被删掉时，同样要把它放回原状态
+    for (const node of nodes) {
+        if (isTagNode(node) || covered.has(node)) continue;
+        if (!node?.properties?.[PROP_TAG_OWNED]) continue;
+        if (setBypassed(node, false)) changed = true;
     }
 
     if (changed) {

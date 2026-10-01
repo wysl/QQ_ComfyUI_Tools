@@ -113,6 +113,39 @@ function buildGraph({ depth, mode }) {
     assert.equal(direct.mode, BYPASS);
 }
 
+// 深度从 0 调到 1：已接管的内层组节点必须放回，不能永远停在绕过
+{
+    const { graph, nested, tag } = buildGraph({ depth: 0, mode: "绕过" });
+    applyTag(graph);
+    assert.equal(nested.mode, BYPASS);
+    tag.widgets.find((w) => w.name === "忽略深度").value = 1;
+    const result = applyTag(graph);
+    assert.equal(nested.mode, ALWAYS, "深度调小后内层组节点必须被释放");
+    assert.match(result.report.join(" "), /释放 1/);
+}
+
+// 深度调小后再切「启用」，也不能留下卡住的节点
+{
+    const { graph, nested, tag } = buildGraph({ depth: 0, mode: "绕过" });
+    applyTag(graph);
+    tag.widgets.find((w) => w.name === "忽略深度").value = 1;
+    tag.widgets.find((w) => w.name === "模式").value = "启用";
+    applyTag(graph);
+    assert.equal(nested.mode, ALWAYS);
+    assert.equal(nested.properties.wyslTagOwned, undefined);
+}
+
+// 节点被移出组之后同样要释放
+{
+    const { graph, direct, outer } = buildGraph({ depth: 1, mode: "绕过" });
+    applyTag(graph);
+    assert.equal(direct.mode, BYPASS);
+    direct.pos = [5000, 5000];
+    outer.nodes = outer.nodes.filter((node) => node !== direct);
+    applyTag(graph);
+    assert.equal(direct.mode, ALWAYS, "移出组后必须释放");
+}
+
 // 深度判定本身：直接成员=1，内层组成员=2
 {
     const { graph, direct, nested, split, outer } = buildGraph({ depth: 1, mode: "绕过" });
