@@ -96,22 +96,35 @@ function membersOf(group, nodes) {
     return nodes.filter((node) => nodeInGroupRect(node, group));
 }
 
+function containsGroup(outer, inner) {
+    const a = groupRect(outer);
+    const b = groupRect(inner);
+    if (!a || !b || outer === inner) return false;
+    return b.x >= a.x && b.y >= a.y
+        && b.x + b.w <= a.x + a.w
+        && b.y + b.h <= a.y + a.h;
+}
+
 function groupDepthForNode(group, node, groups, nodes) {
     if (!group || !node) return -1;
-    const members = membersOf(group, nodes);
-    if (!members.includes(node) && !nodeInGroupRect(node, group)) return -1;
-    const base = groupRect(group);
-    if (!base) return 1;
-    let depth = 1;
-    for (const candidate of groups) {
-        if (candidate === group) continue;
-        const rect = groupRect(candidate);
-        if (!rect || !nodeInGroupRect(node, candidate)) continue;
-        // Count only nested groups whose complete rectangle lies inside the tag group.
-        const inside = rect.x >= base.x && rect.y >= base.y
-            && rect.x + rect.w <= base.x + base.w
-            && rect.y + rect.h <= base.y + base.h;
-        if (inside) depth += 1;
+    if (!membersOf(group, nodes).includes(node) && !nodeInGroupRect(node, group)) return -1;
+    const nestedGroups = groups.filter((candidate) => containsGroup(group, candidate));
+    const innermost = nestedGroups
+        .filter((candidate) => nodeInGroupRect(node, candidate))
+        .sort((a, b) => groupSize(a) - groupSize(b))[0];
+    if (!innermost) return 1;
+    // Count the nested group chain containing the node. Direct children are depth 2.
+    let depth = 2;
+    let current = innermost;
+    while (true) {
+        const parent = nestedGroups
+            .filter((candidate) => candidate !== current
+                && containsGroup(candidate, current)
+                && nodeInGroupRect(node, candidate))
+            .sort((a, b) => groupSize(a) - groupSize(b))[0];
+        if (!parent) break;
+        depth += 1;
+        current = parent;
     }
     return depth;
 }
