@@ -96,45 +96,63 @@ function membersOf(group, nodes) {
     return nodes.filter((node) => nodeInGroupRect(node, group));
 }
 
-// 嵌套判定只看内层组的中心点：真实工作流里内层组常有一边露在外层组外，
-// 若要求矩形完全包含会把这种组误判成同级，从而绕过不该动的内容。
-function containsGroup(outer, inner) {
-    const a = groupRect(outer);
-    const b = groupRect(inner);
-    if (!a || !b || outer === inner) return false;
-    const cx = b.x + b.w / 2;
-    const cy = b.y + b.h / 2;
-    return cx >= a.x && cx <= a.x + a.w && cy >= a.y && cy <= a.y + a.h;
+function titleHeightOf(node) {
+    const value = Number(globalThis.LiteGraph?.NODE_TITLE_HEIGHT);
+    return Number.isFinite(value) && value >= 0 ? value : 30;
 }
 
-function groupDepthForNode(group, node, groups, nodes) {
+// 节点整体（含标题栏）与组矩形是否相交。魔术贴常贴在组的下边缘、
+// 身体露在组外，只按左上角判定会误判成「不在任何组内」而彻底失效。
+function nodeOverlapsGroup(node, group) {
+    const rect = groupRect(group);
+    const pos = node?.pos;
+    if (!rect || !Array.isArray(pos)) return false;
+    const size = Array.isArray(node.size) ? node.size : [0, 0];
+    const top = pos[1] - titleHeightOf(node);
+    return pos[0] + size[0] >= rect.x && pos[0] <= rect.x + rect.w
+        && pos[1] + size[1] >= rect.y && top <= rect.y + rect.h;
+}
+
+// 一次算好每个组的成员集合，避免每个节点都重算一遍。
+function buildMemberSets(groups, nodes) {
+    const map = new Map();
+    for (const group of groups) map.set(group, new Set(membersOf(group, nodes)));
+    return map;
+}
+
+// 深度 = 1 + 该节点还属于几个「其它组」。
+// 只认官方成员列表，不看组的矩形：部分前端版本的组几何拿不到，
+// 一旦依赖矩形，所有节点都会被算成深度 1，嵌套组就被误当第一层。
+function groupDepthForNode(group, node, groups, nodes, memberSets) {
     if (!group || !node) return -1;
-    if (!membersOf(group, nodes).includes(node) && !nodeInGroupRect(node, group)) return -1;
-    const nestedGroups = groups.filter((candidate) => containsGroup(group, candidate));
-    const innermost = nestedGroups
-        .filter((candidate) => nodeInGroupRect(node, candidate))
-        .sort((a, b) => groupSize(a) - groupSize(b))[0];
-    if (!innermost) return 1;
-    // Count the nested group chain containing the node. Direct children are depth 2.
-    let depth = 2;
-    let current = innermost;
-    while (true) {
-        const parent = nestedGroups
-            .filter((candidate) => candidate !== current
-                && containsGroup(candidate, current)
-                && nodeInGroupRect(node, candidate))
-            .sort((a, b) => groupSize(a) - groupSize(b))[0];
-        if (!parent) break;
-        depth += 1;
-        current = parent;
+    let depth = 1;
+    for (const candidate of groups) {
+        if (candidate === group) continue;
+        const set = memberSets?.get(candidate);
+        const inside = set
+            ? set.has(node)
+            : membersOf(candidate, nodes).includes(node);
+        if (inside) depth += 1;
     }
     return depth;
 }
 
-function membersAtDepth(group, nodes, groups, depth) {
-    const members = membersOf(group, nodes);
+// 魔术贴所属组：优先常规判定；都落空时退化为「节点整体与组矩形相交」的兜底
+function groupForTag(node, groups, nodes) {
+    const direct = groupOf(node, groups, nodes);
+    if (direct) return direct;
+    const overlapping = groups
+        .filter((group) => nodeOverlapsGroup(node, group))
+        .sort((a, b) => groupSize(a) - groupSize(b));
+    return overlapping[0] || null;
+}
+
+function membersAtDepth(group, nodes, groups, depth, memberSets) {
+    const members = memberSets?.get(group) ? [...memberSets.get(group)] : membersOf(group, nodes);
     if (depth <= 0) return members;
-    return members.filter((node) => groupDepthForNode(group, node, groups, nodes) <= depth);
+    return members.filter(
+        (node) => groupDepthForNode(group, node, groups, nodes, memberSets) <= depth,
+    );
 }
 
 function isTagNode(node) {
@@ -234,6 +252,7 @@ function applyTag(graph) {
     if (!graph) return null;
     const nodes = allNodes(graph);
     const groups = allGroups(graph);
+    const memberSets = buildMemberSets(groups, nodes);
     const { ALWAYS, BYPASS } = enums();
     let changed = false;
     let tags = 0;
@@ -250,7 +269,7 @@ function applyTag(graph) {
             node.mode = ALWAYS;
             changed = true;
         }
-        const group = groupOf(node, groups, nodes);
+        const group = groupForTag(node, groups, nodes);
         if (!group) {
             report.push(`#${node.id} ${tagMode(node)} 不在任何组内`);
             continue;
@@ -266,7 +285,8 @@ function applyTag(graph) {
         const bypass = groupTags.some(({ node }) => tagMode(node) === MODE_BYPASS);
         const depth = Math.max(...groupTags.map(({ depth: value }) => value));
         const allMembers = membersOf(group, nodes).filter((node) => !isTagNode(node));
-        const members = membersAtDepth(group, nodes, groups, depth).filter((node) => !isTagNode(node));
+        const members = membersAtDepth(group, nodes, groups, depth, memberSets)
+            .filter((node) => !isTagNode(node));
         const keep = new Set(members);
         for (const node of allMembers) covered.add(node);
         let released = 0;
@@ -374,4 +394,4 @@ app.registerExtension({
     },
 });
 
-export { applyTag, containsGroup, groupDepthForNode, membersAtDepth };
+export { applyTag, groupDepthForNode, groupForTag, membersAtDepth };

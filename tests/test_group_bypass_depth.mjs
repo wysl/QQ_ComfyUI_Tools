@@ -8,8 +8,8 @@ import vm from "node:vm";
 const source = (await fs.readFile(new URL("../web/group_bypass_tag.js", import.meta.url), "utf8"))
     .replace('import { app } from "../../scripts/app.js";', "")
     .replace(
-        "export { applyTag, containsGroup, groupDepthForNode, membersAtDepth };",
-        "globalThis.__tag = { applyTag, containsGroup, groupDepthForNode, membersAtDepth };",
+        "export { applyTag, groupDepthForNode, groupForTag, membersAtDepth };",
+        "globalThis.__tag = { applyTag, groupDepthForNode, groupForTag, membersAtDepth };",
     );
 
 const ALWAYS = 0;
@@ -20,7 +20,7 @@ const context = {
     console,
 };
 vm.runInNewContext(source, context);
-const { applyTag, containsGroup, groupDepthForNode } = context.__tag;
+const { applyTag, groupDepthForNode, groupForTag } = context.__tag;
 
 function makeGroup(title, x, y, w, h, members) {
     const group = { title, pos: [x, y], size: [w, h], nodes: members, recomputeInsideNodes() {} };
@@ -63,11 +63,47 @@ function buildGraph({ depth, mode }) {
     return { graph, direct, nested, tag, split, outer };
 }
 
-// 内层组左边露出外层组，仍必须判为嵌套
+// 内层组左边露出外层组（不是严格包含），深度判定仍必须生效
 {
-    const { split, outer } = buildGraph({ depth: 1, mode: "绕过" });
-    assert.equal(containsGroup(outer, split), true, "部分重叠的内层组仍应算嵌套");
-    assert.equal(containsGroup(split, outer), false);
+    const { graph, direct, nested, outer, split } = buildGraph({ depth: 1, mode: "绕过" });
+    assert.ok(split.pos[0] < outer.pos[0], "用例前提：内层组左边露在外层组外");
+    assert.equal(groupDepthForNode(outer, direct, graph._groups, graph._nodes), 1);
+    assert.equal(groupDepthForNode(outer, nested, graph._groups, graph._nodes), 2);
+}
+
+// 组几何完全拿不到的前端版本：必须只靠成员列表也能识别嵌套
+{
+    const { graph, direct, nested, tag, outer } = buildGraph({ depth: 1, mode: "绕过" });
+    // 官方 recomputeInsideNodes 的成员列表本来就会包含组内的魔术贴
+    outer.nodes = [direct, nested, tag];
+    for (const group of graph._groups) {
+        delete group.pos;
+        delete group.size;
+    }
+    applyTag(graph);
+    assert.equal(direct.mode, BYPASS, "没有几何信息时也要能绕过第一层");
+    assert.equal(nested.mode, ALWAYS, "没有几何信息时内层组节点必须跳过");
+}
+
+// 没有几何信息时，深度=2 仍要能放开下一层
+{
+    const { graph, direct, nested, tag, outer } = buildGraph({ depth: 2, mode: "绕过" });
+    outer.nodes = [direct, nested, tag];
+    for (const group of graph._groups) {
+        delete group.pos;
+        delete group.size;
+    }
+    applyTag(graph);
+    assert.equal(nested.mode, BYPASS);
+}
+
+// 魔术贴贴在组的下边缘、身体露在组外时也不能失效
+{
+    const { graph, direct, tag, outer } = buildGraph({ depth: 1, mode: "绕过" });
+    tag.pos = [540, 470];
+    assert.equal(groupForTag(tag, graph._groups, graph._nodes), outer);
+    applyTag(graph);
+    assert.equal(direct.mode, BYPASS);
 }
 
 // 深度 1：只绕过外层组的直接节点，内层「分割」组节点保持原状
