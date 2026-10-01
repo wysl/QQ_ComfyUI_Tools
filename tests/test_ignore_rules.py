@@ -59,6 +59,15 @@ class IgnoreRuleTests(unittest.TestCase):
         self.assertNotIn("multiline", inputs["节点"][1])
         self.assertNotIn("multiline", inputs["组"][1])
 
+    def test_group_bypass_tag_has_bounded_depth(self):
+        inputs = self.module.QQGroupBypassTag.INPUT_TYPES()["required"]
+        self.assertEqual(inputs["忽略深度"][0], "INT")
+        self.assertEqual(inputs["忽略深度"][1]["default"], 0)
+        self.assertEqual(inputs["忽略深度"][1]["min"], 0)
+        self.assertEqual(inputs["忽略深度"][1]["max"], 5)
+        self.assertEqual(self.module.QQGroupBypassTag.describe("绕过", 8), ("[魔术贴] 绕过 深度=5",))
+        self.assertEqual(self.module.QQGroupBypassTag.describe("启用", -2), ("[魔术贴] 启用 深度=0",))
+
 
 if __name__ == "__main__":
     unittest.main()

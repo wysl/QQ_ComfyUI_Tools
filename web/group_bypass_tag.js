@@ -96,6 +96,32 @@ function membersOf(group, nodes) {
     return nodes.filter((node) => nodeInGroupRect(node, group));
 }
 
+function groupDepthForNode(group, node, groups, nodes) {
+    if (!group || !node) return -1;
+    const members = membersOf(group, nodes);
+    if (!members.includes(node) && !nodeInGroupRect(node, group)) return -1;
+    const base = groupRect(group);
+    if (!base) return 1;
+    let depth = 1;
+    for (const candidate of groups) {
+        if (candidate === group) continue;
+        const rect = groupRect(candidate);
+        if (!rect || !nodeInGroupRect(node, candidate)) continue;
+        // Count only nested groups whose complete rectangle lies inside the tag group.
+        const inside = rect.x >= base.x && rect.y >= base.y
+            && rect.x + rect.w <= base.x + base.w
+            && rect.y + rect.h <= base.y + base.h;
+        if (inside) depth += 1;
+    }
+    return depth;
+}
+
+function membersAtDepth(group, nodes, groups, depth) {
+    const members = membersOf(group, nodes);
+    if (depth <= 0) return members;
+    return members.filter((node) => groupDepthForNode(group, node, groups, nodes) <= depth);
+}
+
 function isTagNode(node) {
     return node?.comfyClass === NODE_TYPE || node?.type === NODE_TYPE;
 }
@@ -104,6 +130,12 @@ function tagMode(node) {
     const widget = (node?.widgets || []).find((entry) => entry && entry.name === "模式");
     const value = widget?.value;
     return value === MODE_BYPASS ? MODE_BYPASS : MODE_ON;
+}
+
+function tagDepth(node) {
+    const widget = (node?.widgets || []).find((entry) => entry && entry.name === "忽略深度");
+    const value = Number(widget?.value);
+    return Number.isFinite(value) ? Math.max(0, Math.min(5, Math.trunc(value))) : 0;
 }
 
 // 与 ignore_rules.js 完全一致的原状态记录，保证两套机制可以互相恢复
@@ -209,17 +241,18 @@ function applyTag(graph) {
             continue;
         }
         if (!tagsByGroup.has(group)) tagsByGroup.set(group, []);
-        tagsByGroup.get(group).push(node);
+        tagsByGroup.get(group).push({ node, depth: tagDepth(node) });
     }
 
     for (const [group, groupTags] of tagsByGroup) {
-        const bypass = groupTags.some((tag) => tagMode(tag) === MODE_BYPASS);
-        const members = membersOf(group, nodes).filter((node) => !isTagNode(node));
+        const bypass = groupTags.some(({ node }) => tagMode(node) === MODE_BYPASS);
+        const depth = Math.max(...groupTags.map(({ depth: value }) => value));
+        const members = membersAtDepth(group, nodes, groups, depth).filter((node) => !isTagNode(node));
         for (const node of members) {
             if (setBypassed(node, bypass)) changed = true;
             if (bypass && node.mode === BYPASS) bypassed += 1;
         }
-        report.push(`组「${group.title || group.name || "?"}」${bypass ? "绕过" : "启用"} 成员 ${members.length}`);
+        report.push(`组「${group.title || group.name || "?"}」${bypass ? "绕过" : "启用"} 深度 ${depth} 成员 ${members.length}`);
     }
 
     if (changed) {
@@ -277,8 +310,8 @@ function install(nodeType) {
     const originalCreated = prototype.onNodeCreated;
     prototype.onNodeCreated = function onNodeCreatedGroupTag() {
         const result = originalCreated?.apply(this, arguments);
-        const widget = (this.widgets || []).find((entry) => entry && entry.name === "模式");
-        if (widget) {
+        const widgets = (this.widgets || []).filter((entry) => entry && ["模式", "忽略深度"].includes(entry.name));
+        for (const widget of widgets) {
             const originalCallback = widget.callback;
             widget.callback = (...args) => {
                 const value = originalCallback?.apply(this, args);
