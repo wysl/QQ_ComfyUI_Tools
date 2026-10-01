@@ -96,13 +96,15 @@ function membersOf(group, nodes) {
     return nodes.filter((node) => nodeInGroupRect(node, group));
 }
 
+// 嵌套判定只看内层组的中心点：真实工作流里内层组常有一边露在外层组外，
+// 若要求矩形完全包含会把这种组误判成同级，从而绕过不该动的内容。
 function containsGroup(outer, inner) {
     const a = groupRect(outer);
     const b = groupRect(inner);
     if (!a || !b || outer === inner) return false;
-    return b.x >= a.x && b.y >= a.y
-        && b.x + b.w <= a.x + a.w
-        && b.y + b.h <= a.y + a.h;
+    const cx = b.x + b.w / 2;
+    const cy = b.y + b.h / 2;
+    return cx >= a.x && cx <= a.x + a.w && cy >= a.y && cy <= a.y + a.h;
 }
 
 function groupDepthForNode(group, node, groups, nodes) {
@@ -345,3 +347,5 @@ app.registerExtension({
         install(nodeType);
     },
 });
+
+export { applyTag, containsGroup, groupDepthForNode, membersAtDepth };
