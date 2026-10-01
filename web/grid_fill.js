@@ -26,22 +26,35 @@ function snapUp(value, size = gridSize()) {
     return Math.ceil(Number(value) / size) * size;
 }
 
+function titleHeight(node) {
+    const value = Number(globalThis.LiteGraph?.NODE_TITLE_HEIGHT);
+    return Number.isFinite(value) && value >= 0
+        ? value
+        : Number(node?.constructor?.title_height) || 30;
+}
+
 function fillNodeGrid(node) {
     if (!node?.pos || !node?.size) return false;
     const size = gridSize();
+    const title = titleHeight(node);
+    // LiteGraph stores pos at the content origin; the title bar extends upward.
+    const visualTop = node.pos[1] - title;
     const left = snapDown(node.pos[0], size);
-    const top = snapDown(node.pos[1], size);
+    const top = snapDown(visualTop, size);
     const right = snapUp(node.pos[0] + node.size[0], size);
     const bottom = snapUp(node.pos[1] + node.size[1], size);
+    const contentTop = top + title;
     const width = Math.max(size, right - left);
-    const height = Math.max(size, bottom - top);
+    // The title occupies part of the visual cell, so content height is the
+    // remaining cell height after aligning the title's top edge.
+    const height = Math.max(1, bottom - contentTop);
     const changed = left !== node.pos[0]
-        || top !== node.pos[1]
+        || contentTop !== node.pos[1]
         || width !== node.size[0]
         || height !== node.size[1];
     if (!changed) return false;
     node.pos[0] = left;
-    node.pos[1] = top;
+    node.pos[1] = contentTop;
     node.setSize?.([width, height]);
     if (!node.setSize) node.size = [width, height];
     node.setDirtyCanvas?.(true, true);
