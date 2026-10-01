@@ -1,10 +1,10 @@
 import { app } from "../../scripts/app.js";
 
-const GRID_SIZE = 20;
+const GRID_SIZE = 100;
 const HOTKEY_CODE = "Digit5";
 
 function gridSize() {
-    // The recycled-paper palette draws its visible minor grid every 20px.
+    // The palette's major cells are 100px; inner lines are visual subdivisions.
     return GRID_SIZE;
 }
 const EXTENSION_NAME = "QQ.GridFill";
