@@ -1,11 +1,11 @@
 import { app } from "../../scripts/app.js";
 
-const DEFAULT_GRID_SIZE = 10;
+const GRID_SIZE = 20;
 const HOTKEY_CODE = "Digit5";
 
 function gridSize() {
-    const value = Number(globalThis.LiteGraph?.CANVAS_GRID_SIZE);
-    return Number.isFinite(value) && value > 0 ? value : DEFAULT_GRID_SIZE;
+    // The recycled-paper palette draws its visible minor grid every 20px.
+    return GRID_SIZE;
 }
 const EXTENSION_NAME = "QQ.GridFill";
 
@@ -44,7 +44,6 @@ function fillNodeGrid(node) {
     node.pos[1] = top;
     node.setSize?.([width, height]);
     if (!node.setSize) node.size = [width, height];
-    node.onResize?.(node.size);
     node.setDirtyCanvas?.(true, true);
     return true;
 }

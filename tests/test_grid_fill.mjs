@@ -16,8 +16,8 @@ const context = { app, document: { addEventListener() {} } };
 vm.runInNewContext(transformed, context);
 const { fillNodeGrid, snapDown, snapUp } = context.__grid;
 
-assert.equal(snapDown(39), 30);
-assert.equal(snapUp(41), 50);
+assert.equal(snapDown(39), 20);
+assert.equal(snapUp(41), 60);
 let resized;
 const node = {
     pos: [23, 37],
@@ -26,8 +26,8 @@ const node = {
     setDirtyCanvas() {},
 };
 assert.equal(fillNodeGrid(node), true);
-assert.deepEqual(Array.from(node.pos), [20, 30]);
-assert.deepEqual(Array.from(resized), [50, 40]);
+assert.deepEqual(Array.from(node.pos), [20, 20]);
+assert.deepEqual(Array.from(resized), [60, 60]);
 assert.equal(fillNodeGrid(node), false);
 assert.ok(extension?.name);
 console.log("Grid fill tests passed: snapping, expansion, and idempotence.");
