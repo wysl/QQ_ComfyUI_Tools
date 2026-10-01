@@ -1,0 +1,48 @@
+{
+  "id": "qq-recycled-paper",
+  "name": "QQ - 再生纸",
+  "light_theme": true,
+  "colors": {
+    "node_slot": {},
+    "litegraph_base": {
+      "BACKGROUND_IMAGE": "",
+      "CLEAR_BACKGROUND_COLOR": "#e7dfcf",
+      "NODE_TITLE_COLOR": "#403b34",
+      "NODE_SELECTED_TITLE_COLOR": "#171c18",
+      "NODE_TEXT_COLOR": "#403b34",
+      "NODE_DEFAULT_COLOR": "#c9c4b2",
+      "NODE_DEFAULT_BGCOLOR": "#eee8dc",
+      "NODE_DEFAULT_BOXCOLOR": "#6b806b",
+      "NODE_BOX_OUTLINE_COLOR": "#66826e",
+      "WIDGET_BGCOLOR": "#ded4c2",
+      "WIDGET_OUTLINE_COLOR": "#b9aa94",
+      "WIDGET_TEXT_COLOR": "#403b34",
+      "WIDGET_SECONDARY_TEXT_COLOR": "#70685d",
+      "LINK_COLOR": "#608275"
+    },
+    "comfy_base": {
+      "fg-color": "#403b34",
+      "bg-color": "#e7dfcf",
+      "comfy-menu-bg": "#eee8dc",
+      "comfy-menu-secondary-bg": "#ded4c2",
+      "comfy-input-bg": "#f3efe5",
+      "input-text": "#403b34",
+      "descrip-text": "#70685d",
+      "drag-text": "#56806a",
+      "error-text": "#a43f3f",
+      "border-color": "#b9aa94",
+      "tr-even-bg-color": "#eee8dc",
+      "tr-odd-bg-color": "#e2d9c9",
+      "content-bg": "#eee8dc",
+      "content-fg": "#403b34",
+      "content-hover-bg": "#d4ddce",
+      "content-hover-fg": "#273b30",
+      "bar-shadow": "rgba(64,59,52,0.15)",
+      "interface-stroke": "#b9aa94",
+      "interface-panel-surface": "#eee8dc",
+      "interface-panel-hover-surface": "#ded4c2",
+      "interface-panel-selected-surface": "#d4ddce",
+      "interface-button-hover-surface": "#d4ddce"
+    }
+  }
+}
