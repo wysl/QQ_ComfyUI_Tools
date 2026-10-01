@@ -8,6 +8,11 @@ const source = (await fs.readFile(new URL("../web/theme_switcher.js", import.met
 const palette = JSON.parse(await fs.readFile(new URL("../web/recycled_paper.json", import.meta.url), "utf8"));
 assert.equal(palette.id, "qq-recycled-paper");
 assert.equal(palette.colors.litegraph_base.CLEAR_BACKGROUND_COLOR, "#e7dfcf");
+const grid = decodeURIComponent(palette.colors.litegraph_base.BACKGROUND_IMAGE);
+assert.ok(grid.startsWith("data:image/svg+xml,"));
+assert.ok(grid.includes("width='100' height='100'"));
+assert.ok(grid.includes("M20 0V100"), "Palette must include minor grid lines");
+assert.ok(grid.includes("M0 .5H100"), "Palette must include major grid lines");
 
 for (const legacy of [false, true]) {
     let extension;
