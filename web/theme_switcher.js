@@ -2,7 +2,7 @@ import { app } from "../../scripts/app.js";
 
 const STORAGE_KEY = "qq-comfyui-theme";
 const STYLE_ID = "qq-comfyui-theme-style";
-const MENU_ID = "qq-comfyui-theme-menu";
+const SETTING_ID = "QQ.ComfyUI.Theme";
 const DEFAULT_THEME = "default";
 const PAPER_THEME = "recycled-paper";
 
@@ -62,50 +62,6 @@ function ensureStyle() {
         :root[data-qq-theme="${PAPER_THEME}"] [role="menuitem"]:hover {
             background-color: var(--qq-paper-hover) !important;
         }
-        #${MENU_ID} {
-            position: relative;
-            display: inline-flex;
-            align-items: center;
-            margin-left: 6px;
-            z-index: 10001;
-        }
-        #${MENU_ID} > button {
-            min-height: 28px;
-            padding: 4px 9px;
-            border: 1px solid var(--border-color, rgba(255,255,255,.18));
-            border-radius: 4px;
-            background: var(--comfy-menu-bg, rgba(30,34,38,.88));
-            color: var(--fg-color, #ddd);
-            cursor: pointer;
-            font: inherit;
-        }
-        #${MENU_ID} > button:hover { filter: brightness(1.12); }
-        #${MENU_ID} > div {
-            position: absolute;
-            top: calc(100% + 4px);
-            right: 0;
-            min-width: 132px;
-            padding: 4px;
-            border: 1px solid var(--border-color, rgba(255,255,255,.18));
-            border-radius: 5px;
-            background: var(--comfy-menu-bg, #25292d);
-            box-shadow: 0 8px 22px rgba(0,0,0,.35);
-        }
-        #${MENU_ID}[data-open="false"] > div { display: none; }
-        #${MENU_ID} [role="menuitem"] {
-            display: block;
-            width: 100%;
-            padding: 7px 9px;
-            border: 0;
-            border-radius: 3px;
-            background: transparent;
-            color: var(--fg-color, #ddd);
-            text-align: left;
-            cursor: pointer;
-            font: inherit;
-        }
-        #${MENU_ID} [role="menuitem"]:hover { background: var(--comfy-menu-hover-bg, rgba(255,255,255,.1)); }
-        #${MENU_ID} [aria-checked="true"]::before { content: "✓ "; }
     `;
     document.head.append(style);
     return style;
@@ -116,63 +72,21 @@ function applyTheme(theme) {
     if (next === DEFAULT_THEME) document.documentElement.removeAttribute("data-qq-theme");
     else document.documentElement.dataset.qqTheme = next;
     globalThis.localStorage?.setItem(STORAGE_KEY, next);
-    const menu = document.getElementById(MENU_ID);
-    menu?.querySelectorAll("[role=menuitem]").forEach((item) => {
-        item.setAttribute("aria-checked", item.dataset.theme === next ? "true" : "false");
-    });
 }
 
-function menuHost() {
-    const selectors = [
-        "header", 
-        "#comfy-header",
-        ".comfyui-menu",
-        ".comfy-menu-bar",
-        ".comfy-top-menu",
-        "body > div:first-child",
-    ];
-    return selectors.map((selector) => document.querySelector(selector)).find(Boolean) || document.body;
-}
-
-function buildMenu() {
-    if (document.getElementById(MENU_ID)) return true;
-    const host = menuHost();
-    if (!host) return false;
-
-    const menu = document.createElement("div");
-    menu.id = MENU_ID;
-    menu.dataset.open = "false";
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = "主题";
-    button.title = "切换 ComfyUI 界面主题";
-    button.setAttribute("aria-haspopup", "menu");
-    button.setAttribute("aria-expanded", "false");
-    const popup = document.createElement("div");
-    popup.setAttribute("role", "menu");
-    for (const [key, value] of Object.entries(THEMES)) {
-        const item = document.createElement("button");
-        item.type = "button";
-        item.dataset.theme = key;
-        item.setAttribute("role", "menuitem");
-        item.setAttribute("aria-checked", "false");
-        item.textContent = value.label;
-        item.addEventListener("click", () => {
-            applyTheme(key);
-            menu.dataset.open = "false";
-            button.setAttribute("aria-expanded", "false");
-        });
-        popup.append(item);
-    }
-    button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const open = menu.dataset.open !== "true";
-        menu.dataset.open = String(open);
-        button.setAttribute("aria-expanded", String(open));
+function registerBuiltInSetting() {
+    const addSetting = app?.ui?.settings?.addSetting;
+    if (typeof addSetting !== "function") return false;
+    addSetting.call(app.ui.settings, {
+        id: SETTING_ID,
+        name: "界面主题",
+        type: "combo",
+        defaultValue: getTheme(),
+        options: Object.fromEntries(
+            Object.entries(THEMES).map(([value, theme]) => [theme.label, value]),
+        ),
+        onChange: (value) => applyTheme(value),
     });
-    menu.append(button, popup);
-    host.append(menu);
-    applyTheme(getTheme());
     return true;
 }
 
@@ -181,15 +95,6 @@ app.registerExtension({
     setup() {
         ensureStyle();
         applyTheme(getTheme());
-        buildMenu();
-        const observer = new MutationObserver(() => buildMenu());
-        observer.observe(document.body, { childList: true, subtree: true });
-        document.addEventListener("click", (event) => {
-            const menu = document.getElementById(MENU_ID);
-            if (menu && !menu.contains(event.target)) {
-                menu.dataset.open = "false";
-                menu.querySelector("button")?.setAttribute("aria-expanded", "false");
-            }
-        });
+        registerBuiltInSetting();
     },
 });
