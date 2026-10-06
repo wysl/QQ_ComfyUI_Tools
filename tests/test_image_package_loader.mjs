@@ -214,8 +214,8 @@ for (const change of ["pause", "cursor", "dispose", "workflow", "manualQueue", "
     assert(fan2.style.display !== "none" && fan3.style.display !== "none");
     assert(!f.document.head.children[0].textContent.includes("}:hover{"), "CSS must not style global hover");
     const styles = f.document.head.children[0].textContent;
-    assert(styles.includes(".qqpkg-fan-2{z-index:-1;transform:rotate(-10deg)}"), "second image peeks about a quarter");
-    assert(styles.includes(".qqpkg-fan-3{z-index:-2;transform:rotate(-19deg)}"), "third image fans wider behind");
+    assert(styles.includes(".qqpkg-fan-2{z-index:-1;transform:rotate(-9deg)}"), "second image peeks about a quarter");
+    assert(styles.includes(".qqpkg-fan-3{z-index:-2;transform:rotate(-16deg)}"), "third image fans wider behind");
     assert(styles.includes("aspect-ratio:3/4"), "package images crop to 3:4");
     assert(!styles.includes("isolation:isolate"), "fan layers must paint behind the card face");
 }

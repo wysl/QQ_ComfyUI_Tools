@@ -100,13 +100,14 @@ class ImagePackageTests(unittest.TestCase):
         self.assertIn("result", output)
         self.assertIn("ui", output)
         self.assertEqual(output["ui"]["qq_image_package"][0]["node_id"], "77")
-        image, index, total, path, done = output["result"]
+        image, index, total = output["result"]
         self.assertEqual(image.shape, (1, 4, 4, 3))
-        self.assertEqual((index, total, path, done), (2, 3, "img10.png", False))
+        self.assertEqual((index, total), (2, 3))
+        self.assertEqual(output["ui"]["qq_image_package"][0]["current"], "img10.png")
         final_output = module.QQImagePackageLoader().load(
             package_state='{"sources":[]}', file_path=self.zip_ref, 当前序号=3,
         )
-        self.assertTrue(final_output["result"][4])
+        self.assertEqual(final_output["result"][1:], (3, 3))
 
     def test_state_and_path_input(self):
         state = module.parse_state({"sources": [self.single_ref, self.single_ref]})
@@ -118,7 +119,7 @@ class ImagePackageTests(unittest.TestCase):
 
     def test_contract(self):
         node = module.QQImagePackageLoader
-        self.assertEqual(node.RETURN_TYPES, ("IMAGE", "INT", "INT", "STRING", "BOOLEAN"))
+        self.assertEqual(node.RETURN_TYPES, ("IMAGE", "INT", "INT"))
         self.assertIn("file_path", node.INPUT_TYPES()["optional"])
         self.assertTrue(node.INPUT_TYPES()["optional"]["file_path"][1]["forceInput"])
 
@@ -136,9 +137,9 @@ class ImagePackageTests(unittest.TestCase):
         path = self.root / "single.png.gz"
         with gzip.open(path, "wb") as handle:
             handle.write(make_image("red"))
-        result = module.QQImagePackageLoader().load(file_path=str(path))["result"]
-        self.assertEqual(result[0].shape, (1, 4, 4, 3))
-        self.assertEqual(result[3], "single.png")
+        output = module.QQImagePackageLoader().load(file_path=str(path))
+        self.assertEqual(output["result"][0].shape, (1, 4, 4, 3))
+        self.assertEqual(output["ui"]["qq_image_package"][0]["current"], "single.png")
 
     def test_raw_archive_names_and_no_nested_or_unsafe_files(self):
         path = self.root / "names.zip"
@@ -149,7 +150,8 @@ class ImagePackageTests(unittest.TestCase):
             archive.writestr("/absolute.png", make_image("red"))
             archive.writestr("inner.cbz", b"nested")
         output = module.QQImagePackageLoader().load(file_path=str(path), 当前序号=2)
-        self.assertEqual(output["result"][2:4], (2, "pages/image10.png"))
+        self.assertEqual(output["result"][1], 2)
+        self.assertEqual(output["ui"]["qq_image_package"][0]["current"], "pages/image10.png")
         self.assertEqual(float(output["result"][0][0, 0, 0, 2]), 1.0)
 
     def test_tar_cache_does_not_decompress_for_each_image(self):
@@ -170,7 +172,7 @@ class ImagePackageTests(unittest.TestCase):
             package_state="invalid JSON", file_path=self.single_ref), True)
         result = module.QQImagePackageLoader().load(
             package_state="invalid JSON", file_path=self.single_ref)["result"]
-        self.assertEqual(result[1:4], (1, 1, "single.png"))
+        self.assertEqual(result[1:], (1, 1))
 
     def test_rgba_returns_rgb_and_corrupt_cover_falls_back(self):
         rgba = Image.new("RGBA", (3, 2), (20, 30, 40, 100))
@@ -201,7 +203,8 @@ class ImagePackageTests(unittest.TestCase):
         self.assertIs(module.manifest_for(self.zip_ref), first)
         result = module.QQImagePackageLoader().load(
             package_state=json.dumps({"sources": [self.single_ref, self.zip_ref]}), 当前序号=2)
-        self.assertEqual(result["result"][2:4], (4, "img2.png"))
+        self.assertEqual(result["result"][2], 4)
+        self.assertEqual(result["ui"]["qq_image_package"][0]["current"], "img2.png")
 
 
 if __name__ == "__main__":

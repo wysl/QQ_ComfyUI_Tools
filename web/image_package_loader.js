@@ -12,7 +12,7 @@ const AUTO_WIDGET = "自动下一张";
 const FILE_INPUT = "file_path";
 const MIN_PANEL_WIDTH = 300;
 const MIN_PANEL_HEIGHT = 170;
-const MAX_PANEL_HEIGHT = 700;
+const MAX_PANEL_HEIGHT = 470;
 const THUMB_EDGE = 256;
 
 function widget(node, name) {
@@ -122,6 +122,7 @@ function sourceName(reference) {
 }
 
 function updateIndexLimit(node) {
+    fitNodeHeight(node);
     const state = parseState(node);
     const cards = node.__qqPackageCards || new Map();
     let total = 0;
@@ -366,13 +367,13 @@ function installStyles() {
 .qqpkg-button,.qqpkg-mini{border:1px solid #4a4a4a;border-radius:5px;background:#2c2c32;color:#eee;cursor:pointer}
 .qqpkg-button{padding:4px 9px}.qqpkg-mini{width:20px;height:19px;line-height:1}.qqpkg-button:hover,.qqpkg-mini:hover{background:#3b3b44}.qqpkg-mini.is-remove:hover{background:#642}
 .qqpkg-linked{border:1px solid #4b6b55;border-radius:5px;background:#223128;padding:4px 7px;color:#b8e2bd}
-.qqpkg-list{display:grid;grid-template-columns:minmax(96px,116px);justify-content:center;gap:14px;overflow:auto;max-height:${MAX_PANEL_HEIGHT - 82}px;min-height:64px;padding:14px 8px 8px}
+.qqpkg-list{display:flex;flex-wrap:wrap;justify-content:center;align-content:start;gap:16px 30px;overflow:auto;max-height:${MAX_PANEL_HEIGHT - 82}px;min-height:64px;padding:14px 8px 8px}
 .qqpkg-card{position:relative;border:1px solid #484850;border-radius:8px;background:#25252b;padding:4px;cursor:grab}.qqpkg-card.is-dragging{opacity:.45}.qqpkg-card.is-error{border-color:#7a3b3b}
 .qqpkg-card[data-kind="archive"]{border-color:#64806b}
 .qqpkg-fan{position:absolute;inset:0;border:1px solid #5d7862;border-radius:9px;background:linear-gradient(165deg,#2c362e 0%,#202823 60%,#1a211c 100%);box-shadow:0 1px 3px #0009;overflow:hidden;transform-origin:50% 100%;pointer-events:none}
 .qqpkg-fan img{width:100%;height:100%;object-fit:cover;display:block}
-.qqpkg-fan-2{z-index:-1;transform:rotate(-10deg)}
-.qqpkg-fan-3{z-index:-2;transform:rotate(-19deg)}
+.qqpkg-fan-2{z-index:-1;transform:rotate(-9deg)}
+.qqpkg-fan-3{z-index:-2;transform:rotate(-16deg)}
 .qqpkg-card-preview{position:relative;aspect-ratio:3/4;border-radius:5px;background:#17171b;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#888;font-weight:700}
 .qqpkg-card-preview img{width:100%;height:100%;object-fit:cover;display:block}
 .qqpkg-card-badge{position:absolute;top:8px;left:8px;border-radius:4px;background:#173b21;color:#9be26f;padding:1px 4px;font-size:10px;font-weight:700}
@@ -380,7 +381,7 @@ function installStyles() {
 .qqpkg-card-order{position:absolute;bottom:31px;right:8px;min-width:15px;text-align:center;border-radius:50%;background:#12a46b;color:#04120c;font-size:10px;font-weight:700}
 .qqpkg-card-body{margin-top:4px;min-height:27px}.qqpkg-card-name{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.qqpkg-card-first{opacity:.62;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qqpkg-card-actions{position:absolute;bottom:5px;right:5px;display:flex;gap:2px;opacity:.15;transition:.15s}.qqpkg-card:hover .qqpkg-card-actions{opacity:1}
-.qqpkg-empty{grid-column:1/-1;display:flex;align-items:center;justify-content:center;min-height:92px;border:1px dashed #46464e;border-radius:8px;color:#8a8a92}
+.qqpkg-empty{width:100%;display:flex;align-items:center;justify-content:center;min-height:92px;border:1px dashed #46464e;border-radius:8px;color:#8a8a92}
 .qqpkg-status{min-height:14px;font-size:11px;color:#9a9aa2}.qqpkg-status.is-error{color:#ff8b8b}
 .qqpkg-modal{position:fixed;inset:0;background:#000000c9;z-index:1000;display:flex;align-items:center;justify-content:center;padding:28px}
 .qqpkg-dialog{width:min(1000px,92vw);height:min(720px,88vh);border:1px solid #4b4b55;border-radius:10px;background:#1b1b20;display:flex;flex-direction:column;color:#eee}
@@ -520,6 +521,30 @@ async function addDroppedFiles(node, files) {
     }
 }
 
+function fitNodeHeight(node) {
+    try {
+    const panel = node.__qqPackagePanel;
+    const container = panel?.parentElement;
+    if (!panel || !container || typeof node.setSize !== "function") return;
+    const overhead = Math.max(0, node.size[1] - container.offsetHeight);
+    const previous = panel.style.height;
+    panel.style.height = "auto";
+    const natural = panel.offsetHeight;
+    panel.style.height = previous;
+    if (!natural) return;
+    const height = Math.max(MIN_PANEL_HEIGHT, overhead + natural + 8);
+    const width = Math.max(node.size[0], MIN_PANEL_WIDTH);
+    if (Math.abs(node.size[1] - height) > 6 || Math.abs(node.size[0] - width) > 6) {
+        node.setSize([width, height]);
+    }
+    const panelHeight = Math.max(MIN_PANEL_HEIGHT - 40, height - overhead);
+    container.style.height = `${panelHeight}px`;
+    node.setDirtyCanvas?.(true, true);
+    } catch {
+        // Sizing is best effort; never break panel updates.
+    }
+}
+
 function installPanel(node) {
     if (!node || node.__qqPackageSetup || typeof node.addDOMWidget !== "function") return;
     node.__qqPackageSetup = true;
@@ -558,10 +583,13 @@ function installPanel(node) {
         },
     });
     panelWidget.serialize = false;
-    panelWidget.computeSize = (width) => [width, Math.min(MAX_PANEL_HEIGHT,
-        Math.min(MAX_PANEL_HEIGHT, parseState(node).sources.length
-            ? 120 + parseState(node).sources.length * 215
-            : MIN_PANEL_HEIGHT))];
+    panelWidget.computeSize = (rawWidth) => {
+        const width = Number.isFinite(Number(rawWidth)) && Number(rawWidth) > 0 ? Number(rawWidth) : 300;
+        const count = parseState(node).sources.length;
+        const perRow = Math.max(1, Math.floor((width - 16) / 146));
+        const rows = Math.ceil(count / perRow);
+        return [width, Math.min(MAX_PANEL_HEIGHT, count ? 120 + rows * 215 : MIN_PANEL_HEIGHT)];
+    };
     renderPanel(node);
 }
 
@@ -775,6 +803,7 @@ app.registerExtension({
             const result = originalConfigured?.apply(this, arguments);
             installPanel(this);
             renderPanel(this);
+            fitNodeHeight(this);
             return result;
         };
         const originalConnections = nodeType.prototype.onConnectionsChange;
