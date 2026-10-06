@@ -9,6 +9,7 @@ class Element {
         this.tagName = tag;
         this.children = [];
         this.dataset = {};
+        this.style = {};
         this.listeners = {};
         this.className = "";
         this.classList = {
@@ -208,10 +209,16 @@ for (const loop of [false, true]) {
     assert.equal(f.get(a,"图片包面板").serialize, false);
     assert.equal(f.get(a,"图片包面板").options.serialize, false);
     assert.equal(card.dataset.kind, "archive");
+    const fan2 = card.querySelector(".qqpkg-fan-2");
+    const fan3 = card.querySelector(".qqpkg-fan-3");
+    assert(fan2 && fan3, "archive cards stack the next two images");
+    assert(fan2.children[0].src.includes("index=1") && fan3.children[0].src.includes("index=2"));
+    assert(fan2.style.display !== "none" && fan3.style.display !== "none");
     assert(!f.document.head.children[0].textContent.includes("}:hover{"), "CSS must not style global hover");
     const styles = f.document.head.children[0].textContent;
-    assert(styles.includes('.qqpkg-card[data-kind="archive"]::before'), "archive cards must fan like a hand of cards");
-    assert(styles.includes("rotate(-7.5deg)") && styles.includes("rotate(-3.75deg)"), "fan layers must be rotated");
+    assert(styles.includes(".qqpkg-fan-2{z-index:-1;transform:rotate(-8deg)}"), "second image peeks about a quarter");
+    assert(styles.includes(".qqpkg-fan-3{z-index:-2;transform:rotate(-15deg)}"), "third image fans wider behind");
+    assert(styles.includes("aspect-ratio:9/16"), "package images crop to 9:16");
     assert(!styles.includes("isolation:isolate"), "fan layers must paint behind the card face");
 }
 

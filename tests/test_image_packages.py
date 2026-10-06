@@ -182,6 +182,19 @@ class ImagePackageTests(unittest.TestCase):
         thumb = module._thumbnail_bytes(str(path))
         self.assertEqual(Image.open(io.BytesIO(thumb)).size, (4, 4))
 
+    def test_thumbnail_index_and_clamp(self):
+        thumb = module._thumbnail_bytes(self.zip_ref, 64, 1)
+        image = Image.open(io.BytesIO(thumb)).convert("RGB")
+        r, g, b = image.getpixel((image.width // 2, image.height // 2))
+        self.assertGreater(g, r + 20)
+        self.assertGreater(g, b + 20)
+        clamped = module._thumbnail_bytes(self.zip_ref, 64, 9)
+        image = Image.open(io.BytesIO(clamped)).convert("RGB")
+        r, g, b = image.getpixel((image.width // 2, image.height // 2))
+        self.assertGreater(r, 120)
+        self.assertGreater(g, 120)
+        self.assertLess(b, 120)
+
     def test_multiple_manifests_are_retained_and_sources_ordered(self):
         first = module.manifest_for(self.zip_ref)
         module.manifest_for(self.tar_ref)

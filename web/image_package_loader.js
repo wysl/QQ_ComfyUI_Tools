@@ -12,8 +12,8 @@ const AUTO_WIDGET = "自动下一张";
 const LOOP_WIDGET = "循环模式";
 const FILE_INPUT = "file_path";
 const MIN_PANEL_WIDTH = 300;
-const MIN_PANEL_HEIGHT = 178;
-const MAX_PANEL_HEIGHT = 430;
+const MIN_PANEL_HEIGHT = 210;
+const MAX_PANEL_HEIGHT = 700;
 const THUMB_EDGE = 256;
 
 function widget(node, name) {
@@ -28,8 +28,9 @@ function encodeReference(reference) {
     return encodeURIComponent(String(reference || ""));
 }
 
-function thumbnailUrl(reference) {
-    return `/qq_image_packages/thumbnail?reference=${encodeReference(reference)}&size=${THUMB_EDGE}`;
+function thumbnailUrl(reference, index = 0) {
+    const suffix = index > 0 ? `&index=${index}` : "";
+    return `/qq_image_packages/thumbnail?reference=${encodeReference(reference)}&size=${THUMB_EDGE}${suffix}`;
 }
 
 function parseState(node) {
@@ -70,6 +71,19 @@ async function uploadOne(file) {
     if (!name) throw new Error("上传接口没有返回文件名");
     const folder = String(data?.subfolder || "").replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
     return normalizePath(folder ? `${folder}/${name}` : name);
+}
+
+function makeFan(source, layer, index) {
+    const fan = document.createElement("div");
+    fan.className = `qqpkg-fan qqpkg-fan-${layer}`;
+    const fanImage = document.createElement("img");
+    fanImage.alt = "";
+    fanImage.loading = "lazy";
+    fanImage.decoding = "async";
+    fanImage.addEventListener("error", () => fanImage.remove());
+    fanImage.src = thumbnailUrl(source, index);
+    fan.append(fanImage);
+    return fan;
 }
 
 function status(node) {
@@ -142,6 +156,10 @@ async function refreshCardInfo(node, source, card) {
         }
         const first = card.querySelector(".qqpkg-card-first");
         if (first) first.textContent = data.kind === "archive" ? `首图：${data.first || ""}` : "";
+        const fan2 = card.querySelector(".qqpkg-fan-2");
+        if (fan2) fan2.style.display = card.count >= 2 ? "" : "none";
+        const fan3 = card.querySelector(".qqpkg-fan-3");
+        if (fan3) fan3.style.display = card.count >= 3 ? "" : "none";
         card.classList.remove("is-loading");
         if (node.__qqPackageCards) node.__qqPackageCards.set(source, card);
         updateIndexLimit(node);
@@ -168,6 +186,8 @@ function createCard(node, source, order) {
     card.dataset.reference = normalizePath(source);
     card.draggable = true;
 
+    const fan3 = makeFan(source, 3, 2);
+    const fan2 = makeFan(source, 2, 1);
     const preview = document.createElement("div");
     preview.className = "qqpkg-card-preview";
     const image = document.createElement("img");
@@ -212,7 +232,7 @@ function createCard(node, source, order) {
         }, "移除"),
     );
 
-    card.append(preview, badge, count, orderEl, body, actions);
+    card.append(fan3, fan2, preview, badge, count, orderEl, body, actions);
     card.addEventListener("dragstart", (event) => {
         node.__qqPackageDragSource = card.dataset.reference;
         card.classList.add("is-dragging");
@@ -347,13 +367,14 @@ function installStyles() {
 .qqpkg-button,.qqpkg-mini{border:1px solid #4a4a4a;border-radius:5px;background:#2c2c32;color:#eee;cursor:pointer}
 .qqpkg-button{padding:4px 9px}.qqpkg-mini{width:20px;height:19px;line-height:1}.qqpkg-button:hover,.qqpkg-mini:hover{background:#3b3b44}.qqpkg-mini.is-remove:hover{background:#642}
 .qqpkg-linked{border:1px solid #4b6b55;border-radius:5px;background:#223128;padding:4px 7px;color:#b8e2bd}
-.qqpkg-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:14px 10px;overflow:auto;max-height:${MAX_PANEL_HEIGHT - 82}px;min-height:110px;padding:19px 8px 8px}
+.qqpkg-list{display:grid;grid-template-columns:minmax(110px,170px);justify-content:center;gap:18px;overflow:auto;max-height:${MAX_PANEL_HEIGHT - 82}px;min-height:110px;padding:19px 10px 8px}
 .qqpkg-card{position:relative;border:1px solid #484850;border-radius:8px;background:#25252b;padding:5px;cursor:grab}.qqpkg-card.is-dragging{opacity:.45}.qqpkg-card.is-error{border-color:#7a3b3b}
 .qqpkg-card[data-kind="archive"]{border-color:#64806b}
-.qqpkg-card[data-kind="archive"]::before,.qqpkg-card[data-kind="archive"]::after{content:"";position:absolute;inset:4px 3px 3px;border:1px solid #5d7862;border-radius:9px;background:linear-gradient(165deg,#2c362e 0%,#202823 60%,#1a211c 100%);box-shadow:0 1px 3px #0009;z-index:-1;transform-origin:50% 97%;pointer-events:none}
-.qqpkg-card[data-kind="archive"]::before{transform:rotate(-7.5deg)}
-.qqpkg-card[data-kind="archive"]::after{transform:rotate(-3.75deg)}
-.qqpkg-card-preview{position:relative;height:62px;border-radius:5px;background:#17171b;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#888;font-weight:700}
+.qqpkg-fan{position:absolute;inset:0;border:1px solid #5d7862;border-radius:9px;background:linear-gradient(165deg,#2c362e 0%,#202823 60%,#1a211c 100%);box-shadow:0 1px 3px #0009;overflow:hidden;transform-origin:50% 100%;pointer-events:none}
+.qqpkg-fan img{width:100%;height:100%;object-fit:cover;display:block}
+.qqpkg-fan-2{z-index:-1;transform:rotate(-8deg)}
+.qqpkg-fan-3{z-index:-2;transform:rotate(-15deg)}
+.qqpkg-card-preview{position:relative;aspect-ratio:9/16;border-radius:5px;background:#17171b;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#888;font-weight:700}
 .qqpkg-card-preview img{width:100%;height:100%;object-fit:cover;display:block}
 .qqpkg-card-badge{position:absolute;top:8px;left:8px;border-radius:4px;background:#173b21;color:#9be26f;padding:1px 4px;font-size:10px;font-weight:700}
 .qqpkg-card-count{position:absolute;top:8px;right:8px;border-radius:4px;background:#25252bd9;padding:1px 4px;font-size:10px}
@@ -368,7 +389,7 @@ function installStyles() {
 .qqpkg-modal-body{flex:1;overflow:auto;padding:11px;display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:9px;align-content:start}
 .qqpkg-folder{border:1px solid #45454f;background:#24242b;color:#cfd5cf;padding:11px 7px;text-align:center;border-radius:8px;cursor:pointer}
 .qqpkg-file{border:1px solid #45454f;background:#24242b;border-radius:8px;padding:6px;text-align:left;cursor:pointer}.qqpkg-file:hover{border-color:#67a575}
-.qqpkg-file-preview{height:62px;background:#161619;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#8b8b93;overflow:hidden}.qqpkg-file-preview img{width:100%;height:100%;object-fit:cover}
+.qqpkg-file-preview{aspect-ratio:9/16;background:#161619;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#8b8b93;overflow:hidden}.qqpkg-file-preview img{width:100%;height:100%;object-fit:cover}
 .qqpkg-file-name{margin-top:5px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.qqpkg-file-size{opacity:.65;font-size:10px}
 .qqpkg-modal-foot{padding:9px 11px;border-top:1px solid #3a3a44;display:flex;gap:7px;align-items:center}.qqpkg-modal-status{margin-right:auto;font-size:11px;color:#a5a5ad}
 `;
@@ -539,7 +560,7 @@ function installPanel(node) {
     });
     panelWidget.serialize = false;
     panelWidget.computeSize = (width) => [width, Math.min(MAX_PANEL_HEIGHT,
-        MIN_PANEL_HEIGHT + Math.ceil(parseState(node).sources.length / 3) * 112)];
+        MIN_PANEL_HEIGHT + parseState(node).sources.length * 330)];
     renderPanel(node);
 }
 
