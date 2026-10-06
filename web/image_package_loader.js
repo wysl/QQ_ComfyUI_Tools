@@ -9,10 +9,9 @@ const NODE_TYPE = "QQImagePackageLoader";
 const STATE_WIDGET = "package_state";
 const INDEX_WIDGET = "当前序号";
 const AUTO_WIDGET = "自动下一张";
-const LOOP_WIDGET = "循环模式";
 const FILE_INPUT = "file_path";
 const MIN_PANEL_WIDTH = 300;
-const MIN_PANEL_HEIGHT = 210;
+const MIN_PANEL_HEIGHT = 170;
 const MAX_PANEL_HEIGHT = 700;
 const THUMB_EDGE = 256;
 
@@ -367,7 +366,7 @@ function installStyles() {
 .qqpkg-button,.qqpkg-mini{border:1px solid #4a4a4a;border-radius:5px;background:#2c2c32;color:#eee;cursor:pointer}
 .qqpkg-button{padding:4px 9px}.qqpkg-mini{width:20px;height:19px;line-height:1}.qqpkg-button:hover,.qqpkg-mini:hover{background:#3b3b44}.qqpkg-mini.is-remove:hover{background:#642}
 .qqpkg-linked{border:1px solid #4b6b55;border-radius:5px;background:#223128;padding:4px 7px;color:#b8e2bd}
-.qqpkg-list{display:grid;grid-template-columns:minmax(96px,116px);justify-content:center;gap:14px;overflow:auto;max-height:${MAX_PANEL_HEIGHT - 82}px;min-height:96px;padding:14px 8px 8px}
+.qqpkg-list{display:grid;grid-template-columns:minmax(96px,116px);justify-content:center;gap:14px;overflow:auto;max-height:${MAX_PANEL_HEIGHT - 82}px;min-height:64px;padding:14px 8px 8px}
 .qqpkg-card{position:relative;border:1px solid #484850;border-radius:8px;background:#25252b;padding:4px;cursor:grab}.qqpkg-card.is-dragging{opacity:.45}.qqpkg-card.is-error{border-color:#7a3b3b}
 .qqpkg-card[data-kind="archive"]{border-color:#64806b}
 .qqpkg-fan{position:absolute;inset:0;border:1px solid #5d7862;border-radius:9px;background:linear-gradient(165deg,#2c362e 0%,#202823 60%,#1a211c 100%);box-shadow:0 1px 3px #0009;overflow:hidden;transform-origin:50% 100%;pointer-events:none}
@@ -550,7 +549,7 @@ function installPanel(node) {
         getValue: () => String(widget(node, STATE_WIDGET)?.value || "{\"sources\":[]}"),
         setValue: (value) => {
             const target = widget(node, STATE_WIDGET);
-            if (target) target.value = String(value || "{\"sources\":[]}");
+            if (target && typeof value === "string") target.value = value;
             renderPanel(node);
         },
         getMinHeight: () => MIN_PANEL_HEIGHT,
@@ -560,7 +559,9 @@ function installPanel(node) {
     });
     panelWidget.serialize = false;
     panelWidget.computeSize = (width) => [width, Math.min(MAX_PANEL_HEIGHT,
-        MIN_PANEL_HEIGHT + parseState(node).sources.length * 205)];
+        Math.min(MAX_PANEL_HEIGHT, parseState(node).sources.length
+            ? 120 + parseState(node).sources.length * 215
+            : MIN_PANEL_HEIGHT))];
     renderPanel(node);
 }
 
@@ -680,8 +681,7 @@ function installAutoQueue() {
             if (!node) continue;
             setStatus(node, `已完成 ${info.index}/${info.total} · ${info.current}`, false, 0);
             if (!widget(node, AUTO_WIDGET)?.value || !info.auto) continue;
-            const loop = Boolean(widget(node, LOOP_WIDGET)?.value);
-            if (Number(info.index) >= Number(info.total) && !loop) {
+            if (Number(info.index) >= Number(info.total)) {
                 finished = true;
             }
             active.push({ node, info, next: Number(info.index) >= Number(info.total) ? 1 : Number(info.index) + 1 });
@@ -704,8 +704,7 @@ function installAutoQueue() {
                 if (active.some(({node, info}) => !currentNode(record, info)
                     || !widget(node, AUTO_WIDGET)?.value)) return;
                 for (const item of active) {
-                    if (Number(item.info.index) >= Number(item.info.total)
-                        && !widget(item.node, LOOP_WIDGET)?.value) return;
+                    if (Number(item.info.index) >= Number(item.info.total)) return;
                 }
                 for (const {node, next} of active) {
                     widget(node, INDEX_WIDGET).value = next;

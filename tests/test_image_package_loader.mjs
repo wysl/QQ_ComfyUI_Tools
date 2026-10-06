@@ -91,7 +91,6 @@ async function fixture() {
                 {name:"package_state", value:JSON.stringify({sources})},
                 {name:"当前序号", value:1},
                 {name:"自动下一张", value:true},
-                {name:"循环模式", value:false},
             ];
         }
         addDOMWidget(name, type, element, options) {
@@ -173,16 +172,15 @@ for (const change of ["pause", "cursor", "dispose", "workflow", "manualQueue", "
     assert.equal(f.app.calls.length, 0, `cancel when ${change}`);
 }
 
-for (const loop of [false, true]) {
+{
     const f = await fixture(), a = f.node(1);
     f.get(a,"当前序号").value = 3;
-    f.get(a,"循环模式").value = loop;
     const {prompt_id:id} = await f.submit();
     f.executed(id, a);
     f.emit("execution_success", {prompt_id:id});
     await f.flush();
-    assert.equal(f.app.calls.length, loop ? 1 : 0);
-    assert.equal(f.get(a,"当前序号").value, loop ? 1 : 3);
+    assert.equal(f.app.calls.length, 0, "finite package stops at last image");
+    assert.equal(f.get(a,"当前序号").value, 3);
 }
 
 {
