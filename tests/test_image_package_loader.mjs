@@ -209,6 +209,10 @@ for (const loop of [false, true]) {
     assert.equal(f.get(a,"图片包面板").options.serialize, false);
     assert.equal(card.dataset.kind, "archive");
     assert(!f.document.head.children[0].textContent.includes("}:hover{"), "CSS must not style global hover");
+    const styles = f.document.head.children[0].textContent;
+    assert(styles.includes('.qqpkg-card[data-kind="archive"]::before'), "archive cards must fan like a hand of cards");
+    assert(styles.includes("rotate(-7.5deg)") && styles.includes("rotate(-3.75deg)"), "fan layers must be rotated");
+    assert(!styles.includes("isolation:isolate"), "fan layers must paint behind the card face");
 }
 
 {

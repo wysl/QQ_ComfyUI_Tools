@@ -347,9 +347,12 @@ function installStyles() {
 .qqpkg-button,.qqpkg-mini{border:1px solid #4a4a4a;border-radius:5px;background:#2c2c32;color:#eee;cursor:pointer}
 .qqpkg-button{padding:4px 9px}.qqpkg-mini{width:20px;height:19px;line-height:1}.qqpkg-button:hover,.qqpkg-mini:hover{background:#3b3b44}.qqpkg-mini.is-remove:hover{background:#642}
 .qqpkg-linked{border:1px solid #4b6b55;border-radius:5px;background:#223128;padding:4px 7px;color:#b8e2bd}
-.qqpkg-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:10px;overflow:auto;max-height:${MAX_PANEL_HEIGHT - 82}px;min-height:110px;padding:7px}
+.qqpkg-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:14px 10px;overflow:auto;max-height:${MAX_PANEL_HEIGHT - 82}px;min-height:110px;padding:19px 8px 8px}
 .qqpkg-card{position:relative;border:1px solid #484850;border-radius:8px;background:#25252b;padding:5px;cursor:grab}.qqpkg-card.is-dragging{opacity:.45}.qqpkg-card.is-error{border-color:#7a3b3b}
-.qqpkg-card[data-kind="archive"]{isolation:isolate;border-color:#64806b;box-shadow:2px -2px 0 #1b2320,3px -3px 0 #647365,5px -5px 0 #202c25,6px -6px 0 #4c6353}
+.qqpkg-card[data-kind="archive"]{border-color:#64806b}
+.qqpkg-card[data-kind="archive"]::before,.qqpkg-card[data-kind="archive"]::after{content:"";position:absolute;inset:4px 3px 3px;border:1px solid #5d7862;border-radius:9px;background:linear-gradient(165deg,#2c362e 0%,#202823 60%,#1a211c 100%);box-shadow:0 1px 3px #0009;z-index:-1;transform-origin:50% 97%;pointer-events:none}
+.qqpkg-card[data-kind="archive"]::before{transform:rotate(-7.5deg)}
+.qqpkg-card[data-kind="archive"]::after{transform:rotate(-3.75deg)}
 .qqpkg-card-preview{position:relative;height:62px;border-radius:5px;background:#17171b;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#888;font-weight:700}
 .qqpkg-card-preview img{width:100%;height:100%;object-fit:cover;display:block}
 .qqpkg-card-badge{position:absolute;top:8px;left:8px;border-radius:4px;background:#173b21;color:#9be26f;padding:1px 4px;font-size:10px;font-weight:700}
