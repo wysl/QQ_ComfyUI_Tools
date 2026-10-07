@@ -16,6 +16,7 @@ import zipfile
 from pathlib import Path
 from PIL import Image
 from unittest.mock import patch
+import torch
 
 REPO = Path(__file__).resolve().parents[1]
 paths = types.ModuleType("folder_paths")
@@ -100,14 +101,14 @@ class ImagePackageTests(unittest.TestCase):
         self.assertIn("result", output)
         self.assertIn("ui", output)
         self.assertEqual(output["ui"]["qq_image_package"][0]["node_id"], "77")
-        image, index, total = output["result"]
+        image, index, total, info = output["result"]
         self.assertEqual(image.shape, (1, 4, 4, 3))
         self.assertEqual((index, total), (2, 3))
         self.assertEqual(output["ui"]["qq_image_package"][0]["current"], "img10.png")
         final_output = module.QQImagePackageLoader().load(
             package_state='{"sources":[]}', file_path=self.zip_ref, 当前序号=3,
         )
-        self.assertEqual(final_output["result"][1:], (3, 3))
+        self.assertEqual(final_output["result"][1:3], (3, 3))
 
     def test_state_and_path_input(self):
         state = module.parse_state({"sources": [self.single_ref, self.single_ref]})
@@ -119,7 +120,7 @@ class ImagePackageTests(unittest.TestCase):
 
     def test_contract(self):
         node = module.QQImagePackageLoader
-        self.assertEqual(node.RETURN_TYPES, ("IMAGE", "INT", "INT"))
+        self.assertEqual(node.RETURN_TYPES, ("IMAGE", "INT", "INT", "QQ_IMAGE_PACKAGE_INFO"))
         self.assertIn("file_path", node.INPUT_TYPES()["optional"])
         self.assertTrue(node.INPUT_TYPES()["optional"]["file_path"][1]["forceInput"])
 
@@ -172,7 +173,7 @@ class ImagePackageTests(unittest.TestCase):
             package_state="invalid JSON", file_path=self.single_ref), True)
         result = module.QQImagePackageLoader().load(
             package_state="invalid JSON", file_path=self.single_ref)["result"]
-        self.assertEqual(result[1:], (1, 1))
+        self.assertEqual(result[1:3], (1, 1))
 
     def test_rgba_returns_rgb_and_corrupt_cover_falls_back(self):
         rgba = Image.new("RGBA", (3, 2), (20, 30, 40, 100))
@@ -203,8 +204,99 @@ class ImagePackageTests(unittest.TestCase):
         self.assertIs(module.manifest_for(self.zip_ref), first)
         result = module.QQImagePackageLoader().load(
             package_state=json.dumps({"sources": [self.single_ref, self.zip_ref]}), 当前序号=2)
-        self.assertEqual(result["result"][2], 4)
+        self.assertEqual(result["result"][2:3], (4,))
         self.assertEqual(result["ui"]["qq_image_package"][0]["current"], "img2.png")
+
+    def test_package_info_contract(self):
+        result = module.QQImagePackageLoader().load(
+            package_state=json.dumps({"sources": [self.zip_ref, self.tar_ref]}),
+            当前序号=4,
+        )["result"]
+        info = result[3]
+        self.assertEqual(info.source_index, 2)
+        self.assertEqual(info.entry_index, 1)
+        self.assertEqual(info.source_total, 2)
+        self.assertEqual(info.global_index, 4)
+        self.assertEqual(info.total, 5)
+        self.assertEqual(info.ui()["member"], "b/img2.png")
+        self.assertEqual(module.QQImagePackageSaver.RETURN_TYPES, ("IMAGE", "STRING"))
+        self.assertTrue(module.QQImagePackageSaver.OUTPUT_NODE)
+
+    def test_saver_accumulates_zip_by_original_format(self):
+        saver = module.QQImagePackageSaver()
+        for index in (2, 3):
+            loaded = module.QQImagePackageLoader().load(file_path=self.zip_ref, 当前序号=index)["result"]
+            edited = torch.full_like(loaded[0], 0.0)
+            edited[:, :, :, 0] = 1.0
+            saved = saver.save(edited, loaded[3])
+            self.assertEqual(saved["result"][1], "qq_image_packages/package_edited.cbz")
+        target = self.root / "output" / "qq_image_packages" / "package_edited.cbz"
+        with zipfile.ZipFile(target) as archive:
+            self.assertEqual(set(archive.namelist()), {"img2.png", "img10.png", "nested/img1.png", "nested.zip", "__MACOSX/junk.png"})
+            for member in ("img10.png", "nested/img1.png"):
+                with Image.open(io.BytesIO(archive.read(member))) as image:
+                    self.assertGreater(image.getpixel((0, 0))[0], 240)
+            with Image.open(io.BytesIO(archive.read("img2.png"))) as image:
+                self.assertGreater(image.getpixel((0, 0))[2], 240)
+            self.assertEqual(archive.read("nested.zip"), b"not extracted")
+
+    def test_saver_routes_multiple_packages_by_format(self):
+        saver = module.QQImagePackageSaver()
+        zip_loaded = module.QQImagePackageLoader().load(file_path=self.zip_ref, 当前序号=2)["result"]
+        tar_loaded = module.QQImagePackageLoader().load(file_path=self.tar_ref, 当前序号=1)["result"]
+        red = torch.zeros_like(zip_loaded[0])
+        red[:, :, :, 0] = 1.0
+        self.assertEqual(saver.save(red, zip_loaded[3])["result"][1], "qq_image_packages/package_edited.cbz")
+        self.assertEqual(saver.save(red, tar_loaded[3])["result"][1], "qq_image_packages/package_edited.tar.gz")
+        with tarfile.open(self.root / "output" / "qq_image_packages" / "package_edited.tar.gz", "r:gz") as archive:
+            with Image.open(archive.extractfile("b/img2.png")) as image:
+                self.assertGreater(image.getpixel((0, 0))[0], 240)
+
+    def test_saver_preserves_direct_image_format(self):
+        loaded = module.QQImagePackageLoader().load(file_path=self.single_ref)["result"]
+        saver = module.QQImagePackageSaver()
+        self.assertEqual(saver.save(loaded[0], loaded[3])["result"][1], "qq_image_packages/single_edited.png")
+        with Image.open(self.root / "output" / "qq_image_packages" / "single_edited.png") as image:
+            self.assertEqual(image.size, (4, 4))
+
+    def test_saver_rejects_bad_info_and_respects_no_overwrite(self):
+        loaded = module.QQImagePackageLoader().load(file_path=self.zip_ref)["result"]
+        with self.assertRaisesRegex(ValueError, "图包信息"):
+            module.QQImagePackageSaver().save(loaded[0], {"source": "bad"})
+        saver = module.QQImagePackageSaver()
+        saver.save(loaded[0], loaded[3], 输出后缀="_lock_test", 覆盖输出=False)
+        with self.assertRaises(FileExistsError):
+            saver.save(loaded[0], loaded[3], 输出后缀="_lock_test", 覆盖输出=False)
+
+    def test_saver_preserves_plain_gz_tar_format(self):
+        path = self.root / "plain-package.gz"
+        with tarfile.open(path, "w:gz") as archive:
+            data = make_image("green")
+            info = tarfile.TarInfo("page.png")
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+        loaded = module.QQImagePackageLoader().load(file_path=str(path))["result"]
+        saver = module.QQImagePackageSaver()
+        self.assertEqual(saver.save(loaded[0], loaded[3])["result"][1], "qq_image_packages/plain-package_edited.gz")
+        with tarfile.open(self.root / "output" / "qq_image_packages" / "plain-package_edited.gz", "r:gz") as archive:
+            self.assertEqual(archive.getnames(), ["page.png"])
+
+    def test_saver_separates_sources_with_identical_names(self):
+        first = self.root / "first" / "same.cbz"
+        second = self.root / "second" / "same.cbz"
+        first.parent.mkdir(exist_ok=True)
+        second.parent.mkdir(exist_ok=True)
+        for path, color in ((first, "red"), (second, "blue")):
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("page.png", make_image(color))
+        state = json.dumps({"sources": [str(first), str(second)]})
+        saver = module.QQImagePackageSaver()
+        outputs = []
+        for index in (1, 2):
+            loaded = module.QQImagePackageLoader().load(package_state=state, 当前序号=index)["result"]
+            outputs.append(saver.save(loaded[0], loaded[3])["result"][1])
+        self.assertNotEqual(outputs[0], outputs[1])
+        self.assertTrue(all(name.startswith("qq_image_packages/same-") and name.endswith("_edited.cbz") for name in outputs))
 
 
 if __name__ == "__main__":

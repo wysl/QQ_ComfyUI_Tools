@@ -64,8 +64,9 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 34)
+        self.assertEqual(len(mappings), 35)
         self.assertIn("QQImagePackageLoader", mappings)
+        self.assertIn("QQImagePackageSaver", mappings)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -86,6 +87,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(display["QQLightroomHSLCool"], "QQ-LR-冷色调色")
         self.assertEqual(display["QQMediaLoader"], "QQ-多媒体加载")
         self.assertEqual(display["QQImagePackageLoader"], "QQ-图片包加载")
+        self.assertEqual(display["QQImagePackageSaver"], "QQ-图片包保存")
         self.assertEqual(display["QQMediaIndexOutput"], "QQ-媒体序号输出")
         self.assertEqual(display["QQMediaAutoSplitter"], "QQ-自动拆分媒体")
         self.assertEqual(display["QQH3SegmentChromaNoise"], "QQ-H3 分段彩噪")
