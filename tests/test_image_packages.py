@@ -259,6 +259,13 @@ class ImagePackageTests(unittest.TestCase):
         with Image.open(self.root / "output" / "qq_image_packages" / "single_edited.png") as image:
             self.assertEqual(image.size, (4, 4))
 
+    def test_saver_does_not_require_relpath_across_mounts(self):
+        loaded = module.QQImagePackageLoader().load(file_path=self.single_ref)["result"]
+        with patch.object(module.os.path, "relpath", side_effect=ValueError("path is on another mount")):
+            saved = module.QQImagePackageSaver().save(
+                loaded[0], loaded[3], 输出目录="nested/qq", 输出后缀="_mount")
+        self.assertEqual(saved["result"][1], "nested/qq/single_mount.png")
+
     def test_saver_rejects_bad_info_and_respects_no_overwrite(self):
         loaded = module.QQImagePackageLoader().load(file_path=self.zip_ref)["result"]
         with self.assertRaisesRegex(ValueError, "图包信息"):
