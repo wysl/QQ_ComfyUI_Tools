@@ -345,8 +345,8 @@ function installStyles() {
 .qqpkg-button,.qqpkg-mini{border:1px solid #4a4a4a;border-radius:5px;background:#2c2c32;color:#eee;cursor:pointer}
 .qqpkg-button{padding:4px 9px}.qqpkg-mini{width:20px;height:19px;line-height:1}.qqpkg-button:hover,.qqpkg-mini:hover{background:#3b3b44}.qqpkg-mini.is-remove:hover{background:#642}
 .qqpkg-linked{border:1px solid #4b6b55;border-radius:5px;background:#223128;padding:4px 7px;color:#b8e2bd}
-.qqpkg-list{display:flex;flex-wrap:nowrap;justify-content:flex-start;align-content:start;gap:12px 36px;overflow-x:auto;overflow-y:hidden;max-height:${MAX_PANEL_HEIGHT - 82}px;min-height:52px;padding:14px 18px 8px}
-.qqpkg-card{position:relative;isolation:isolate;box-sizing:border-box;width:93px;flex:0 0 93px;border:1px solid #484850;border-radius:8px;background:#25252b;padding:4px;cursor:grab}.qqpkg-card.is-dragging{opacity:.45}.qqpkg-card.is-error{border-color:#7a3b3b}
+.qqpkg-list{display:flex;flex-wrap:nowrap;justify-content:flex-start;align-content:start;gap:12px 48px;overflow-x:auto;overflow-y:hidden;max-height:${MAX_PANEL_HEIGHT - 82}px;min-height:52px;padding:14px 18px 8px}
+.qqpkg-card{position:relative;isolation:isolate;box-sizing:border-box;width:100px;flex:0 0 100px;border:1px solid #484850;border-radius:8px;background:#25252b;padding:4px;cursor:grab}.qqpkg-card.is-dragging{opacity:.45}.qqpkg-card.is-error{border-color:#7a3b3b}
 .qqpkg-card[data-kind="archive"]{border-color:#64806b}
 .qqpkg-fan{position:absolute;inset:0;border:1px solid #5d7862;border-radius:9px;background:linear-gradient(165deg,#2c362e 0%,#202823 60%,#1a211c 100%);box-shadow:0 1px 3px #0009;overflow:hidden;transform-origin:50% 100%;pointer-events:none}
 .qqpkg-fan img{width:100%;height:100%;object-fit:cover;display:block}
@@ -357,7 +357,7 @@ function installStyles() {
 .qqpkg-card-badge{position:absolute;top:8px;left:8px;border-radius:4px;background:#173b21;color:#9be26f;padding:1px 4px;font-size:10px;font-weight:700}
 .qqpkg-card-count{position:absolute;top:8px;right:8px;border-radius:4px;background:#25252bd9;padding:1px 4px;font-size:10px}
 .qqpkg-card-order{position:absolute;bottom:31px;right:8px;min-width:15px;text-align:center;border-radius:50%;background:#12a46b;color:#04120c;font-size:10px;font-weight:700}
-.qqpkg-card-body{margin-top:4px;min-height:27px}.qqpkg-card-name{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.qqpkg-card-first{opacity:.62;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qqpkg-card-body{margin-top:4px;min-height:27px;padding-right:2px}.qqpkg-card-name{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:3px}.qqpkg-card-first{opacity:.62;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qqpkg-card-actions{position:absolute;bottom:5px;right:5px;display:flex;gap:2px;opacity:.15;transition:.15s}.qqpkg-card:hover .qqpkg-card-actions{opacity:1}
 .qqpkg-empty{width:100%;display:flex;align-items:center;justify-content:center;min-height:50px;border:1px dashed #46464e;border-radius:8px;color:#8a8a92}
 .qqpkg-status{min-height:14px;font-size:11px;color:#9a9aa2}.qqpkg-status.is-error{color:#ff8b8b}
@@ -507,7 +507,7 @@ function fitNodeHeight(node) {
     const sourceCount = parseState(node).sources.length;
     const panelHeight = sourceCount ? 190 : 78;
     const widthForSources = sourceCount > 1
-        ? 36 + sourceCount * 93 + (sourceCount - 1) * 36
+        ? 36 + sourceCount * 100 + (sourceCount - 1) * 48
         : MIN_PANEL_WIDTH;
     const width = Math.max(node.size[0], MIN_PANEL_WIDTH, widthForSources);
     node.__qqPackagePanelHeight = panelHeight;
