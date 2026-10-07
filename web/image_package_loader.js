@@ -269,6 +269,10 @@ function renderPanel(node) {
     const state = parseState(node);
     const list = panel.querySelector(".qqpkg-list");
     if (!list) return;
+    // Two cards fit in the default node width. Their rotated fan layers can
+    // still expand the browser's scrollable overflow, so keep the strip
+    // clipped until a third source actually needs horizontal scrolling.
+    list.classList.toggle("has-overflow", state.sources.length > 2);
     list.replaceChildren();
     const oldCards = node.__qqPackageCards || new Map();
     node.__qqPackageCards = new Map();
@@ -345,7 +349,7 @@ function installStyles() {
 .qqpkg-button,.qqpkg-mini{border:1px solid #4a4a4a;border-radius:5px;background:#2c2c32;color:#eee;cursor:pointer}
 .qqpkg-button{padding:4px 9px}.qqpkg-mini{width:20px;height:19px;line-height:1}.qqpkg-button:hover,.qqpkg-mini:hover{background:#3b3b44}.qqpkg-mini.is-remove:hover{background:#642}
 .qqpkg-linked{border:1px solid #4b6b55;border-radius:5px;background:#223128;padding:4px 7px;color:#b8e2bd}
-.qqpkg-list{display:flex;flex-wrap:nowrap;justify-content:flex-start;align-content:start;gap:12px 48px;overflow-x:auto;overflow-y:hidden;max-height:${MAX_PANEL_HEIGHT - 82}px;min-height:52px;padding:14px 18px 8px}
+.qqpkg-list{display:flex;flex-wrap:nowrap;justify-content:flex-start;align-content:start;gap:12px 48px;overflow-x:hidden;overflow-y:hidden;max-height:${MAX_PANEL_HEIGHT - 82}px;min-height:52px;padding:14px 18px 8px}.qqpkg-list.has-overflow{overflow-x:auto}
 .qqpkg-card{position:relative;isolation:isolate;box-sizing:border-box;width:100px;flex:0 0 100px;border:1px solid #484850;border-radius:8px;background:#25252b;padding:4px;cursor:grab}.qqpkg-card.is-dragging{opacity:.45}.qqpkg-card.is-error{border-color:#7a3b3b}
 .qqpkg-card[data-kind="archive"]{border-color:#64806b}
 .qqpkg-fan{position:absolute;inset:0;border:1px solid #5d7862;border-radius:9px;background:linear-gradient(165deg,#2c362e 0%,#202823 60%,#1a211c 100%);box-shadow:0 1px 3px #0009;overflow:hidden;transform-origin:50% 100%;pointer-events:none}
