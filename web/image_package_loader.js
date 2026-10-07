@@ -11,7 +11,7 @@ const INDEX_WIDGET = "当前序号";
 const AUTO_WIDGET = "自动下一张";
 const FILE_INPUT = "file_path";
 const MIN_PANEL_WIDTH = 300;
-const MIN_PANEL_HEIGHT = 120;
+const MIN_PANEL_HEIGHT = 100;
 const MAX_PANEL_HEIGHT = 470;
 const THUMB_EDGE = 256;
 
@@ -345,8 +345,8 @@ function installStyles() {
 .qqpkg-button,.qqpkg-mini{border:1px solid #4a4a4a;border-radius:5px;background:#2c2c32;color:#eee;cursor:pointer}
 .qqpkg-button{padding:4px 9px}.qqpkg-mini{width:20px;height:19px;line-height:1}.qqpkg-button:hover,.qqpkg-mini:hover{background:#3b3b44}.qqpkg-mini.is-remove:hover{background:#642}
 .qqpkg-linked{border:1px solid #4b6b55;border-radius:5px;background:#223128;padding:4px 7px;color:#b8e2bd}
-.qqpkg-list{display:flex;flex-wrap:nowrap;justify-content:flex-start;align-content:start;gap:16px 30px;overflow:auto;max-height:${MAX_PANEL_HEIGHT - 82}px;min-height:52px;padding:14px 8px 8px}
-.qqpkg-card{position:relative;isolation:isolate;width:116px;flex:0 0 116px;border:1px solid #484850;border-radius:8px;background:#25252b;padding:4px;cursor:grab}.qqpkg-card.is-dragging{opacity:.45}.qqpkg-card.is-error{border-color:#7a3b3b}
+.qqpkg-list{display:flex;flex-wrap:nowrap;justify-content:flex-start;align-content:start;gap:12px 24px;overflow-x:auto;overflow-y:hidden;max-height:${MAX_PANEL_HEIGHT - 82}px;min-height:52px;padding:10px 8px 6px}
+.qqpkg-card{position:relative;isolation:isolate;width:93px;flex:0 0 93px;border:1px solid #484850;border-radius:8px;background:#25252b;padding:4px;cursor:grab}.qqpkg-card.is-dragging{opacity:.45}.qqpkg-card.is-error{border-color:#7a3b3b}
 .qqpkg-card[data-kind="archive"]{border-color:#64806b}
 .qqpkg-fan{position:absolute;inset:0;border:1px solid #5d7862;border-radius:9px;background:linear-gradient(165deg,#2c362e 0%,#202823 60%,#1a211c 100%);box-shadow:0 1px 3px #0009;overflow:hidden;transform-origin:50% 100%;pointer-events:none}
 .qqpkg-fan img{width:100%;height:100%;object-fit:cover;display:block}
@@ -513,7 +513,7 @@ function fitNodeHeight(node) {
     const height = Math.max(MIN_PANEL_HEIGHT, overhead + natural + 8);
     const sourceCount = parseState(node).sources.length;
     const widthForSources = sourceCount > 1
-        ? 32 + sourceCount * 116 + (sourceCount - 1) * 30
+        ? 32 + sourceCount * 93 + (sourceCount - 1) * 24
         : MIN_PANEL_WIDTH;
     const width = Math.max(node.size[0], MIN_PANEL_WIDTH, widthForSources);
     if (Math.abs(node.size[1] - height) > 6 || Math.abs(node.size[0] - width) > 6) {
@@ -570,7 +570,7 @@ function installPanel(node) {
         const count = parseState(node).sources.length;
         const perRow = Math.max(1, Math.floor((width - 16) / 146));
         const rows = Math.ceil(count / perRow);
-        return [width, Math.min(MAX_PANEL_HEIGHT, count ? 72 + rows * 190 : MIN_PANEL_HEIGHT)];
+        return [width, Math.min(MAX_PANEL_HEIGHT, count ? 56 + rows * 160 : MIN_PANEL_HEIGHT)];
     };
     renderPanel(node);
 }
