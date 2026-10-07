@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import asyncio
 import gzip
 import io
 import json
@@ -304,6 +305,25 @@ class ImagePackageTests(unittest.TestCase):
             outputs.append(saver.save(loaded[0], loaded[3])["result"][1])
         self.assertNotEqual(outputs[0], outputs[1])
         self.assertTrue(all(name.startswith("qq_image_packages/same-") and name.endswith("_edited.cbz") for name in outputs))
+
+    def test_stream_upload_creates_unique_package_files(self):
+        async def run():
+            async def stream(*chunks):
+                for chunk in chunks:
+                    yield chunk
+            first = await module._save_uploaded_package("../large package.tar.gz", stream(b"abc", b"def"))
+            second = await module._save_uploaded_package("large package.tar.gz", stream(b"xyz"))
+            return first, second
+        first, second = asyncio.run(run())
+        self.assertEqual(first["reference"], "qq_image_packages/large package.tar.gz")
+        self.assertEqual(second["reference"], "qq_image_packages/large package-2.tar.gz")
+        self.assertEqual((self.root / "qq_image_packages" / "large package.tar.gz").read_bytes(), b"abcdef")
+        async def empty_stream():
+            return
+            yield b""
+
+        with self.assertRaisesRegex(ValueError, "仅支持"):
+            asyncio.run(module._save_uploaded_package("video.mp4", empty_stream()))
 
 
 if __name__ == "__main__":

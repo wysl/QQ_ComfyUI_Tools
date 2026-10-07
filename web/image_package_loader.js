@@ -59,17 +59,19 @@ function acceptedFile(file) {
 }
 
 async function uploadOne(file) {
-    const form = new FormData();
-    form.append("image", file, String(file?.name || "package"));
-    form.append("type", "input");
-    form.append("subfolder", "qq_image_packages");
-    const response = await api.fetchApi("/upload/image", { method: "POST", body: form });
+    // A raw body streams to the plugin endpoint and avoids ComfyUI's global
+    // multipart /upload/image limit (100 MB by default).
+    const filename = encodeURIComponent(String(file?.name || "package"));
+    const response = await api.fetchApi(`/qq_image_packages/upload?filename=${filename}`, {
+        method: "POST",
+        headers: {"Content-Type": file?.type || "application/octet-stream"},
+        body: file,
+    });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
-    const name = String(data?.name || data?.filename || "").trim();
-    if (!name) throw new Error("上传接口没有返回文件名");
-    const folder = String(data?.subfolder || "").replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
-    return normalizePath(folder ? `${folder}/${name}` : name);
+    const reference = String(data?.reference || "").trim();
+    if (!reference) throw new Error("上传接口没有返回图片包路径");
+    return normalizePath(reference);
 }
 
 function makeFan(source, layer, index) {

@@ -56,6 +56,11 @@ async function fixture() {
         },
         async fetchApi(url) {
             if (url === "/queue") return { ok: true, json: async () => api.queue };
+            if (url.startsWith("/qq_image_packages/upload")) {
+                if (!api.uploads) api.uploads = [];
+                api.uploads.push({url, options});
+                return {ok: true, json: async () => ({reference: "qq_image_packages/book.cbz"})};
+            }
             if (url.startsWith("/qq_image_packages/info")) {
                 infoReads++;
                 return { ok: true, json: async () => ({ count: 3, kind: "archive", name: "book.cbz", first: "1.png" }) };
@@ -124,7 +129,7 @@ async function fixture() {
         const items = [...timers.entries()].filter(([, timer]) => timer.delay === 180);
         for (const [id, timer] of items) { timers.delete(id); await timer.fn(); }
     }
-    return {app,api,node,get,submit,emit,executed,flush,document,extension,infoReads:()=>infoReads};
+    return {app,api,node,get,submit,emit,executed,flush,document,extension,infoReads:()=>infoReads,source};
 }
 
 {
@@ -240,3 +245,10 @@ for (const change of ["pause", "cursor", "dispose", "workflow", "manualQueue", "
 }
 
 console.log("image package panel and auto queue tests passed");
+
+
+{
+    const f = await fixture();
+    assert(f.source.includes("/qq_image_packages/upload?filename="), "package uploads use the streaming endpoint");
+    assert(!f.source.includes('"/upload/image"'), "package uploads avoid the global multipart size limit");
+}
