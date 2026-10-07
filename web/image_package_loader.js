@@ -11,7 +11,7 @@ const INDEX_WIDGET = "当前序号";
 const AUTO_WIDGET = "自动下一张";
 const FILE_INPUT = "file_path";
 const MIN_PANEL_WIDTH = 300;
-const MIN_PANEL_HEIGHT = 170;
+const MIN_PANEL_HEIGHT = 120;
 const MAX_PANEL_HEIGHT = 470;
 const THUMB_EDGE = 256;
 
@@ -330,29 +330,7 @@ function panelHtml() {
     empty.textContent = "未选择图片包";
     list.append(empty);
 
-    const statusEl = document.createElement("div");
-    statusEl.className = "qqpkg-status";
-    const controls = document.createElement("div");
-    controls.className = "qqpkg-toolbar";
-    controls.append(
-        makeButton("停止自动", "qqpkg-button", () => {
-            cancelContinuation();
-            const node = panel.__node;
-            const auto = widget(node, AUTO_WIDGET);
-            if (auto) auto.value = false;
-            node?.setDirtyCanvas?.(true, true);
-            setStatus(node, "已停止自动排队；当前任务会继续完成", false, 0);
-        }),
-        makeButton("回到首张", "qqpkg-button", () => {
-            cancelContinuation();
-            const node = panel.__node;
-            const index = widget(node, INDEX_WIDGET);
-            if (index) index.value = 1;
-            node?.setDirtyCanvas?.(true, true);
-            setStatus(node, "已回到首张，点击运行开始", false, 0);
-        }),
-    );
-    panel.append(toolbar, linked, list, controls, statusEl);
+    panel.append(toolbar, linked, list);
     panel.__node = null;
     return panel;
 }
@@ -588,7 +566,7 @@ function installPanel(node) {
         const count = parseState(node).sources.length;
         const perRow = Math.max(1, Math.floor((width - 16) / 146));
         const rows = Math.ceil(count / perRow);
-        return [width, Math.min(MAX_PANEL_HEIGHT, count ? 120 + rows * 215 : MIN_PANEL_HEIGHT)];
+        return [width, Math.min(MAX_PANEL_HEIGHT, count ? 72 + rows * 190 : MIN_PANEL_HEIGHT)];
     };
     renderPanel(node);
 }
