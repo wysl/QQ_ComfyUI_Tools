@@ -217,7 +217,7 @@ for (const change of ["pause", "cursor", "dispose", "workflow", "manualQueue", "
     assert(styles.includes(".qqpkg-fan-2{z-index:-1;transform:rotate(-9deg)}"), "second image peeks about a quarter");
     assert(styles.includes(".qqpkg-fan-3{z-index:-2;transform:rotate(-16deg)}"), "third image fans wider behind");
     assert(styles.includes("aspect-ratio:3/4"), "package images crop to 3:4");
-    assert(!styles.includes("isolation:isolate"), "fan layers must paint behind the card face");
+    assert(styles.includes("isolation:isolate"), "each package card must isolate its fan layers");
 }
 
 {
