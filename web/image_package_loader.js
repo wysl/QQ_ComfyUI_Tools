@@ -504,24 +504,27 @@ function fitNodeHeight(node) {
     const panel = node.__qqPackagePanel;
     const container = panel?.parentElement;
     if (!panel || !container || typeof node.setSize !== "function") return;
-    const overhead = Math.max(0, node.size[1] - container.offsetHeight);
     const sourceCount = parseState(node).sources.length;
-    container.style.height = "auto";
-    const previous = panel.style.height;
-    panel.style.height = "auto";
-    const natural = sourceCount ? 190 : 78;
-    panel.style.height = previous;
-    if (!natural) return;
-    const height = Math.max(MIN_PANEL_HEIGHT, overhead + natural + 8);
+    const panelHeight = sourceCount ? 190 : 78;
     const widthForSources = sourceCount > 1
         ? 32 + sourceCount * 93 + (sourceCount - 1) * 24
         : MIN_PANEL_WIDTH;
     const width = Math.max(node.size[0], MIN_PANEL_WIDTH, widthForSources);
-    if (Math.abs(node.size[1] - height) > 6 || Math.abs(node.size[0] - width) > 6) {
-        node.setSize([width, height]);
-    }
-    const panelHeight = Math.max(MIN_PANEL_HEIGHT - 40, height - overhead);
+    node.__qqPackagePanelHeight = panelHeight;
     container.style.height = `${panelHeight}px`;
+    panel.style.height = `${panelHeight}px`;
+    node.__qqPackageWidget?.computeLayoutSize && (node.__qqPackageWidget.computeLayoutSize = () => ({
+        minHeight: panelHeight,
+        maxHeight: undefined,
+        minWidth: MIN_PANEL_WIDTH,
+    }));
+    node.__qqPackageWidget?.options && (node.__qqPackageWidget.options.getMinHeight = () => panelHeight);
+    const computed = typeof node.computeSize === "function" ? node.computeSize([width, node.size[1]]) : null;
+    const height = Math.max(MIN_PANEL_HEIGHT, Number(computed?.[1]) || panelHeight);
+    const computedWidth = Math.max(width, Number(computed?.[0]) || 0);
+    if (Math.abs(node.size[1] - height) > 1 || Math.abs(node.size[0] - computedWidth) > 1) {
+        node.setSize([computedWidth, height]);
+    }
     node.setDirtyCanvas?.(true, true);
     } catch {
         // Sizing is best effort; never break panel updates.
@@ -566,6 +569,13 @@ function installPanel(node) {
         },
     });
     panelWidget.serialize = false;
+    node.__qqPackageWidget = panelWidget;
+    panelWidget.computeLayoutSize = () => ({
+        minHeight: node.__qqPackagePanelHeight || MIN_PANEL_HEIGHT,
+        maxHeight: undefined,
+        minWidth: MIN_PANEL_WIDTH,
+    });
+    panelWidget.options.getMinHeight = () => node.__qqPackagePanelHeight || MIN_PANEL_HEIGHT;
     panelWidget.computeSize = (rawWidth) => {
         const width = Number.isFinite(Number(rawWidth)) && Number(rawWidth) > 0 ? Number(rawWidth) : 300;
         const count = parseState(node).sources.length;
