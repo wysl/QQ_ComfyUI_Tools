@@ -217,9 +217,7 @@ function createCard(node, source, order) {
     name.className = "qqpkg-card-name";
     name.textContent = sourceName(source);
     name.title = normalizePath(source);
-    const first = document.createElement("div");
-    first.className = "qqpkg-card-first";
-    body.append(name, first);
+    body.append(name);
     const actions = document.createElement("div");
     actions.className = "qqpkg-card-actions";
     actions.append(
