@@ -505,9 +505,10 @@ function fitNodeHeight(node) {
     const container = panel?.parentElement;
     if (!panel || !container || typeof node.setSize !== "function") return;
     const overhead = Math.max(0, node.size[1] - container.offsetHeight);
+    container.style.height = "auto";
     const previous = panel.style.height;
     panel.style.height = "auto";
-    const natural = panel.offsetHeight;
+    const natural = panel.scrollHeight || panel.offsetHeight;
     panel.style.height = previous;
     if (!natural) return;
     const height = Math.max(MIN_PANEL_HEIGHT, overhead + natural + 8);
