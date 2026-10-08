@@ -85,6 +85,7 @@ function makeFan(source, layer, index) {
     fanImage.alt = "";
     fanImage.loading = "lazy";
     fanImage.decoding = "async";
+    fanImage.draggable = false;
     fanImage.addEventListener("error", () => fanImage.remove());
     fanImage.src = thumbnailUrl(source, index);
     fan.append(fanImage);
@@ -180,15 +181,6 @@ async function refreshCardInfo(node, source, card) {
     }
 }
 
-function moveSource(node, source, offset) {
-    const state = parseState(node);
-    const index = state.sources.indexOf(source);
-    const target = index + offset;
-    if (index < 0 || target < 0 || target >= state.sources.length) return;
-    state.sources.splice(target, 0, state.sources.splice(index, 1)[0]);
-    writeState(node, state);
-}
-
 function createCard(node, source, order) {
     const card = document.createElement("div");
     card.className = "qqpkg-card is-loading";
@@ -203,6 +195,7 @@ function createCard(node, source, order) {
     image.alt = "";
     image.loading = "lazy";
     image.decoding = "async";
+    image.draggable = false;
     image.addEventListener("error", () => {
         image.remove();
         preview.textContent = "PKG";
@@ -227,8 +220,6 @@ function createCard(node, source, order) {
     const actions = document.createElement("div");
     actions.className = "qqpkg-card-actions";
     actions.append(
-        makeButton("↑", "qqpkg-mini", () => moveSource(node, card.dataset.reference, -1), "上移"),
-        makeButton("↓", "qqpkg-mini", () => moveSource(node, card.dataset.reference, 1), "下移"),
         makeButton("×", "qqpkg-mini is-remove", () => {
             const state = parseState(node);
             state.sources = state.sources.filter((item) => item !== card.dataset.reference);
@@ -417,7 +408,8 @@ function installStyles() {
 .qqpkg-card-count{position:absolute;top:8px;right:8px;z-index:2;border-radius:4px;background:#25252bd9;padding:1px 3px;font-size:9px}
 .qqpkg-card-order{position:absolute;bottom:6px;left:6px;z-index:2;min-width:15px;text-align:center;border-radius:50%;background:#12a46b;color:#04120c;font-size:10px;font-weight:700}
 .qqpkg-card-name{position:absolute;left:30px;right:70px;bottom:6px;z-index:2;font-size:10px;font-weight:600;color:#fff;text-shadow:0 1px 2px #000c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;transition:opacity .15s;pointer-events:none}.qqpkg-card:hover .qqpkg-card-name{opacity:1}
-.qqpkg-card-actions{position:absolute;bottom:5px;right:5px;z-index:3;display:flex;gap:2px;opacity:0;transition:.15s}.qqpkg-card:hover .qqpkg-card-actions{opacity:1}
+.qqpkg-card-actions{position:absolute;bottom:5px;right:5px;z-index:3;display:flex;gap:2px;opacity:.55;transition:.15s}
+.qqpkg-card-actions .qqpkg-mini{background:#0000008c;color:#fff;border-color:#ffffff33}.qqpkg-card:hover .qqpkg-card-actions{opacity:1}
 .qqpkg-empty{width:100%;display:flex;align-items:center;justify-content:center;min-height:50px;border:1px dashed #46464e;border-radius:8px;color:#8a8a92}
 .qqpkg-list{scrollbar-width:thin;scrollbar-color:#777a transparent}.qqpkg-list::-webkit-scrollbar{height:7px}.qqpkg-list::-webkit-scrollbar-track{background:transparent}.qqpkg-list::-webkit-scrollbar-thumb{border-radius:7px;background:#777a}.qqpkg-list::-webkit-scrollbar-thumb:hover{background:#aaa}
 .qqpkg-status{min-height:14px;font-size:11px;color:#9a9aa2}.qqpkg-status.is-error{color:#ff8b8b}
@@ -510,6 +502,10 @@ function installPanel(node) {
         event.preventDefault();
         event.stopPropagation();
         panel.classList.remove("is-drop-target");
+        // Dropping one of our own cards on the panel background is a reorder
+        // gesture, not a file upload.
+        const dragged = normalizePath(event.dataTransfer?.getData("text/plain"));
+        if (dragged && parseState(node).sources.includes(dragged)) return;
         addDroppedFiles(node, event.dataTransfer?.files || []);
     });
     const panelWidget = node.addDOMWidget("图片包面板", "qqpkg", panel, {
