@@ -55,6 +55,9 @@ app.registerExtension({
         guardBringToFront(app.canvas, "bringToFront");
         const canvasProto = Object.getPrototypeOf(app.canvas);
         guardBringToFront(canvasProto, "bringToFront");
+        const nodeProto = globalThis.LiteGraph?.LGraphNode?.prototype
+            || Object.getPrototypeOf(app.graph?._nodes?.[0] || {});
+        guardBringToFront(nodeProto, "bringToFront");
         restack(app.graph);
     },
     afterConfigureGraph() {
