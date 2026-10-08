@@ -14,6 +14,10 @@ const MIN_PANEL_WIDTH = 300;
 const MIN_PANEL_HEIGHT = 100;
 const MAX_PANEL_HEIGHT = 470;
 const THUMB_EDGE = 256;
+const CARD_WIDTH = 100;
+const CARD_GAP = 48;
+const LIST_INLINE_PADDING = 18;
+const FAN_SPREAD = 40;
 
 function widget(node, name) {
     return (node?.widgets || []).find((entry) => entry && entry.name === name) || null;
@@ -142,6 +146,7 @@ function updateIndexLimit(node) {
     }
     const counter = node.__qqPackagePanel?.querySelector(".qqpkg-count");
     if (counter) counter.textContent = `${state.sources.length} 个来源 / ${loading ? "读取中…" : `${total} 张`}`;
+    updateListScroll(node);
 }
 
 async function refreshCardInfo(node, source, card) {
@@ -268,16 +273,25 @@ function fileInputLinked(node) {
     return Boolean(node?.inputs?.some((input) => input.name === FILE_INPUT && input.link != null));
 }
 
+// Rotated fan layers stick out of a card by a few dozen pixels. Only clip
+// (and scroll) when the row really exceeds the panel; otherwise keep the
+// overflow visible so the first/last card fans are not cut at node edges.
+function updateListScroll(node) {
+    const list = node.__qqPackagePanel?.querySelector(".qqpkg-list");
+    if (!list) return;
+    const count = parseState(node).sources.length;
+    const available = (list.parentElement?.clientWidth || 0) - LIST_INLINE_PADDING * 2;
+    const needed = count > 0 ? count * CARD_WIDTH + (count - 1) * CARD_GAP : 0;
+    list.classList.toggle("is-scroll", needed > available);
+}
+
 function renderPanel(node) {
     const panel = node.__qqPackagePanel;
     if (!panel) return;
     const state = parseState(node);
     const list = panel.querySelector(".qqpkg-list");
     if (!list) return;
-    // Two cards fit in the default node width. Their rotated fan layers can
-    // still expand the browser's scrollable overflow, so keep the strip
-    // clipped until a third source actually needs horizontal scrolling.
-    list.classList.toggle("has-overflow", state.sources.length > 2);
+    updateListScroll(node);
     list.replaceChildren();
     const oldCards = node.__qqPackageCards || new Map();
     node.__qqPackageCards = new Map();
@@ -356,7 +370,7 @@ function installStyles() {
 .qqpkg-button,.qqpkg-mini{border:1px solid #4a4a4a;border-radius:5px;background:#2c2c32;color:#eee;cursor:pointer}
 .qqpkg-button{padding:3px 8px}.qqpkg-mini{width:20px;height:19px;line-height:1}.qqpkg-button:hover,.qqpkg-mini:hover{background:#3b3b44}.qqpkg-mini.is-remove:hover{background:#642}
 .qqpkg-linked{border:1px solid #4b6b55;border-radius:5px;background:#223128;padding:4px 7px;color:#b8e2bd}
-.qqpkg-list{display:flex;flex-wrap:nowrap;justify-content:flex-start;align-content:start;gap:12px 48px;overflow-x:hidden;overflow-y:hidden;box-sizing:border-box;max-height:${MAX_PANEL_HEIGHT - 82}px;min-height:52px;padding:14px 18px 29px}.qqpkg-list.has-overflow{overflow-x:auto}
+.qqpkg-list{display:flex;flex-wrap:nowrap;justify-content:flex-start;align-content:start;gap:12px ${CARD_GAP}px;overflow:visible;box-sizing:border-box;max-height:${MAX_PANEL_HEIGHT - 82}px;min-height:52px;padding:14px ${LIST_INLINE_PADDING}px 29px}.qqpkg-list.is-scroll{overflow-x:auto;overflow-y:hidden;padding-left:${FAN_SPREAD}px;padding-right:${FAN_SPREAD}px}
 .qqpkg-card{position:relative;isolation:isolate;box-sizing:border-box;width:100px;flex:0 0 100px;border:1px solid #484850;border-radius:8px;background:#25252b;padding:4px;cursor:grab}.qqpkg-card.is-dragging{opacity:.45}.qqpkg-card.is-error{border-color:#7a3b3b}
 .qqpkg-card[data-kind="archive"]{border-color:#64806b}
 .qqpkg-fan{position:absolute;inset:0;border:1px solid #5d7862;border-radius:9px;background:linear-gradient(165deg,#2c362e 0%,#202823 60%,#1a211c 100%);box-shadow:0 1px 3px #0009;overflow:hidden;transform-origin:50% 100%;pointer-events:none}
@@ -368,7 +382,7 @@ function installStyles() {
 .qqpkg-card-badge{position:absolute;top:8px;left:8px;border-radius:4px;background:#173b21;color:#9be26f;padding:1px 3px;font-size:9px;font-weight:700}
 .qqpkg-card-count{position:absolute;top:8px;right:8px;border-radius:4px;background:#25252bd9;padding:1px 3px;font-size:9px}
 .qqpkg-card-order{position:absolute;bottom:31px;right:8px;min-width:15px;text-align:center;border-radius:50%;background:#12a46b;color:#04120c;font-size:10px;font-weight:700}
-.qqpkg-card-body{margin-top:4px;min-height:27px;padding-right:2px}.qqpkg-card-name{font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:3px}.qqpkg-card-first{opacity:.62;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qqpkg-card-body{margin-top:4px;min-height:27px;padding-right:2px;background:#25252b;border-radius:0 0 5px 5px}.qqpkg-card-name{font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:3px}.qqpkg-card-first{opacity:.62;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qqpkg-card-actions{position:absolute;bottom:5px;right:5px;display:flex;gap:2px;opacity:0;transition:.15s}.qqpkg-card:hover .qqpkg-card-actions{opacity:1}
 .qqpkg-empty{width:100%;display:flex;align-items:center;justify-content:center;min-height:50px;border:1px dashed #46464e;border-radius:8px;color:#8a8a92}
 .qqpkg-list{scrollbar-width:thin;scrollbar-color:#777a transparent}.qqpkg-list::-webkit-scrollbar{height:7px}.qqpkg-list::-webkit-scrollbar-track{background:transparent}.qqpkg-list::-webkit-scrollbar-thumb{border-radius:7px;background:#777a}.qqpkg-list::-webkit-scrollbar-thumb:hover{background:#aaa}
