@@ -76,7 +76,7 @@ console.log("== 4. 巡检同步与还原 ==");
 }
 
 console.log("== 5. 白名单常量 ==");
-check("三个精确名字", JSON.stringify(api.LABEL_SOURCE_INPUT_NAMES) === JSON.stringify(["模式", "启用", "规则"]));
+check("四个精确名字", JSON.stringify(api.LABEL_SOURCE_INPUT_NAMES) === JSON.stringify(["模式", "启用", "规则", "开关"]));
 
 console.log("");
 console.log(`通过 ${pass} / 失败 ${fail}`);
