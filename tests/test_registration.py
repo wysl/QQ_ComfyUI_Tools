@@ -793,7 +793,7 @@ class RegistrationTests(unittest.TestCase):
         )
         self.assertEqual(
             node.VALIDATE_INPUTS(**{"增强方式": ["API"], "api_url": ["https://x"], "api_key": [""], "model": ["m"]}),
-            "API 方式需要填写 api_key（或在本机 TE MAN 的 config.ini 中配置）",
+            "API 方式需要填写 api_key",
         )
         self.assertEqual(
             node.VALIDATE_INPUTS(**{"增强方式": ["API"], "api_url": ["https://x"], "api_key": ["k"], "model": [""]}),
@@ -802,6 +802,9 @@ class RegistrationTests(unittest.TestCase):
         self.assertTrue(node.VALIDATE_INPUTS(**{
             "增强方式": ["API"], "api_url": ["https://x"], "api_key": ["k"], "model": ["m"],
         }))
+        with patch.object(module, "_te_man_config_value", side_effect=AssertionError("API key must not read TE_MAN")):
+            with self.assertRaisesRegex(ValueError, "请在节点中填写 API Key"):
+                module._resolve_api_key("")
         self.assertIn(
             "safetensors PE 模型",
             node.VALIDATE_INPUTS(**{

@@ -227,7 +227,7 @@ Depth Pro 的 `metric_depth` 是三通道批次，可直接接入。1536×1536 �
 - `任务模式` 支持 自动 / 文生图 / 图生图，自动模式按是否接入参考图选择。
 - `参考图` 是单个列表输入口，顺序即 `<image1>`…`<imageN>`，最多 9 张，超出直接报错。接 `QQ-多媒体加载` 的 `multi output` 时按列表顺序编号，与加载器面板序号一致。
 - 本地官方PE 只读取 `models/text_encoders`（或 `models/clip`）里的单文件 safetensors，经 ComfyUI 自带文本编码器栈加载。
-- API 走 OpenAI 兼容接口，参考图按最长边压成 JPEG 后 base64 发送。`api_url` / `api_key` 留空时会回读本机 TE MAN 插件的 `config.ini`。
+- API 走 OpenAI 兼容接口，参考图按最长边压成 JPEG 后 base64 发送。`api_url` 留空时可回读本机 TE MAN 插件的 `config.ini`；`api_key` 只使用节点内输入的值，不会读取 TE_MAN 配置。
 - `最大生成token` 默认 4096，`最大边长` 默认 1024。
 
 ### QQ-Qwen Image 2.1 一键出图(编码+K采样+VAE解码)
