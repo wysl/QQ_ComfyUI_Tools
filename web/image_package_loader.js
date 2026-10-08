@@ -408,7 +408,7 @@ function installStyles() {
 .qqpkg-card-count{position:absolute;top:8px;right:8px;z-index:2;border-radius:4px;background:#25252bd9;padding:1px 3px;font-size:9px}
 .qqpkg-card-order{position:absolute;bottom:6px;left:6px;z-index:2;min-width:15px;text-align:center;border-radius:50%;background:#12a46b;color:#04120c;font-size:10px;font-weight:700}
 .qqpkg-card-name{position:absolute;left:30px;right:70px;bottom:6px;z-index:2;font-size:10px;font-weight:600;color:#fff;text-shadow:0 1px 2px #000c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;transition:opacity .15s;pointer-events:none}.qqpkg-card:hover .qqpkg-card-name{opacity:1}
-.qqpkg-card-actions{position:absolute;bottom:5px;right:5px;z-index:3;display:flex;gap:2px;opacity:.55;transition:.15s}
+.qqpkg-card-actions{position:absolute;bottom:5px;right:5px;z-index:3;display:flex;gap:2px;opacity:0;transition:.15s}
 .qqpkg-card-actions .qqpkg-mini{background:#0000008c;color:#fff;border-color:#ffffff33}.qqpkg-card:hover .qqpkg-card-actions{opacity:1}
 .qqpkg-empty{width:100%;display:flex;align-items:center;justify-content:center;min-height:50px;border:1px dashed #46464e;border-radius:8px;color:#8a8a92}
 .qqpkg-list{scrollbar-width:thin;scrollbar-color:#777a transparent}.qqpkg-list::-webkit-scrollbar{height:7px}.qqpkg-list::-webkit-scrollbar-track{background:transparent}.qqpkg-list::-webkit-scrollbar-thumb{border-radius:7px;background:#777a}.qqpkg-list::-webkit-scrollbar-thumb:hover{background:#aaa}
