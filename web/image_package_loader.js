@@ -159,15 +159,12 @@ async function refreshCardInfo(node, source, card) {
         card.dataset.kind = String(data.kind || "unknown");
         const badge = card.querySelector(".qqpkg-card-badge");
         if (badge) badge.textContent = data.kind === "archive" ? "PACK" : "IMG";
-        const count = card.querySelector(".qqpkg-card-count");
-        if (count) count.textContent = data.kind === "archive" ? `${card.count} 张` : "1 张";
+        updateCountBadge(card);
         const name = card.querySelector(".qqpkg-card-name");
         if (name) {
             name.textContent = String(data.name || sourceName(source));
             name.title = normalizePath(source);
         }
-        const first = card.querySelector(".qqpkg-card-first");
-        if (first) first.textContent = data.kind === "archive" ? `首图：${data.first || ""}` : "";
         const fan2 = card.querySelector(".qqpkg-fan-2");
         if (fan2) fan2.style.display = card.count >= 2 ? "" : "none";
         const fan3 = card.querySelector(".qqpkg-fan-3");
@@ -223,13 +220,10 @@ function createCard(node, source, order) {
     orderEl.className = "qqpkg-card-order";
     orderEl.textContent = String(order);
 
-    const body = document.createElement("div");
-    body.className = "qqpkg-card-body";
     const name = document.createElement("div");
     name.className = "qqpkg-card-name";
     name.textContent = sourceName(source);
     name.title = normalizePath(source);
-    body.append(name);
     const actions = document.createElement("div");
     actions.className = "qqpkg-card-actions";
     actions.append(
@@ -242,7 +236,7 @@ function createCard(node, source, order) {
         }, "移除"),
     );
 
-    card.append(fan3, fan2, preview, badge, count, orderEl, body, actions);
+    card.append(fan3, fan2, preview, badge, count, orderEl, name, actions);
     card.addEventListener("dragstart", (event) => {
         node.__qqPackageDragSource = card.dataset.reference;
         card.classList.add("is-dragging");
@@ -265,8 +259,52 @@ function createCard(node, source, order) {
         state.sources.splice(to, 0, state.sources.splice(from, 1)[0]);
         writeState(node, state);
     });
+    card.addEventListener("wheel", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        browseCard(node, card, event.deltaY > 0 ? 1 : -1);
+    }, { passive: false });
+    card.addEventListener("mouseleave", () => {
+        if (Number(card.__browse || 0) === 0) return;
+        card.__browse = 0;
+        const img = card.querySelector(".qqpkg-card-preview img");
+        if (img) img.src = thumbnailUrl(card.dataset.reference, 0);
+        updateCountBadge(card);
+    });
     refreshCardInfo(node, card.dataset.reference, card);
     return card;
+}
+
+function countLabel(card) {
+    const total = Number(card.count || 0);
+    if (!total) return card.classList.contains("is-error") ? "读取失败" : "读取中";
+    if (card.dataset.kind !== "archive") return "1 张";
+    const browse = Number(card.__browse || 0);
+    return browse ? `${browse + 1}/${total}` : `${total} 张`;
+}
+
+function updateCountBadge(card) {
+    const count = card.querySelector(".qqpkg-card-count");
+    if (count) count.textContent = countLabel(card);
+}
+
+// 切牌特效：把当前牌面 clone 一份甩出去，同时换上目标图。
+function browseCard(node, card, delta) {
+    const total = Number(card.count || 0);
+    if (total < 2) return;
+    const current = Number(card.__browse || 0);
+    const next = (current + delta + total) % total;
+    if (next === current) return;
+    const preview = card.querySelector(".qqpkg-card-preview");
+    const img = preview?.querySelector("img");
+    if (!preview || !img) return;
+    const clone = img.cloneNode(false);
+    clone.className = "qqpkg-cut";
+    clone.addEventListener("animationend", () => clone.remove());
+    preview.append(clone);
+    card.__browse = next;
+    img.src = thumbnailUrl(card.dataset.reference, next);
+    updateCountBadge(card);
 }
 
 function fileInputLinked(node) {
@@ -327,10 +365,6 @@ function panelHtml() {
     toolbar.append(
         title,
         count,
-        makeButton("选择", "qqpkg-button", (event) => {
-            const node = event.target?.closest(".qqpkg-panel")?.__node;
-            if (node) openModal(node);
-        }),
         makeButton("上传", "qqpkg-button", () => {
             const input = document.createElement("input");
             input.type = "file";
@@ -380,130 +414,17 @@ function installStyles() {
 .qqpkg-card-preview{position:relative;aspect-ratio:3/4;border-radius:5px;background:#17171b;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#888;font-weight:700}
 .qqpkg-card-preview img{width:100%;height:100%;object-fit:cover;display:block}
 .qqpkg-card-badge{position:absolute;top:8px;left:8px;border-radius:4px;background:#173b21;color:#9be26f;padding:1px 3px;font-size:9px;font-weight:700}
-.qqpkg-card-count{position:absolute;top:8px;right:8px;border-radius:4px;background:#25252bd9;padding:1px 3px;font-size:9px}
-.qqpkg-card-order{position:absolute;bottom:31px;right:8px;min-width:15px;text-align:center;border-radius:50%;background:#12a46b;color:#04120c;font-size:10px;font-weight:700}
-.qqpkg-card-body{margin-top:4px;min-height:27px;padding-right:2px;background:#25252b;border-radius:0 0 5px 5px}.qqpkg-card-name{font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:3px}.qqpkg-card-first{opacity:.62;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.qqpkg-card-actions{position:absolute;bottom:5px;right:5px;display:flex;gap:2px;opacity:0;transition:.15s}.qqpkg-card:hover .qqpkg-card-actions{opacity:1}
+.qqpkg-card-count{position:absolute;top:8px;right:8px;z-index:2;border-radius:4px;background:#25252bd9;padding:1px 3px;font-size:9px}
+.qqpkg-card-order{position:absolute;bottom:6px;left:6px;z-index:2;min-width:15px;text-align:center;border-radius:50%;background:#12a46b;color:#04120c;font-size:10px;font-weight:700}
+.qqpkg-card-name{position:absolute;left:30px;right:70px;bottom:6px;z-index:2;font-size:10px;font-weight:600;color:#fff;text-shadow:0 1px 2px #000c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;transition:opacity .15s;pointer-events:none}.qqpkg-card:hover .qqpkg-card-name{opacity:1}
+.qqpkg-card-actions{position:absolute;bottom:5px;right:5px;z-index:3;display:flex;gap:2px;opacity:0;transition:.15s}.qqpkg-card:hover .qqpkg-card-actions{opacity:1}
 .qqpkg-empty{width:100%;display:flex;align-items:center;justify-content:center;min-height:50px;border:1px dashed #46464e;border-radius:8px;color:#8a8a92}
 .qqpkg-list{scrollbar-width:thin;scrollbar-color:#777a transparent}.qqpkg-list::-webkit-scrollbar{height:7px}.qqpkg-list::-webkit-scrollbar-track{background:transparent}.qqpkg-list::-webkit-scrollbar-thumb{border-radius:7px;background:#777a}.qqpkg-list::-webkit-scrollbar-thumb:hover{background:#aaa}
 .qqpkg-status{min-height:14px;font-size:11px;color:#9a9aa2}.qqpkg-status.is-error{color:#ff8b8b}
-.qqpkg-modal{position:fixed;inset:0;background:#000000c9;z-index:1000;display:flex;align-items:center;justify-content:center;padding:28px}
-.qqpkg-dialog{width:min(1000px,92vw);height:min(720px,88vh);border:1px solid #4b4b55;border-radius:10px;background:#1b1b20;display:flex;flex-direction:column;color:#eee}
-.qqpkg-modal-head{display:flex;gap:7px;align-items:center;padding:11px;border-bottom:1px solid #3a3a44}.qqpkg-modal-title{font-weight:700;margin-right:auto}
-.qqpkg-modal-body{flex:1;overflow:auto;padding:11px;display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:9px;align-content:start}
-.qqpkg-folder{border:1px solid #45454f;background:#24242b;color:#cfd5cf;padding:11px 7px;text-align:center;border-radius:8px;cursor:pointer}
-.qqpkg-file{border:1px solid #45454f;background:#24242b;border-radius:8px;padding:6px;text-align:left;cursor:pointer}.qqpkg-file:hover{border-color:#67a575}
-.qqpkg-file-preview{aspect-ratio:3/4;background:#161619;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#8b8b93;overflow:hidden}.qqpkg-file-preview img{width:100%;height:100%;object-fit:cover}
-.qqpkg-file-name{margin-top:5px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.qqpkg-file-size{opacity:.65;font-size:10px}
-.qqpkg-modal-foot{padding:9px 11px;border-top:1px solid #3a3a44;display:flex;gap:7px;align-items:center}.qqpkg-modal-status{margin-right:auto;font-size:11px;color:#a5a5ad}
+.qqpkg-cut{position:absolute;inset:0;z-index:3;width:100%;height:100%;object-fit:cover;border-radius:5px;transform-origin:50% 100%;pointer-events:none;animation:qqpkg-cut .26s ease-in forwards}
+@keyframes qqpkg-cut{from{transform:rotate(0deg) translate(0,0);opacity:1}to{transform:rotate(-16deg) translate(-80%,4%);opacity:0}}
 `;
     document.head.append(style);
-}
-
-async function loadFolder(node, source, folder) {
-    const body = node.__qqPackageModal?.querySelector(".qqpkg-modal-body");
-    const stateEl = node.__qqPackageModal?.querySelector(".qqpkg-modal-status");
-    if (!body) return;
-    body.replaceChildren();
-    if (stateEl) stateEl.textContent = "读取中…";
-    try {
-        const query = new URLSearchParams({ source, folder });
-        const response = await api.fetchApi(`/qq_image_packages/list?${query}`);
-        const data = await response.json();
-        if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
-        node.__qqPackageFolder = normalizePath(data.folder);
-        node.__qqPackageSource = data.source;
-        for (const item of data.folders) {
-            const element = document.createElement("button");
-            element.type = "button";
-            element.className = "qqpkg-folder";
-            element.textContent = `📁 ${item.name}`;
-            element.addEventListener("click", () => loadFolder(node, source, item.path));
-            body.append(element);
-        }
-        if (data.folder) {
-            const up = document.createElement("button");
-            up.type = "button";
-            up.className = "qqpkg-folder";
-            up.textContent = "⬅ 上一级";
-            up.addEventListener("click", () => {
-                const parent = normalizePath(node.__qqPackageFolder).split("/").slice(0, -1).join("/");
-                loadFolder(node, source, parent);
-            });
-            body.prepend(up);
-        }
-        const state = parseState(node);
-        for (const item of data.files) {
-            const element = document.createElement("button");
-            element.type = "button";
-            element.className = "qqpkg-file";
-            const preview = document.createElement("div");
-            preview.className = "qqpkg-file-preview";
-            if (item.kind === "image") {
-                const img = document.createElement("img");
-                img.loading = "lazy";
-                img.src = thumbnailUrl(item.path);
-                preview.append(img);
-            } else {
-                preview.textContent = item.name.toLowerCase().endsWith(".cbz") ? "CBZ" : "PACK";
-            }
-            const name = document.createElement("div");
-            name.className = "qqpkg-file-name";
-            name.textContent = item.name;
-            const size = document.createElement("div");
-            size.className = "qqpkg-file-size";
-            size.textContent = `${(item.size / 1024 / 1024).toFixed(2)} MB`;
-            element.append(preview, name, size);
-            element.addEventListener("click", () => {
-                const current = parseState(node);
-                if (!current.sources.includes(item.path)) current.sources.push(item.path);
-                writeState(node, current);
-                if (stateEl) stateEl.textContent = `已添加：${item.name}`;
-            });
-            if (state.sources.includes(item.path)) element.classList.add("is-selected");
-            body.append(element);
-        }
-        if (stateEl) stateEl.textContent = `${data.files.length} 个可用文件`;
-    } catch (error) {
-        if (stateEl) stateEl.textContent = String(error?.message || error);
-    }
-}
-
-function openModal(node) {
-    closeModal(node);
-    const modal = document.createElement("div");
-    modal.className = "qqpkg-modal";
-    const dialog = document.createElement("div");
-    dialog.className = "qqpkg-dialog";
-    const head = document.createElement("div");
-    head.className = "qqpkg-modal-head";
-    const title = document.createElement("span");
-    title.className = "qqpkg-modal-title";
-    title.textContent = "选择图片 / 图片包";
-    const inputButton = makeButton("Input", "qqpkg-button", () => loadFolder(node, "input", ""));
-    const outputButton = makeButton("Output", "qqpkg-button", () => loadFolder(node, "output", ""));
-    const close = makeButton("关闭", "qqpkg-button", () => closeModal(node));
-    head.append(title, inputButton, outputButton, close);
-    const body = document.createElement("div");
-    body.className = "qqpkg-modal-body";
-    const foot = document.createElement("div");
-    foot.className = "qqpkg-modal-foot";
-    const statusEl = document.createElement("span");
-    statusEl.className = "qqpkg-modal-status";
-    foot.append(statusEl, makeButton("完成", "qqpkg-button", () => closeModal(node)));
-    dialog.append(head, body, foot);
-    modal.append(dialog);
-    modal.addEventListener("click", (event) => {
-        if (event.target === modal) closeModal(node);
-    });
-    document.body.append(modal);
-    node.__qqPackageModal = modal;
-    loadFolder(node, "input", "");
-}
-
-function closeModal(node) {
-    node?.__qqPackageModal?.remove?.();
-    if (node) node.__qqPackageModal = null;
 }
 
 async function addDroppedFiles(node, files) {
@@ -799,7 +720,6 @@ function installAutoQueue() {
 function disposePanel(node) {
     cancelContinuation();
     node.__qqPackageRemoved = true;
-    closeModal(node);
     clearTimeout(node.__qqPackageStatusTimer);
     node.__qqPackagePanel?.remove();
     node.__qqPackageCards?.clear();
@@ -812,7 +732,6 @@ app.registerExtension({
         queuedPackages.clear();
         executedPackages.clear();
         earlySuccesses.clear();
-        for (const node of packageNodes()) closeModal(node);
     },
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name !== NODE_TYPE) return;
