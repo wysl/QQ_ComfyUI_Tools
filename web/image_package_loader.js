@@ -128,7 +128,12 @@ function updateIndexLimit(node) {
     const state = parseState(node);
     const cards = node.__qqPackageCards || new Map();
     let total = 0;
-    for (const source of state.sources) total += Number(cards.get(source)?.count || 0);
+    let loading = false;
+    for (const source of state.sources) {
+        const card = cards.get(source);
+        total += Number(card?.count || 0);
+        if (card?.classList?.contains("is-loading")) loading = true;
+    }
     node.__qqPackageTotal = total;
     const index = widget(node, INDEX_WIDGET);
     if (index) {
@@ -136,7 +141,7 @@ function updateIndexLimit(node) {
         index.options.max = fileInputLinked(node) ? 20000 : Math.max(1, total);
     }
     const counter = node.__qqPackagePanel?.querySelector(".qqpkg-count");
-    if (counter) counter.textContent = `${state.sources.length} 个来源 / ${total || "?"} 张`;
+    if (counter) counter.textContent = `${state.sources.length} 个来源 / ${loading ? "读取中…" : `${total} 张`}`;
 }
 
 async function refreshCardInfo(node, source, card) {
@@ -334,7 +339,9 @@ function panelHtml() {
     empty.textContent = "未选择图片包";
     list.append(empty);
 
-    panel.append(toolbar, linked, list);
+    const statusLine = document.createElement("div");
+    statusLine.className = "qqpkg-status";
+    panel.append(toolbar, statusLine, linked, list);
     panel.__node = null;
     return panel;
 }
@@ -344,7 +351,7 @@ function installStyles() {
     const style = document.createElement("style");
     style.id = "qq-image-package-styles";
     style.textContent = `
-.qqpkg-panel{display:flex;flex-direction:column;gap:7px;min-height:${MIN_PANEL_HEIGHT}px;font:12px inherit;color:#e8e8e8}
+.qqpkg-panel{display:flex;flex-direction:column;gap:7px;min-height:${MIN_PANEL_HEIGHT}px;font-size:12px;font-family:inherit;color:#e8e8e8}
 .qqpkg-toolbar{display:flex;align-items:center;gap:6px}.qqpkg-title{font-weight:700}.qqpkg-count{opacity:.75;margin-right:auto}
 .qqpkg-button,.qqpkg-mini{border:1px solid #4a4a4a;border-radius:5px;background:#2c2c32;color:#eee;cursor:pointer}
 .qqpkg-button{padding:3px 8px}.qqpkg-mini{width:20px;height:19px;line-height:1}.qqpkg-button:hover,.qqpkg-mini:hover{background:#3b3b44}.qqpkg-mini.is-remove:hover{background:#642}
@@ -510,7 +517,17 @@ function fitNodeHeight(node) {
     const container = panel?.parentElement;
     if (!panel || !container || typeof node.setSize !== "function") return;
     const sourceCount = parseState(node).sources.length;
-    const panelHeight = sourceCount ? 225 : 78;
+    // Measure the live panel instead of guessing box-model math; the fixed
+    // height is restored below once the real content height is known.
+    panel.style.height = "auto";
+    const measured = Math.max(panel.scrollHeight || 0, panel.offsetHeight || 0);
+    const panelHeight = measured
+        ? Math.min(MAX_PANEL_HEIGHT, Math.max(MIN_PANEL_HEIGHT, measured))
+        : (sourceCount ? 225 : MIN_PANEL_HEIGHT);
+    if (!measured && typeof requestAnimationFrame === "function"
+        && (node.__qqPackageFitRetries = (node.__qqPackageFitRetries || 0) + 1) <= 3) {
+        requestAnimationFrame(() => fitNodeHeight(node));
+    }
     const widthForSources = sourceCount > 1
         ? 36 + sourceCount * 100 + (sourceCount - 1) * 48
         : MIN_PANEL_WIDTH;
@@ -582,14 +599,13 @@ function installPanel(node) {
     });
     panelWidget.options.getMinHeight = () => node.__qqPackagePanelHeight || MIN_PANEL_HEIGHT;
     panelWidget.computeSize = (rawWidth) => {
-        const width = Number.isFinite(Number(rawWidth)) && Number(rawWidth) > 0 ? Number(rawWidth) : 300;
-        const count = parseState(node).sources.length;
-        // The card strip is intentionally a single horizontal row with scrolling.
-        // Returning a multi-row height here makes LiteGraph grow a large empty
-        // footer even though the DOM list never wraps.
-        return [width, count ? 225 : MIN_PANEL_HEIGHT];
+        const width = Number.isFinite(Number(rawWidth)) && Number(rawWidth) > 0 ? Number(rawWidth) : MIN_PANEL_WIDTH;
+        // The card strip is one horizontal scrolling row, so the height only
+        // follows the measured panel and never grows with the width.
+        return [width, node.__qqPackagePanelHeight || MIN_PANEL_HEIGHT];
     };
     renderPanel(node);
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => fitNodeHeight(node));
 }
 
 // ---------------- automatic next-image scheduling ----------------

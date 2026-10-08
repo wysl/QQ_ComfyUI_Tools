@@ -16,6 +16,7 @@ class Element {
             add: (name) => { if (!this.className.split(" ").includes(name)) this.className += ` ${name}`; },
             remove: (name) => { this.className = this.className.split(" ").filter((item) => item !== name).join(" "); },
             toggle: (name, enabled) => enabled ? this.classList.add(name) : this.classList.remove(name),
+            contains: (name) => this.className.split(" ").includes(name),
         };
     }
     append(...items) {
