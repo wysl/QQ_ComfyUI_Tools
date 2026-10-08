@@ -139,10 +139,18 @@ function customOutputName(node, slot) {
     return "";
 }
 
+function inputNameCandidates(info) {
+    return [info?.input?.name, info?.input?.localized_name, info?.input?.label]
+        .map((value) => String(value || "").trim());
+}
+
+function isLabelSourceInput(info) {
+    return inputNameCandidates(info).some((name) => LABEL_SOURCE_INPUT_NAMES.includes(name));
+}
+
 function widgetLabelFor(node, slot, info, fallback) {
-    const inputName = String(info?.input?.name || "");
     const custom = customOutputName(node, slot);
-    if (LABEL_SOURCE_INPUT_NAMES.includes(inputName) && custom) return custom;
+    if (isLabelSourceInput(info) && custom) return custom;
     return inputDisplayName(info, fallback);
 }
 
@@ -218,7 +226,7 @@ function syncWidgetLabels(graph) {
         if (node?.type !== NODE_TYPE && node?.type !== LEGACY_NODE_TYPE) continue;
         for (let slot = 0; slot < (node.outputs?.length || 0); slot += 1) {
             const info = node.resolveOutputTarget?.(slot);
-            if (!LABEL_SOURCE_INPUT_NAMES.includes(String(info?.input?.name || ""))) continue;
+            if (!isLabelSourceInput(info)) continue;
             const widget = (node.widgets || []).find((entry) => entry?.__h3MultiPrimitiveSlot === slot);
             if (!widget) continue;
             // 有自定义名就显示自定义名；自定义名被清掉后还原成目标输入口名

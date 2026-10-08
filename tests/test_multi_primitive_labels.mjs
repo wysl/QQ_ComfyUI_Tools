@@ -53,6 +53,14 @@ check("输入口自定义 label 优先于 name", api.widgetLabelFor(nodeWith({ n
 check("任务模式 不继承", api.widgetLabelFor(nodeWith({ label: "测试一下" }), 0, info("任务模式"), "输入 1") === "任务模式");
 check("启用接线 不继承", api.widgetLabelFor(nodeWith({ label: "测试一下" }), 0, info("启用接线"), "输入 1") === "启用接线");
 
+{
+  const localized = { input: { name: "switch", localized_name: "开关" }, targetNode: { title: "x" } };
+  const node = { outputs: [{ label: "我的开关" }] };
+  check("本地化名命中白名单", api.widgetLabelFor(node, 0, localized, "输入 1") === "我的开关");
+  const plain = { input: { name: "switch" }, targetNode: { title: "x" } };
+  check("仅原始英文名不命中", api.widgetLabelFor(node, 0, plain, "输入 1") === "switch");
+}
+
 console.log("== 4. 巡检同步与还原 ==");
 {
   const widget = { name: "value_1", label: "启用", __h3MultiPrimitiveSlot: 0 };
