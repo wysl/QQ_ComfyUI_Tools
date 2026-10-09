@@ -144,8 +144,10 @@ function inputNameCandidates(info) {
         .map((value) => String(value || "").trim());
 }
 
+const LABEL_SOURCE_NAMES_LOWER = new Set(LABEL_SOURCE_INPUT_NAMES.map((name) => name.toLowerCase()));
+
 function isLabelSourceInput(info) {
-    return inputNameCandidates(info).some((name) => LABEL_SOURCE_INPUT_NAMES.includes(name));
+    return inputNameCandidates(info).some((name) => LABEL_SOURCE_NAMES_LOWER.has(name.toLowerCase()));
 }
 
 function widgetLabelFor(node, slot, info, fallback) {

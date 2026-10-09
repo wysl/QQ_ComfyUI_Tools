@@ -59,6 +59,8 @@ check("启用接线 不继承", api.widgetLabelFor(nodeWith({ label: "测试一�
   check("本地化名命中白名单", api.widgetLabelFor(node, 0, localized, "输入 1") === "我的开关");
   const plain = { input: { name: "switch" }, targetNode: { title: "x" } };
   check("仅原始英文名不命中", api.widgetLabelFor(node, 0, plain, "输入 1") === "switch");
+  const upper = { input: { name: "TEXT" }, targetNode: { title: "x" } };
+  check("忽略大小写命中", api.widgetLabelFor(node, 0, upper, "输入 1") === "我的开关");
 }
 
 console.log("== 4. 巡检同步与还原 ==");
