@@ -124,7 +124,7 @@ function inputDisplayName(info, fallback) {
 
 // 目标输入口名字精确命中这三个时，体内控件标签继承「本节点输出口的自定义名」
 // （重命名输出口后的 label），让红框两处显示一致；没改过名时保持原来的输入口名。
-const LABEL_SOURCE_INPUT_NAMES = ["模式", "启用", "规则", "开关"];
+const LABEL_SOURCE_INPUT_NAMES = ["模式", "启用", "规则", "开关", "文本", "选择", "text"];
 
 // 只认本节点输出口上的自定义名：重命名写入的 label 优先；
 // 没有 label 但名字不像自动生成的（自动名一定以 " <序号>" 结尾）也算自定义。
