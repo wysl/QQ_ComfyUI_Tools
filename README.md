@@ -70,6 +70,13 @@
 
 多个图包会分别生成对应的输出文件，例如 `package_edited.cbz` 与 `book_edited.tar.gz`。每次执行只替换当前序号对应的包内图片，其余成员保持不变；开启加载器的「自动下一张」后，保存节点会在同一输出包中逐步累积处理结果。默认输出到 output/qq_image_packages，可修改「输出目录」与「输出后缀」；来源文件不会被修改。
 
+### QQ-即梦AI出图(API Key)
+
+按火山引擎即梦AI开放接口（非火山方舟）直连出图：域名 `https://openapi.cv.volces.com`，`Authorization: Bearer <API Key>`。
+`req_key` 选择能力（文生图 2.1 `jimeng_high_aes_general_v21_L`、文生图 3.0 `high_aes_general_v30l_zt2i`、或 custom 自填）；
+接了参考图时按顺序转 base64 传入（图生图/参考）。默认走同步转异步（`submit_task_v2` 提交 + 轮询 `get_result_v2` 到 done），
+也可切同步 `CVProcess`。`api_key` 留空时读环境变量 `VOLC_JIMENG_API_KEY`。
+
 ### QQ-媒体序号输出
 
 接 `multi output` 或 `media_bundle`，按当前媒体数量自动生成独立输出端：`multi output` 依次输出图片，`media_bundle` 按图片、音频、视频分组依次输出，端口名带序号。
