@@ -357,17 +357,27 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('"animated": (True,)', source)
         self.assertNotIn('"wsl_saved_video"', source)
 
-    def test_save_video_time_format_defaults_to_the_existing_counter_name(self):
+    def test_save_video_time_format_defaults_to_year_month_day_hour_minute(self):
         video = importlib.import_module("QQ_ComfyUI_Tools.node_modules.video")
         controls = video.QQSaveVideo.INPUT_TYPES()["required"]
         self.assertEqual(
             controls["time_format"][1]["default"],
-            video.SAVE_TIME_DISABLED,
+            video.SAVE_TIME_MINUTE,
         )
+        # 不使用时间的选项仍可选择，命名保持原样
+        self.assertIn(video.SAVE_TIME_DISABLED, controls["time_format"][0])
         self.assertEqual(
             video._save_video_filename("Wsl", 3, "mp4", video.SAVE_TIME_DISABLED),
             "Wsl_00003_.mp4",
         )
+
+    def test_save_video_fps_is_optional(self):
+        video = importlib.import_module("QQ_ComfyUI_Tools.node_modules.video")
+        inputs = video.QQSaveVideo.INPUT_TYPES()
+        # fps 不再是必填；不接线时 save() 会用视频自身帧率
+        self.assertNotIn("fps", inputs.get("required", {}))
+        self.assertIn("fps", inputs.get("optional", {}))
+        self.assertTrue(inputs["optional"]["fps"][1].get("forceInput"))
 
     def test_save_video_supports_selectable_local_time_formats(self):
         video = importlib.import_module("QQ_ComfyUI_Tools.node_modules.video")
