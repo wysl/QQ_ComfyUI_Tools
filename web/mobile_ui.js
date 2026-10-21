@@ -299,10 +299,35 @@ const attachButton = async (attempt = 0) => {
     settingsGroup.element.before(group.element);
 };
 
-app.registerExtension({
-    name: "QQ.MobileUI",
+// Expose the entry point before registering, so the phone page and tests keep
+// working even if the UI registration below fails for any reason.
+globalThis.qqMobile = { prepareTemplate };
+
+/**
+ * Register the extension defensively.
+ *
+ * A throw anywhere in this descriptor (a duplicate keybinding, a changed
+ * internal import, a missing component) aborts the whole registration, and the
+ * visible result is "the button silently does not exist". Registering in
+ * stages — and retrying without the optional parts — keeps the core entry
+ * point usable and surfaces the reason in the console.
+ */
+function register(opts) {
+    try {
+        app.registerExtension({ name: "QQ.MobileUI", ...opts });
+        return true;
+    } catch (error) {
+        return error;
+    }
+}
+
+const core = {
     async setup() {
-        await attachButton();
+        try {
+            await attachButton();
+        } catch (error) {
+            console.warn("[QQ Mobile] toolbar button unavailable:", error);
+        }
     },
     commands: [
         {
@@ -318,7 +343,6 @@ app.registerExtension({
             function: () => prepareTemplate({ notify: true }),
         },
     ],
-    keybindings: [{ combo: { key: "m", alt: true, shift: true }, commandId: "qq.mobile.open" }],
     actionBarButtons: [
         {
             icon: "icon-[lucide--smartphone] size-4",
@@ -326,7 +350,16 @@ app.registerExtension({
             onClick: () => openMobile({}),
         },
     ],
-});
+};
 
-// Exposed for tests and for the phone page to trigger a refresh.
-globalThis.qqMobile = { prepareTemplate };
+// Ctrl/Cmd+Alt+M: Alt+Shift+M is already bound to Comfy.Canvas.ToggleMinimap,
+// and a duplicate keybinding throws during registration.
+const shortcut = {
+    keybindings: [{ combo: { key: "m", ctrl: true, alt: true }, commandId: "qq.mobile.open" }],
+};
+
+for (const attempt of [{ ...core, ...shortcut }, core, {}]) {
+    const error = register(attempt);
+    if (error === true) break;
+    console.warn("[QQ Mobile] registration attempt failed, retrying simpler:", error);
+}

@@ -415,6 +415,66 @@ class ExtraDataTests(unittest.TestCase):
         self.assertIn('"graph"', handler, "template handler must forward the graph")
 
 
+class ExtensionRegistrationTests(unittest.TestCase):
+    """The extension must survive a hostile frontend environment.
+
+    Two real failures motivated these checks:
+    1. Alt+Shift+M is already bound to Comfy.Canvas.ToggleMinimap; registering a
+       duplicate keybinding throws and aborts the whole extension, so the
+       toolbar button silently never appeared.
+    2. Any throw in the descriptor has the same effect, so registration must be
+       staged with a fallback.
+    """
+
+    def setUp(self):
+        self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
+
+    def test_shortcut_does_not_collide_with_the_builtin_minimap_toggle(self):
+        self.assertNotIn('key: "m", alt: true, shift: true', self.js)
+        self.assertIn('key: "m", ctrl: true, alt: true', self.js)
+
+    def test_registration_is_staged_with_fallbacks(self):
+        self.assertIn("for (const attempt of", self.js)
+        self.assertIn("registration attempt failed, retrying simpler", self.js)
+
+    def test_entry_point_is_exposed_before_registration(self):
+        # Tests and the phone page rely on window.qqMobile existing.
+        exposed = self.js.index("globalThis.qqMobile = ")
+        registered = self.js.index("app.registerExtension")
+        self.assertLess(exposed, registered)
+
+    def test_button_failure_does_not_abort_setup(self):
+        setup = self.js.split("async setup()")[1].split("},")[0]
+        self.assertIn("try {", setup)
+        self.assertIn("catch", setup)
+
+
+class ProxyDeploymentTests(unittest.TestCase):
+    """Behind a reverse proxy with basic auth, self-requests must not leave.
+
+    Building them from request.url sends the call out to the public hostname,
+    where the proxy challenges it with 401 because server-to-server requests
+    carry no credentials. That showed up as being asked to log in twice.
+    """
+
+    def setUp(self):
+        self.source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+
+    def test_self_requests_use_the_loopback_base(self):
+        self.assertIn("def _local_base(", self.source)
+        self.assertIn("127.0.0.1", self.source)
+
+    def test_no_internal_call_is_built_from_request_url_anymore(self):
+        for marker in ("with_path(\"/prompt\")", "with_path(\"/interrupt\")",
+                       "with_path(\"\").with_query(None)"):
+            self.assertNotIn(marker, self.source)
+
+    def test_loopback_is_skipped_when_listening_on_a_single_interface(self):
+        body = self.source.split("def _local_base(")[1].split("\ndef ")[0]
+        self.assertIn('"0.0.0.0"', body)
+        self.assertIn("address", body)
+
+
 class LongPressEditorTests(unittest.TestCase):
     """Hold a text field for 2s to edit it full screen, in place.
 
