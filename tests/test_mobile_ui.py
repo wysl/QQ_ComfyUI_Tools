@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import pathlib
+import re
 import sys
 import unittest
 
@@ -937,6 +938,21 @@ class ExtensionRegistrationTests(unittest.TestCase):
 
     def setUp(self):
         self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
+
+    def test_toolbar_button_uses_a_real_material_icon(self):
+        """A made-up icon name renders as an empty <i>: the button looked blank."""
+        match = re.search(r'const ICON_CLASS = "([^"]+)"', self.js)
+        self.assertIsNotNone(match)
+        # Verified against the bundled Material font at toolbar size.
+        self.assertIn(match.group(1), {"cellphone", "cellphone-link", "monitor-cellphone"})
+        self.assertIn("icon: ICON_CLASS", self.js)
+        self.assertNotIn("mdi-qq-mobile", self.js)
+
+    def test_toolbar_button_does_not_depend_on_iconElement(self):
+        # `iconElement` is a frontend internal; the glyph must not hinge on it.
+        block = self.js.split("const createButton = async () => {")[1].split("\n};")[0]
+        self.assertIn("button.iconElement ||", block)
+        self.assertIn("classList.add", block)
 
     def test_shortcut_does_not_collide_with_the_builtin_minimap_toggle(self):
         self.assertNotIn('key: "m", alt: true, shift: true', self.js)

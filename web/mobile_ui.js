@@ -29,13 +29,16 @@ const getBasePath = () => {
 
 const mobileUrl = (path) => `${getBasePath()}${path}`;
 
-const ICON = `
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-  <rect x="7" y="2.5" width="10" height="19" rx="2.2"></rect>
-  <path d="M10.6 5.3h2.8"></path>
-  <circle cx="12" cy="18.4" r="0.9" fill="currentColor" stroke="none"></circle>
-</svg>`;
+/**
+ * Toolbar glyph.
+ *
+ * A bare Material icon name: the button builds `<i class="mdi mdi-…">`, so the
+ * toolbar's own icon font draws it at exactly the same size and weight as the
+ * neighbouring buttons. An icon name the font does not know (the old
+ * "qq-mobile") renders as nothing, and hand-rolled SVGs only appeared when the
+ * frontend exposed `iconElement` — both left the button looking blank.
+ */
+const ICON_CLASS = "cellphone";
 
 /**
  * Media loading nodes the phone page turns into pickers.
@@ -1111,7 +1114,7 @@ const openMobile = async (event) => {
 const createButton = async () => {
     const { ComfyButton } = await import("../../../scripts/ui/components/button.js");
     const button = new ComfyButton({
-        icon: "qq-mobile",
+        icon: ICON_CLASS,
         tooltip: BUTTON_TOOLTIP,
         app,
         enabled: true,
@@ -1119,11 +1122,13 @@ const createButton = async () => {
     });
     button.element.setAttribute("aria-label", BUTTON_TOOLTIP);
     button.element.title = BUTTON_TOOLTIP;
-    if (button.iconElement) {
-        button.iconElement.innerHTML = ICON;
-        button.iconElement.style.width = "1.2rem";
-        button.iconElement.style.height = "1.2rem";
-        button.iconElement.style.display = "flex";
+    // The glyph comes from the `icon` option above. Belt and braces: a
+    // frontend that ignored it leaves the <i> without the mdi classes, so fix
+    // the class list in place — still no markup of our own, so the icon keeps
+    // the toolbar's size, weight and colour.
+    const glyph = button.iconElement || button.element.querySelector("i");
+    if (glyph) {
+        glyph.classList.add("mdi", `mdi-${ICON_CLASS}`);
     }
     button.element.addEventListener("click", openMobile);
     return button;
@@ -1196,7 +1201,7 @@ const core = {
     ],
     actionBarButtons: [
         {
-            icon: "icon-[lucide--smartphone] size-4",
+            icon: `mdi mdi-${ICON_CLASS} size-4`,
             tooltip: BUTTON_TOOLTIP,
             onClick: () => openMobile({}),
         },
