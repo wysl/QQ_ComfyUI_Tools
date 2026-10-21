@@ -700,7 +700,7 @@ async function poll() {
         const query = `?prompt_id=${encodeURIComponent(state.promptId)}`;
         const data = await fetchJson(`/qq_mobile/jobs${query}`);
 
-        if (data.status === "running") {
+        if (data.status === "in_progress") {
             setStatus("running", "正在生成…");
             setProgress(null);
         } else if (data.status === "pending") {
@@ -708,21 +708,32 @@ async function poll() {
             setStatus("running", position ? `排队中，前面还有 ${position} 个任务` : "排队中…");
             setProgress(null);
         } else if (data.status === "settling") {
-            // Finished submission whose history entry has not landed yet.
-            setStatus("running", "收尾中…");
+            // Submitted, but ComfyUI has not listed it yet.
+            setStatus("running", "已提交，等待开始…");
         } else if (data.media?.length) {
             setStatus("done", "完成");
             setProgress(1);
             renderResults(data.media);
             stopPolling();
             return;
-        } else if (data.status === "lost") {
-            setStatus("error", "任务已不在队列中，可能已取消或执行失败");
+        } else if (data.status === "failed") {
+            const detail = String(data.execution_error || "").slice(0, 200);
+            setStatus("error", detail ? `执行失败：${detail}` : "执行失败");
             setProgress(null);
             stopPolling();
             return;
-        } else if (data.completed) {
+        } else if (data.status === "cancelled") {
+            setStatus("error", "已取消");
+            setProgress(null);
+            stopPolling();
+            return;
+        } else if (data.status === "completed") {
             setStatus("done", "完成，但没有输出媒体");
+            setProgress(null);
+            stopPolling();
+            return;
+        } else if (data.status === "lost") {
+            setStatus("error", "任务已不在队列中，可能已取消或执行失败");
             setProgress(null);
             stopPolling();
             return;

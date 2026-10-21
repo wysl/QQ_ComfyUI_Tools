@@ -415,6 +415,52 @@ class ExtraDataTests(unittest.TestCase):
         self.assertIn('"graph"', handler, "template handler must forward the graph")
 
 
+class PollingContractTests(unittest.TestCase):
+    """The poller must use endpoints that actually know about running jobs.
+
+    Regression: the page used ``GET /prompt`` and read ``queue_running`` /
+    ``queue_pending`` from it. In this ComfyUI version that endpoint returns
+    only ``{"exec_info": {"queue_remaining": N}}``, so a prompt that was
+    actively sampling looked absent and the phone reported "任务已不在队列中"
+    while the job kept running.
+    """
+
+    def setUp(self):
+        self.source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+        self.handler = self.source.split("async def qq_mobile_jobs")[1].split(
+            "server._qq_mobile_routes"
+        )[0]
+
+    def test_jobs_handler_uses_the_job_api(self):
+        self.assertIn("/api/jobs/", self.handler)
+
+    def test_jobs_handler_does_not_read_queue_arrays_from_prompt(self):
+        # Strip the docstring first: it deliberately names the keys that must
+        # not be used, and only real code should be inspected.
+        body = self.handler.split('"""')[-1]
+        self.assertNotIn("{base}/prompt", body)
+        self.assertNotIn("queue_running", body)
+
+    def test_in_progress_is_reported_as_a_live_state(self):
+        html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+        self.assertIn('data.status === "in_progress"', html)
+        self.assertIn('data.status === "pending"', html)
+        # The running branch must be checked before the terminal ones, or a
+        # live job would fall through to "lost".
+        self.assertLess(
+            html.index('data.status === "in_progress"'),
+            html.index('data.status === "lost"'),
+        )
+
+    def test_failed_and_cancelled_stop_polling(self):
+        html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+        self.assertIn('data.status === "failed"', html)
+        self.assertIn('data.status === "cancelled"', html)
+
+    def test_execution_error_is_surfaced(self):
+        self.assertIn("_execution_error", self.source)
+
+
 class SettleWindowTests(unittest.TestCase):
     """A prompt missing from both queue and history is not instantly dead."""
 
