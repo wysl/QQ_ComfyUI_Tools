@@ -1279,6 +1279,48 @@ async function fetchJson(path, options) {
     return data;
 }
 
+/**
+ * Reload the form when the browser-side state changes.
+ *
+ * The canvas can change while the phone page is open — most notably a
+ * QQ-多值输入 switch that flips a bypass rule and enables a media loader. The
+ * extension re-pushes the template when that happens, so the phone only has to
+ * notice the new revision and re-render. Values already typed are preserved
+ * per field key by the form itself.
+ */
+const TEMPLATE_POLL_MS = 3000;
+let templateRevision = null;
+let templateTimer = null;
+
+async function watchTemplate() {
+    clearTimeout(templateTimer);
+    templateTimer = setTimeout(watchTemplate, TEMPLATE_POLL_MS);
+    if (state.polling) return;
+    try {
+        const query = state.workflow ? `?workflow=${encodeURIComponent(state.workflow)}` : "";
+        const data = await fetchJson(`/qq_mobile/template${query}`);
+        if (templateRevision === null) {
+            templateRevision = data.updated;
+            return;
+        }
+        if (data.updated !== templateRevision) {
+            templateRevision = data.updated;
+            const kept = { ...state.values };
+            state.parameters = data.parameters || [];
+            el("title").textContent = data.title || "手机界面";
+            document.title = data.title || "手机界面";
+            render(state.parameters);
+            // Restore what the user had typed for keys that still exist.
+            for (const [key, value] of Object.entries(kept)) {
+                if (key in state.values) state.values[key] = value;
+            }
+            toast("参数已同步");
+        }
+    } catch {
+        // A missing template is handled by the initial load; stay quiet here.
+    }
+}
+
 async function loadTemplate() {
     setStatus(null);
     try {
@@ -1286,10 +1328,12 @@ async function loadTemplate() {
         const data = await fetchJson(`/qq_mobile/template${query}`);
         state.workflow = data.workflow;
         state.parameters = data.parameters || [];
+        templateRevision = data.updated;
         el("title").textContent = data.title || "手机界面";
         // Keep the browser tab in sync with the pipeline name.
         document.title = data.title || "手机界面";
         render(state.parameters);
+        watchTemplate();
         return true;
     } catch (error) {
         el("form").innerHTML = `<div class="empty"><strong>还没有模板</strong>

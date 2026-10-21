@@ -450,6 +450,7 @@ async function prepareTemplate({ notify = true } = {}) {
 
     const workflowKey = app.activeWorkflow?.path
         || `unsaved-${workflow?.id ?? Date.now()}`;
+    const signature = graphSignature(graph);
     const response = await api.fetchApi(TEMPLATE_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -469,6 +470,7 @@ async function prepareTemplate({ notify = true } = {}) {
         const detail = await response.text();
         throw new Error(`模板保存失败: ${detail.slice(0, 200)}`);
     }
+    lastPushedSignature = signature;
     if (notify) {
         app.extensionManager?.toast?.add?.({
             severity: unbound.length ? "warn" : "success",
@@ -479,7 +481,68 @@ async function prepareTemplate({ notify = true } = {}) {
             life: unbound.length ? 6000 : 2500,
         });
     }
-    return { workflow: workflowKey, parameters: parameters.length, unbound };
+    return { workflow: workflowKey, parameters: parameters.length, unbound, signature };
+}
+
+/**
+ * Fingerprint of everything the phone form is derived from.
+ *
+ * The phone form is built from a snapshot, so a later change on the canvas —
+ * most importantly a QQ-多值输入 switch that flips a bypass rule and thereby
+ * enables a media loader — has to trigger a fresh snapshot. The signature
+ * captures node presence, node mode and the parameter list, which are exactly
+ * the things that make the form differ.
+ *
+ * Only graph state is included, so the watcher can compare a cheap structural
+ * signature before rebuilding the (much more expensive) parameter list.
+ */
+function graphSignature(graph) {
+    const parts = [];
+    const visit = (container) => {
+        for (const node of container?._nodes ?? []) {
+            if (node?.subgraph) {
+                visit(node.subgraph);
+                continue;
+            }
+            parts.push(`${node?.id}:${node?.type}:${Number(node?.mode ?? 0)}`);
+        }
+    };
+    visit(graph);
+    const text = parts.join(";");
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index += 1) {
+        hash ^= text.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+    return `${parts.length}-${(hash >>> 0).toString(36)}`;
+}
+
+/** Last graph signature pushed, so the watcher skips identical states. */
+let lastPushedSignature = "";
+let watcherTimer = null;
+
+/**
+ * Keep the pushed template in step with the canvas.
+ *
+ * A bypass rule can enable a media loader long after the page was prepared
+ * (for example the user flips a QQ-多值输入 switch to 启用). Without this the
+ * phone would keep showing the stale form until the button was pressed again.
+ */
+function startTemplateWatcher() {
+    if (watcherTimer) return;
+    watcherTimer = setInterval(async () => {
+        if (!app || app.loading_graph || app.configuringGraph) return;
+        try {
+            const { graph, instances } = subgraphInstances();
+            if (!graph) return;
+            if (!instances.length) return;
+            // Structural check only: cheap enough to run every tick.
+            if (graphSignature(graph) === lastPushedSignature) return;
+            await prepareTemplate({ notify: false });
+        } catch (error) {
+            console.warn("[QQ Mobile] template auto-sync skipped:", error);
+        }
+    }, 2500);
 }
 
 /**
@@ -613,6 +676,12 @@ const core = {
             await attachButton();
         } catch (error) {
             console.warn("[QQ Mobile] toolbar button unavailable:", error);
+        }
+        // Keep the phone's copy of the form current as the canvas changes.
+        try {
+            startTemplateWatcher();
+        } catch (error) {
+            console.warn("[QQ Mobile] template watcher unavailable:", error);
         }
     },
     commands: [

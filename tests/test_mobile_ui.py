@@ -416,6 +416,48 @@ class ExtraDataTests(unittest.TestCase):
         self.assertIn('"graph"', handler, "template handler must forward the graph")
 
 
+class DynamicSyncTests(unittest.TestCase):
+    """The phone form tracks canvas changes after it was prepared.
+
+    Real scenario: a media loader starts bypassed, then a QQ-多值输入 switch
+    enables it. The template was a one-time snapshot, so the phone kept showing
+    the stale form — the newly enabled loader never appeared.
+    """
+
+    def setUp(self):
+        self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    def test_watcher_is_started_from_setup(self):
+        setup = self.js.split("async setup()")[1].split("},")[0]
+        self.assertIn("startTemplateWatcher()", setup)
+
+    def test_signature_includes_node_mode(self):
+        # Mode is what changes when a bypass rule flips.
+        block = self.js.split("function graphSignature")[1].split("\n}")[0]
+        self.assertIn("node?.mode", block)
+
+    def test_identical_state_is_not_re_pushed(self):
+        block = self.js.split("function startTemplateWatcher")[1].split("\n}")[0]
+        self.assertIn("graphSignature(graph) === lastPushedSignature", block)
+
+    def test_push_records_the_signature(self):
+        self.assertIn("lastPushedSignature = signature", self.js)
+
+    def test_page_polls_for_a_new_revision(self):
+        self.assertIn("TEMPLATE_POLL_MS", self.html)
+        self.assertIn("templateRevision", self.html)
+        self.assertIn('toast("参数已同步")', self.html)
+
+    def test_typed_values_survive_a_refresh(self):
+        block = self.html.split("async function watchTemplate")[1].split("\nasync function")[0]
+        self.assertIn("const kept = { ...state.values }", block)
+
+    def test_polling_pauses_while_generating(self):
+        block = self.html.split("async function watchTemplate")[1].split("\nasync function")[0]
+        self.assertIn("if (state.polling) return;", block)
+
+
 class TitleTests(unittest.TestCase):
     """The page title is the pipeline name, never a subgraph's name.
 
