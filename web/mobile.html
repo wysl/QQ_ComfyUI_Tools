@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#12131a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>手机界面</title>
+<style>
+:root {
+    color-scheme: dark;
+    --bg: #12131a;
+    --surface: #1b1d26;
+    --surface-2: #23252f;
+    --line: #303342;
+    --text: #eceef6;
+    --muted: #9aa0b4;
+    --accent: #4d7cfe;
+    --accent-press: #3f68d8;
+    --danger: #e5484d;
+    --ok: #30a46c;
+    --radius: 14px;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-top: env(safe-area-inset-top, 0px);
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    overscroll-behavior-y: none;
+}
+/* Fixed viewport height so the scroll area below is bounded: with
+   min-height the form would stretch the page instead of scrolling inside it. */
+html { height: 100%; }
+body {
+    display: flex; flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+}
+
+/* ---------- header ---------- */
+header {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; gap: 10px;
+    padding: calc(10px + var(--safe-top)) 14px 10px;
+    background: rgba(18, 19, 26, .92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+}
+header h1 {
+    flex: 1; min-width: 0; margin: 0;
+    font-size: 16px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.icon-btn {
+    flex: none; width: 36px; height: 36px;
+    display: grid; place-items: center;
+    border: 1px solid var(--line); border-radius: 10px;
+    background: var(--surface); color: var(--text);
+    cursor: pointer;
+}
+.icon-btn:active { background: var(--surface-2); }
+.icon-btn svg { width: 18px; height: 18px; }
+
+/* ---------- scroll area ---------- */
+main {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Leave room for the fixed footer so the last field stays reachable. */
+    padding: 14px 14px calc(104px + var(--safe-bottom));
+}
+
+/* ---------- fields ---------- */
+.field { margin-bottom: 16px; }
+.field > label {
+    display: block; margin-bottom: 7px;
+    font-size: 13px; font-weight: 600; color: var(--muted);
+    letter-spacing: .01em;
+}
+.field textarea,
+.field input[type="text"],
+.field input[type="number"],
+.field select {
+    width: 100%;
+    padding: 12px 13px;
+    font: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    outline: none;
+    appearance: none;
+}
+.field textarea { min-height: 120px; resize: vertical; line-height: 1.55; }
+.field textarea:focus,
+.field input:focus,
+.field select:focus { border-color: var(--accent); }
+
+.stepper { display: flex; align-items: stretch; gap: 8px; }
+.stepper button {
+    flex: none; width: 46px;
+    font-size: 20px; font-weight: 500;
+    color: var(--text); background: var(--surface);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    cursor: pointer;
+}
+.stepper button:active { background: var(--surface-2); }
+.stepper input { text-align: center; }
+
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.switch input { width: 50px; height: 30px; accent-color: var(--accent); }
+
+select { background-image: none; }
+
+/* ---------- collapsible group ---------- */
+details.group {
+    margin-bottom: 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    overflow: hidden;
+}
+details.group > summary {
+    display: flex; align-items: center; gap: 8px;
+    padding: 13px 14px;
+    font-size: 14px; font-weight: 600; color: var(--text);
+    cursor: pointer; list-style: none;
+}
+details.group > summary::-webkit-details-marker { display: none; }
+details.group > summary::after {
+    content: "▾"; margin-left: auto; color: var(--muted);
+    transition: transform .18s ease;
+}
+details.group[open] > summary::after { transform: rotate(180deg); }
+details.group > summary .count {
+    padding: 1px 7px; border-radius: 9px;
+    background: var(--surface-2); color: var(--muted);
+    font-size: 12px; font-weight: 500;
+}
+details.group > .body { padding: 4px 14px 14px; }
+details.group .field:last-child { margin-bottom: 0; }
+
+/* ---------- results ---------- */
+main > .section-label {
+    margin: 22px 0 10px;
+    font-size: 13px; font-weight: 600; color: var(--muted);
+}
+main > .section-label[hidden] { display: none; }
+.results { display: flex; flex-direction: column; gap: 12px; }
+.result-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+.result-card img,
+.result-card video {
+    display: block; width: 100%; height: auto; background: #0b0c11;
+}
+.result-card pre {
+    margin: 0; padding: 12px;
+    white-space: pre-wrap; word-break: break-word;
+    font-size: 13px; color: var(--muted);
+}
+.result-meta {
+    display: flex; gap: 10px; align-items: center;
+    padding: 9px 12px; font-size: 12px; color: var(--muted);
+    border-top: 1px solid var(--line);
+}
+.result-meta a { color: var(--accent); text-decoration: none; margin-left: auto; }
+
+/* ---------- status ---------- */
+.status { display: flex; align-items: center; gap: 9px; margin-bottom: 14px; min-height: 20px; }
+.status[hidden] { display: none; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.running { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.dot.done { background: var(--ok); }
+.dot.error { background: var(--danger); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+.status-text { font-size: 13px; color: var(--muted); }
+
+.progress { height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; margin-bottom: 14px; }
+.progress[hidden] { display: none; }
+.progress > div { height: 100%; width: 0; background: var(--accent); transition: width .25s ease; }
+
+/* ---------- footer ---------- */
+footer {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    display: flex; gap: 10px;
+    padding: 12px 14px calc(12px + var(--safe-bottom));
+    background: linear-gradient(180deg, rgba(18,19,26,.75), var(--bg) 45%);
+    backdrop-filter: blur(12px);
+}
+footer button.primary {
+    flex: 1; min-height: 50px;
+    font: 600 16px/1 inherit;
+    color: #fff; background: var(--accent);
+    border: 0; border-radius: var(--radius);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+footer button.primary:active { background: var(--accent-press); }
+footer button.primary:disabled { opacity: .55; }
+footer button.ghost {
+    flex: none; min-width: 92px; padding: 0 16px;
+    font: 600 15px/1 inherit;
+    color: var(--text); background: var(--surface);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    cursor: pointer;
+}
+footer button.ghost:active { background: var(--surface-2); }
+
+.spinner {
+    width: 16px; height: 16px; flex: none;
+    border: 2px solid rgba(255,255,255,.35);
+    border-top-color: #fff; border-radius: 50%;
+    animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.empty {
+    padding: 40px 20px; text-align: center;
+    color: var(--muted); font-size: 14px; line-height: 1.7;
+}
+.empty strong { display: block; margin-bottom: 8px; color: var(--text); font-size: 15px; }
+.toast {
+    position: fixed; left: 14px; right: 14px; bottom: calc(84px + var(--safe-bottom));
+    z-index: 40; padding: 11px 14px;
+    background: #2b2330; border: 1px solid #4a3550;
+    border-radius: 12px; font-size: 13px; color: #f3d9ff;
+    opacity: 0; transform: translateY(8px); pointer-events: none;
+    transition: opacity .2s, transform .2s;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+<header>
+    <h1 id="title">手机界面</h1>
+    <button class="icon-btn" id="reload" aria-label="刷新参数" title="刷新参数">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 1 1-2.6-6.4"></path>
+            <path d="M21 3v6h-6"></path>
+        </svg>
+    </button>
+</header>
+
+<main id="main">
+    <div class="progress" id="progress" hidden><div id="progressBar"></div></div>
+    <div class="status" id="status" hidden>
+        <span class="dot" id="statusDot"></span>
+        <span class="status-text" id="statusText"></span>
+    </div>
+    <form id="form" autocomplete="off"></form>
+    <div class="section-label" id="resultsLabel" hidden>结果</div>
+    <div class="results" id="results"></div>
+</main>
+
+<footer>
+    <button class="primary" id="generate" type="button"><span>生成</span></button>
+    <button class="ghost" id="cancel" type="button" hidden>取消</button>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+const TOAST_MS = 3200;
+const POLL_MS = 1200;
+const STORAGE_KEY = "qq-mobile-values";
+
+const el = (id) => document.getElementById(id);
+const state = {
+    workflow: new URLSearchParams(location.search).get("workflow") || "",
+    parameters: [],
+    values: {},
+    promptId: "",
+    polling: false,
+    timer: null,
+};
+
+function toast(message) {
+    const node = el("toast");
+    node.textContent = message;
+    node.classList.add("show");
+    clearTimeout(node._timer);
+    node._timer = setTimeout(() => node.classList.remove("show"), TOAST_MS);
+}
+
+function setStatus(kind, text) {
+    const wrap = el("status");
+    if (!kind) { wrap.hidden = true; return; }
+    wrap.hidden = false;
+    el("statusDot").className = `dot ${kind}`;
+    el("statusText").textContent = text;
+}
+
+function setProgress(ratio) {
+    const bar = el("progress");
+    if (ratio == null) { bar.hidden = true; return; }
+    bar.hidden = false;
+    el("progressBar").style.width = `${Math.max(0, Math.min(1, ratio)) * 100}%`;
+}
+
+/* ---------------- value persistence ---------------- */
+function loadStoredValues() {
+    try {
+        const raw = localStorage.getItem(`${STORAGE_KEY}:${state.workflow}`);
+        return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+}
+function storeValues() {
+    try {
+        localStorage.setItem(
+            `${STORAGE_KEY}:${state.workflow}`, JSON.stringify(state.values));
+    } catch { /* storage full or blocked: not fatal */ }
+}
+
+/* ---------------- form rendering ---------------- */
+function coerce(parameter, raw) {
+    const type = String(parameter.type || "").toUpperCase();
+    if (type === "INT") {
+        const n = Number.parseInt(raw, 10);
+        return Number.isFinite(n) ? n : 0;
+    }
+    if (type === "FLOAT") {
+        const n = Number.parseFloat(raw);
+        return Number.isFinite(n) ? n : 0;
+    }
+    if (type === "BOOLEAN") return Boolean(raw);
+    return raw;
+}
+
+function isCombo(parameter) {
+    const type = String(parameter.type || "").toUpperCase();
+    return Array.isArray(parameter.options) && parameter.options.length > 0
+        || type === "COMBO";
+}
+
+function fieldFor(parameter) {
+    const wrap = document.createElement("div");
+    wrap.className = "field";
+
+    const label = document.createElement("label");
+    label.textContent = parameter.label || parameter.name;
+    label.setAttribute("for", `f-${parameter.key}`);
+    wrap.appendChild(label);
+
+    const type = String(parameter.type || "STRING").toUpperCase();
+    const value = state.values[parameter.key] ?? parameter.value;
+    const commit = (next) => {
+        state.values[parameter.key] = next;
+        storeValues();
+    };
+
+    if (type === "BOOLEAN") {
+        wrap.classList.add("switch");
+        wrap.removeChild(label);
+        const toggle = document.createElement("input");
+        toggle.type = "checkbox";
+        toggle.id = `f-${parameter.key}`;
+        toggle.checked = Boolean(value);
+        toggle.addEventListener("change", () => commit(toggle.checked));
+        wrap.append(label, toggle);
+        label.style.marginBottom = "0";
+        return wrap;
+    }
+
+    if (isCombo(parameter)) {
+        const select = document.createElement("select");
+        select.id = `f-${parameter.key}`;
+        const options = parameter.options || [];
+        for (const option of options) {
+            const node = document.createElement("option");
+            node.value = option;
+            node.textContent = option;
+            select.appendChild(node);
+        }
+        if (!options.includes(value) && value != null) {
+            const node = document.createElement("option");
+            node.value = value;
+            node.textContent = value;
+            select.appendChild(node);
+        }
+        select.value = value ?? options[0] ?? "";
+        select.addEventListener("change", () => commit(select.value));
+        wrap.appendChild(select);
+        return wrap;
+    }
+
+    if (type === "INT" || type === "FLOAT") {
+        const stepper = document.createElement("div");
+        stepper.className = "stepper";
+        const step = parameter.step ?? (type === "INT" ? 1 : 0.01);
+        const input = document.createElement("input");
+        input.type = "number";
+        input.inputMode = type === "INT" ? "numeric" : "decimal";
+        input.id = `f-${parameter.key}`;
+        input.value = value ?? 0;
+        if (parameter.min != null) input.min = parameter.min;
+        if (parameter.max != null) input.max = parameter.max;
+        input.step = step;
+
+        const clamp = (n) => {
+            let next = n;
+            if (parameter.min != null) next = Math.max(parameter.min, next);
+            if (parameter.max != null) next = Math.min(parameter.max, next);
+            return type === "INT" ? Math.round(next) : next;
+        };
+        const bump = (delta) => {
+            const current = Number.parseFloat(input.value);
+            const base = Number.isFinite(current) ? current : 0;
+            const next = clamp(base + delta * step);
+            input.value = next;
+            commit(next);
+        };
+
+        const minus = document.createElement("button");
+        minus.type = "button"; minus.textContent = "−";
+        minus.addEventListener("click", () => bump(-1));
+        const plus = document.createElement("button");
+        plus.type = "button"; plus.textContent = "+";
+        plus.addEventListener("click", () => bump(1));
+
+        input.addEventListener("input", () => {
+            const parsed = Number.parseFloat(input.value);
+            if (Number.isFinite(parsed)) commit(coerce(parameter, parsed));
+        });
+
+        stepper.append(minus, input, plus);
+        wrap.appendChild(stepper);
+        return wrap;
+    }
+
+    const multiline = parameter.multiline || String(value ?? "").length > 60;
+    const input = document.createElement(multiline ? "textarea" : "input");
+    if (multiline) {
+        input.rows = 5;
+    } else {
+        input.type = "text";
+    }
+    input.id = `f-${parameter.key}`;
+    input.value = value ?? "";
+    input.addEventListener("input", () => commit(input.value));
+    wrap.appendChild(input);
+    return wrap;
+}
+
+/**
+ * Model file pickers and sampler internals are rarely touched from a phone.
+ * They go into a collapsed group so the first screen stays focused on the
+ * prompt and the numbers that actually change per image.
+ */
+const ADVANCED_NAMES = new Set([
+    "unet_name", "clip_name", "vae_name", "ckpt_name", "lora_name",
+    "sampler_name", "scheduler", "cfg", "denoise", "batch_size",
+    "type", "device", "weight_dtype",
+]);
+
+const isAdvanced = (parameter) => {
+    const type = String(parameter.type || "").toUpperCase();
+    if (type === "COMBO" && parameter.options?.length) return true;
+    return ADVANCED_NAMES.has(String(parameter.name || ""));
+};
+
+function render(parameters) {
+    const form = el("form");
+    form.replaceChildren();
+    const stored = loadStoredValues();
+    const seen = new Set();
+
+    const primary = [];
+    const advanced = [];
+    for (const parameter of parameters) {
+        if (parameter.hidden) continue;
+        seen.add(parameter.key);
+        if (stored[parameter.key] !== undefined) {
+            state.values[parameter.key] = stored[parameter.key];
+        } else if (state.values[parameter.key] === undefined) {
+            state.values[parameter.key] = parameter.value;
+        }
+        (isAdvanced(parameter) ? advanced : primary).push(parameter);
+    }
+
+    for (const parameter of primary) form.appendChild(fieldFor(parameter));
+
+    if (advanced.length) {
+        const group = document.createElement("details");
+        group.className = "group";
+        const summary = document.createElement("summary");
+        const label = document.createElement("span");
+        label.textContent = "模型与采样";
+        const count = document.createElement("span");
+        count.className = "count";
+        count.textContent = String(advanced.length);
+        summary.append(label, count);
+        const body = document.createElement("div");
+        body.className = "body";
+        for (const parameter of advanced) body.appendChild(fieldFor(parameter));
+        group.append(summary, body);
+        form.appendChild(group);
+    }
+
+    // Drop remembered values for parameters that no longer exist.
+    for (const key of Object.keys(state.values)) {
+        if (!seen.has(key)) delete state.values[key];
+    }
+    storeValues();
+
+    if (!parameters.length) {
+        form.innerHTML = `<div class="empty"><strong>这个工作流没有可调参数</strong>
+            在 ComfyUI 里把子图的输入提升为参数后，重新点击「手机界面」。</div>`;
+    }
+}
+
+/* ---------------- results ---------------- */
+function viewUrl(item) {
+    const params = new URLSearchParams({
+        filename: item.filename || "",
+        subfolder: item.subfolder || "",
+        type: item.type || "output",
+    });
+    if (item.format) params.set("format", item.format);
+    return `/view?${params.toString()}`;
+}
+
+function renderResults(media) {
+    const host = el("results");
+    const label = el("resultsLabel");
+    host.replaceChildren();
+    label.hidden = !media.length;
+    for (const item of media) {
+        const card = document.createElement("div");
+        card.className = "result-card";
+
+        if (item.kind === "text") {
+            const pre = document.createElement("pre");
+            pre.textContent = item.text;
+            card.appendChild(pre);
+        } else if (item.kind === "audio") {
+            const audio = document.createElement("audio");
+            audio.controls = true;
+            audio.src = viewUrl(item);
+            card.appendChild(audio);
+        } else if (item.kind === "videos" || /\.(mp4|webm|mov)$/i.test(item.filename || "")) {
+            const video = document.createElement("video");
+            video.controls = true;
+            video.playsInline = true;
+            video.src = viewUrl(item);
+            card.appendChild(video);
+        } else {
+            const img = document.createElement("img");
+            img.loading = "lazy";
+            img.src = viewUrl(item);
+            img.alt = item.filename || "结果";
+            card.appendChild(img);
+        }
+
+        const meta = document.createElement("div");
+        meta.className = "result-meta";
+        const size = document.createElement("span");
+        const dims = item.metadata || {};
+        size.textContent = dims.width && dims.height ? `${dims.width} × ${dims.height}` : "";
+
+        if (item.filename) {
+            const name = document.createElement("span");
+            name.textContent = item.filename;
+            name.style.overflow = "hidden";
+            name.style.textOverflow = "ellipsis";
+            name.style.whiteSpace = "nowrap";
+            name.style.flex = "1";
+            name.style.minWidth = "0";
+            const link = document.createElement("a");
+            link.href = viewUrl(item);
+            link.target = "_blank";
+            link.rel = "noopener";
+            link.textContent = "查看原图";
+            meta.append(size, name, link);
+        } else {
+            meta.append(size);
+        }
+        card.appendChild(meta);
+        host.appendChild(card);
+    }
+
+    if (media.length) {
+        // The result is the point of the screen: bring the first card fully
+        // into view instead of leaving it below a long parameter list.
+        const first = host.firstElementChild;
+        const scroll = () => {
+            const target = first ?? label;
+            const box = target?.getBoundingClientRect?.();
+            const mainEl = el("main");
+            if (!box || !mainEl) return;
+            const footer = document.querySelector("footer");
+            // The footer is fixed, so it covers the bottom of the scroll area:
+            // treat its top edge as the real bottom of the visible viewport.
+            const visibleBottom = footer
+                ? footer.getBoundingClientRect().top
+                : window.innerHeight;
+            if (box.top >= 0 && box.bottom <= visibleBottom) return;
+            mainEl.scrollTop += box.top - Math.max(0, (visibleBottom - box.height) / 2);
+        };
+        requestAnimationFrame(scroll);
+        // Images change height once loaded, so re-anchor when that happens.
+        host.querySelectorAll("img, video").forEach((node) => {
+            if (node.complete) return;
+            node.addEventListener("load", scroll, { once: true });
+            node.addEventListener("loadedmetadata", scroll, { once: true });
+        });
+    }
+}
+
+/* ---------------- network ---------------- */
+const basePath = () => {
+    const { pathname } = window.location;
+    const trimmed = pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+    return trimmed.endsWith("/qq_mobile") ? trimmed.slice(0, -11) : "";
+};
+
+async function fetchJson(path, options) {
+    const response = await fetch(`${basePath()}${path}`, options);
+    const text = await response.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+    if (!response.ok) {
+        const message = data?.error?.message || data?.error || text.slice(0, 160);
+        throw new Error(typeof message === "string" ? message : `HTTP ${response.status}`);
+    }
+    return data;
+}
+
+async function loadTemplate() {
+    setStatus(null);
+    try {
+        const query = state.workflow ? `?workflow=${encodeURIComponent(state.workflow)}` : "";
+        const data = await fetchJson(`/qq_mobile/template${query}`);
+        state.workflow = data.workflow;
+        state.parameters = data.parameters || [];
+        el("title").textContent = data.title || "手机界面";
+        render(state.parameters);
+        return true;
+    } catch (error) {
+        el("form").innerHTML = `<div class="empty"><strong>还没有模板</strong>
+            回到 ComfyUI 打开工作流，点顶部「手机界面」按钮即可生成。<br>
+            <span style="opacity:.6">${String(error.message || error)}</span></div>`;
+        return false;
+    }
+}
+
+function setBusy(busy, label) {
+    const button = el("generate");
+    button.disabled = busy;
+    button.innerHTML = busy
+        ? '<span class="spinner"></span><span>生成中</span>'
+        : `<span>${label || "生成"}</span>`;
+    el("cancel").hidden = !busy;
+}
+
+async function generate() {
+    if (state.polling) return;
+    setBusy(true);
+    setStatus("running", "已提交，等待开始…");
+    setProgress(null);
+    renderResults([]);
+
+    try {
+        const data = await fetchJson("/qq_mobile/prompt", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ workflow: state.workflow, values: state.values }),
+        });
+        state.promptId = data.prompt_id || "";
+        if (data.warnings?.length) toast(data.warnings.join("；"));
+        poll();
+    } catch (error) {
+        setBusy(false, "重试");
+        setStatus("error", `提交失败：${error.message}`);
+        setProgress(null);
+    }
+}
+
+function stopPolling() {
+    state.polling = false;
+    clearTimeout(state.timer);
+    setBusy(false, "再生成一张");
+}
+
+async function poll() {
+    state.polling = true;
+    try {
+        const query = `?prompt_id=${encodeURIComponent(state.promptId)}`;
+        const data = await fetchJson(`/qq_mobile/jobs${query}`);
+
+        if (data.status === "running") {
+            setStatus("running", "正在生成…");
+            setProgress(null);
+        } else if (data.status === "pending") {
+            const position = Number.isFinite(data.position) ? data.position + 1 : null;
+            setStatus("running", position ? `排队中，前面还有 ${position} 个任务` : "排队中…");
+            setProgress(null);
+        } else if (data.status === "settling") {
+            // Finished submission whose history entry has not landed yet.
+            setStatus("running", "收尾中…");
+        } else if (data.media?.length) {
+            setStatus("done", "完成");
+            setProgress(1);
+            renderResults(data.media);
+            stopPolling();
+            return;
+        } else if (data.status === "lost") {
+            setStatus("error", "任务已不在队列中，可能已取消或执行失败");
+            setProgress(null);
+            stopPolling();
+            return;
+        } else if (data.completed) {
+            setStatus("done", "完成，但没有输出媒体");
+            setProgress(null);
+            stopPolling();
+            return;
+        } else {
+            setStatus("running", "收尾中…");
+        }
+    } catch (error) {
+        setStatus("error", `查询失败：${error.message}`);
+    }
+    state.timer = setTimeout(poll, POLL_MS);
+}
+
+async function cancel() {
+    try {
+        await fetchJson("/qq_mobile/interrupt", { method: "POST" });
+        toast("已请求取消");
+    } catch (error) {
+        toast(`取消失败：${error.message}`);
+    }
+    stopPolling();
+    setStatus("error", "已取消");
+    setProgress(null);
+}
+
+/* ---------------- boot ---------------- */
+el("generate").addEventListener("click", generate);
+el("cancel").addEventListener("click", cancel);
+el("reload").addEventListener("click", async () => {
+    const ok = await loadTemplate();
+    toast(ok ? "参数已刷新" : "刷新失败");
+});
+
+loadTemplate();
+</script>
+</body>
+</html>

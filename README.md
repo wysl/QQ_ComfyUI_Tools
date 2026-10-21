@@ -266,11 +266,50 @@ Depth Pro 的 `metric_depth` 是三通道批次，可直接接入。1536×1536 �
 
 `颗粒效果` 默认值为数量 0、大小 25、粗糙度 50，另有随机种子保证同一工作流重复执行得到相同颗粒。算法在亮度维度叠加并保留 alpha 通道，建议接在其它调色节点之后。
 
+## 手机界面
+
+把整个工作流收成一个手机竖屏页面：只显示子图**提升出来的参数**和生成结果，不显示节点图。
+
+在 ComfyUI 顶部工具条点「手机界面」（或按 `Alt+Shift+M`）即可：当前页面会把展开后的工作流提交到后端，然后跳到 `/qq_mobile/`。`Shift` 点按钮则在新标签页打开。
+
+### 前提
+
+工作流里要有**子图**（Subgraph），并把想调整的输入提升为子图输入。页面会按 `definitions.subgraphs` 中提升输入的声明顺序、中文 label 和控件类型自动生成表单，所以你以后在子图里增删参数，手机端会跟着变，不需要改配置。
+
+### 参数分组
+
+prompt、宽高、步数这类常改项直接显示；模型文件名、采样器等放进默认收起的「模型与采样」里，避免首屏被下拉框占满。
+
+### 为什么由前端准备模板
+
+`POST /prompt` 只接受展开后的 API JSON。这个展开要经过子图提升、Reroute 透传、Bypass 拼接和虚拟节点，都依赖节点的运行时定义。服务端纯结构化重算并不可靠：在 12 个工作流上实测仍会每个差 4-47 个值（例如 LoRA Stacker 把装饰对象序列化在 `widgets_values` 首位）。
+
+所以由已经在跑官方展开器的浏览器调用一次 `app.graphToPrompt()`，把结果和「每个提升参数写入哪个内部节点输入」一起 POST 到 `/qq_mobile/template`。手机端只覆盖值，不解析子图。模板按工作流路径存在内存里，工作流改动后重新点一次按钮即可刷新。
+
+`node_modules/mobile_graph.py` 里的纯 Python 展开器作为兜底保留，覆盖子图、嵌套子图、Reroute、Bypass 和旧版数组连线，并与前端产出的 prompt 逐字段对齐过（`tests/test_mobile_ui.py`）。
+
+### 接口
+
+| 接口 | 作用 |
+| --- | --- |
+| `POST /qq_mobile/template` | 保存展开后的 prompt 与参数表 |
+| `GET /qq_mobile/template` | 读取参数表（不含 prompt），供表单渲染 |
+| `POST /qq_mobile/prompt` | 覆盖参数值并提交到 `/prompt` |
+| `GET /qq_mobile/jobs` | 查询进度与产出媒体 |
+| `POST /qq_mobile/interrupt` | 取消当前任务 |
+
+提交复用官方 `/prompt`，因此校验、节点替换、队列和 WebSocket 事件的行为与桌面端一致。参数值按 `(执行ID, 输入名)` 写入，未知参数会作为 warning 返回而不是整单失败。
+
+### 状态说明
+
+轮询把「已提交但尚未写入 history」的短暂窗口单独当作「收尾中」，避免任务刚排队就被误判为取消。参数值存在浏览器本地的 `localStorage`，同一工作流下次打开会保留上次填写的值。
+
 ## 兼容性
 
 - 旧工作流里的 `Wysl...` 节点类型不会自动转换成 `QQ...`，需要手动替换。
 - 已删除的 `QQ-LightroomImage` / `QQ-LightroomVideo` 请改用分项调色节点串联。
 - 视频节点通过 `core/video_api.py` 兼容不同 ComfyUI 版本的 VIDEO API。
+- 手机界面需要 ComfyUI 前端带子图支持（1.5x 及以上）与 `/api/userdata` 路由。
 
 ## 许可证
 
