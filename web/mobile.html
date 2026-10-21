@@ -243,6 +243,59 @@ main {
 .picker-row.on { background: rgba(77, 124, 254, .16); color: #b9cbff; }
 .picker-foot { padding: 12px 16px; border-top: 1px solid var(--line); }
 
+/* combo choices: the native <select> popup is a light, browser-drawn box that
+   ignores the page, wraps long model paths and cannot be filtered. */
+.picker-row.combo {
+    display: flex; align-items: center; gap: 10px;
+    white-space: normal;
+    padding: 12px 16px;
+}
+.picker-row.combo .row-main { min-width: 0; flex: 1; }
+.picker-row.combo .row-name {
+    display: block; font-size: 15px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.picker-row.combo .row-dir {
+    display: block; margin-top: 2px; font-size: 11px;
+    color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.picker-row.combo .tick { flex: none; color: var(--accent); font-weight: 700; }
+.picker-search { padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.picker-search input {
+    width: 100%; box-sizing: border-box;
+    padding: 10px 12px;
+    font: inherit; font-size: 15px;
+    color: var(--text); background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 10px;
+}
+.picker-search input:focus { outline: 0; border-color: var(--accent); }
+.picker-empty { padding: 22px 16px; text-align: center; color: var(--muted); font-size: 14px; }
+
+/* the field that opens it */
+.select-field {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; box-sizing: border-box;
+    padding: 13px 14px;
+    font: inherit; font-size: 15px; text-align: left;
+    color: var(--text); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 12px;
+    cursor: pointer;
+}
+.select-field:active { background: var(--surface-2); }
+.select-field .value {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; gap: 1px;
+}
+.select-field .vname {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.select-field .vdir {
+    font-size: 11px; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.select-field .chev { flex: none; color: var(--muted); font-size: 12px; }
+
 /* ---------- fullscreen text editor ---------- */
 .editor {
     position: fixed; inset: 0; z-index: 100;
@@ -716,25 +769,46 @@ function fieldFor(parameter) {
         return wrap;
     }
 
-    if (isCombo(parameter)) {
-        const select = document.createElement("select");
-        select.id = `f-${parameter.key}`;
-        const options = parameter.options || [];
-        for (const option of options) {
-            const node = document.createElement("option");
-            node.value = option;
-            node.textContent = option;
-            select.appendChild(node);
-        }
-        if (!options.includes(value) && value != null) {
-            const node = document.createElement("option");
-            node.value = value;
-            node.textContent = value;
-            select.appendChild(node);
-        }
-        select.value = value ?? options[0] ?? "";
-        select.addEventListener("change", () => commit(select.value));
-        wrap.appendChild(select);
+    if (isCombo(parameter) && (parameter.options || []).length) {
+        const options = [...parameter.options];
+        // A value that is no longer offered (a LoRA that was deleted) stays
+        // selectable, so opening the field cannot silently change the value.
+        if (value != null && !options.includes(value)) options.unshift(value);
+
+        const field = document.createElement("button");
+        field.type = "button";
+        field.className = "select-field";
+        field.id = `f-${parameter.key}`;
+
+        const valueBox = document.createElement("span");
+        valueBox.className = "value";
+        const nameEl = document.createElement("span");
+        nameEl.className = "vname";
+        const dirEl = document.createElement("span");
+        dirEl.className = "vdir";
+        valueBox.append(nameEl, dirEl);
+
+        const chev = document.createElement("span");
+        chev.className = "chev";
+        chev.textContent = "▾";
+
+        const paint = (next) => {
+            const { dir, name } = splitOptionPath(next);
+            nameEl.textContent = name || "（空）";
+            dirEl.textContent = dir;
+            dirEl.hidden = !dir;
+            field.title = String(next ?? "");
+        };
+        paint(value ?? options[0] ?? "");
+
+        field.append(valueBox, chev);
+        field.addEventListener("click", () => {
+            chooseOption(parameter.label || parameter.name, options, state.values[parameter.key], (next) => {
+                commit(next);
+                paint(next);
+            });
+        });
+        wrap.appendChild(field);
         return wrap;
     }
 
@@ -1101,6 +1175,114 @@ function chooseFromList(files, multiple, onPick) {
         if (event.target === overlay) overlay.remove();
     });
     document.body.appendChild(overlay);
+}
+
+/** Split "Qwen2.1\图生图\a.safetensors" into its folder and file name. */
+function splitOptionPath(option) {
+    const text = String(option ?? "");
+    const cut = Math.max(text.lastIndexOf("\\"), text.lastIndexOf("/"));
+    if (cut < 0) return { dir: "", name: text };
+    return { dir: text.slice(0, cut), name: text.slice(cut + 1) };
+}
+
+/**
+ * Choose one value of a dropdown in a sheet that belongs to this page.
+ *
+ * The browser's own <select> popup is drawn by the browser: light background in
+ * a dark UI, long model paths wrapped over several lines, no way to filter, and
+ * it covers the whole screen on Android. Model lists run to hundreds of files,
+ * so this offers a search box as well.
+ */
+function chooseOption(title, options, current, onPick) {
+    const overlay = document.createElement("div");
+    overlay.className = "picker";
+    const sheet = document.createElement("div");
+    sheet.className = "picker-sheet";
+
+    const head = document.createElement("div");
+    head.className = "picker-head";
+    const heading = document.createElement("span");
+    heading.textContent = title || "选择";
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "picker-close";
+    close.textContent = "×";
+    close.addEventListener("click", () => overlay.remove());
+    head.append(heading, close);
+
+    const list = document.createElement("div");
+    list.className = "picker-list";
+
+    // Long model lists are unusable without a filter; short ones do not need it.
+    const searchable = options.length > 12;
+    let query = "";
+    const renderRows = () => {
+        list.replaceChildren();
+        const needle = query.trim().toLowerCase();
+        const matches = needle
+            ? options.filter((option) => String(option).toLowerCase().includes(needle))
+            : options;
+        if (!matches.length) {
+            const empty = document.createElement("div");
+            empty.className = "picker-empty";
+            empty.textContent = "没有匹配项";
+            list.appendChild(empty);
+            return;
+        }
+        for (const option of matches) {
+            const row = document.createElement("button");
+            row.type = "button";
+            row.className = "picker-row combo" + (option === current ? " on" : "");
+            const main = document.createElement("span");
+            main.className = "row-main";
+            const { dir, name } = splitOptionPath(option);
+            const nameEl = document.createElement("span");
+            nameEl.className = "row-name";
+            nameEl.textContent = name;
+            main.appendChild(nameEl);
+            if (dir) {
+                const dirEl = document.createElement("span");
+                dirEl.className = "row-dir";
+                dirEl.textContent = dir;
+                main.appendChild(dirEl);
+            }
+            const tick = document.createElement("span");
+            tick.className = "tick";
+            tick.textContent = option === current ? "✓" : "";
+            row.append(main, tick);
+            row.addEventListener("click", () => {
+                onPick(option);
+                overlay.remove();
+            });
+            list.appendChild(row);
+        }
+    };
+    renderRows();
+
+    sheet.append(head);
+    if (searchable) {
+        const bar = document.createElement("div");
+        bar.className = "picker-search";
+        const input = document.createElement("input");
+        input.type = "search";
+        input.placeholder = "搜索…";
+        input.addEventListener("input", () => {
+            query = input.value;
+            renderRows();
+        });
+        bar.appendChild(input);
+        sheet.appendChild(bar);
+    }
+    sheet.appendChild(list);
+
+    overlay.appendChild(sheet);
+    overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) overlay.remove();
+    });
+    document.body.appendChild(overlay);
+    // Start at the current choice: a 300 entry list should not open at the top.
+    const active = list.querySelector(".picker-row.on");
+    if (active) active.scrollIntoView({ block: "center" });
 }
 
 /* ---------------- fullscreen text editor ---------------- */

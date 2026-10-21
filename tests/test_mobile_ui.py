@@ -448,6 +448,45 @@ class ParameterLayoutTests(unittest.TestCase):
         )
 
 
+class ComboPickerTests(unittest.TestCase):
+    """Dropdowns open a sheet that belongs to the page.
+
+    A native <select> popup is drawn by the browser: light box in a dark UI,
+    long model paths wrapped over several lines, no search, and on Android it
+    takes over the whole screen.
+    """
+
+    def setUp(self):
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    def test_the_field_is_a_page_button_not_a_select(self):
+        block = self.html.split("function fieldFor(parameter)")[1].split("\nfunction ")[0]
+        self.assertNotIn('createElement("select")', block)
+        self.assertIn('className = "select-field"', block)
+        self.assertIn("chooseOption(", block)
+
+    def test_the_picker_has_a_search_box_for_long_lists(self):
+        block = self.html.split("function chooseOption(")[1].split("/* ---------------- fullscreen")[0]
+        self.assertIn("options.length > 12", block)
+        self.assertIn('className = "picker-search"', block)
+        self.assertIn("renderRows()", block)
+
+    def test_a_model_path_shows_its_file_name_first(self):
+        block = self.html.split("function splitOptionPath(")[1].split("\n}")[0]
+        self.assertIn('lastIndexOf("\\\\")', block)
+        self.assertIn('lastIndexOf("/")', block)
+
+    def test_the_current_value_is_marked_and_scrolled_to(self):
+        block = self.html.split("function chooseOption(")[1].split("/* ---------------- fullscreen")[0]
+        self.assertIn('option === current ? " on" : ""', block)
+        self.assertIn("scrollIntoView", block)
+
+    def test_picking_updates_the_stored_value(self):
+        block = self.html.split("function fieldFor(parameter)")[1].split("\nfunction ")[0]
+        self.assertIn("commit(next)", block)
+        self.assertIn("paint(next)", block)
+
+
 class OnDemandPrepareTests(unittest.TestCase):
     """Preparing every workflow on the button press is wasteful.
 
