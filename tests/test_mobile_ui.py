@@ -359,6 +359,62 @@ class ApplyValuesTests(unittest.TestCase):
         self.assertEqual(image["metadata"]["height"], 1024)
 
 
+class ExtraDataTests(unittest.TestCase):
+    """Submission must look like the official frontend's, extra_data included.
+
+    Regression: submitting only ``{prompt, client_id}`` made nodes with an
+    EXTRA_PNGINFO input fail ("extra_pnginfo[0] is not a dict or missing
+    'workflow' key") and dropped the embedded workflow from saved PNGs.
+    """
+
+    def setUp(self):
+        self.ui = _load("mobile_ui_extradata_under_test", _MODULES_DIR / "mobile_ui.py")
+
+    def test_graph_is_sent_as_extra_pnginfo_workflow(self):
+        graph = {"id": "wf-1", "nodes": [{"id": 1, "type": "ShowText|pysssss"}], "links": []}
+        extra = self.ui.build_extra_data("client-1", graph)
+        self.assertIn("extra_pnginfo", extra)
+        self.assertEqual(extra["extra_pnginfo"]["workflow"], graph)
+        self.assertEqual(extra["client_id"], "client-1")
+
+    def test_workflow_id_is_reported_for_job_grouping(self):
+        graph = {"id": "wf-1", "nodes": []}
+        extra = self.ui.build_extra_data("c", graph)
+        self.assertEqual(extra["workflow_metadata"], {"workflow_id": "wf-1"})
+
+    def test_missing_graph_still_submits(self):
+        for graph in (None, {}, {"no_nodes": True}):
+            extra = self.ui.build_extra_data("c", graph)
+            self.assertNotIn("extra_pnginfo", extra)
+            self.assertEqual(extra["client_id"], "c")
+
+    def test_graph_without_id_skips_workflow_metadata(self):
+        extra = self.ui.build_extra_data("c", {"nodes": []})
+        self.assertIn("extra_pnginfo", extra)
+        self.assertNotIn("workflow_metadata", extra)
+
+    def test_template_keeps_the_graph_for_later_submissions(self):
+        state = self.ui.MobileState()
+        graph = {"id": "wf-1", "nodes": [{"id": 1}]}
+        state.put("key", {"prompt": {"1": {}}, "parameters": [], "graph": graph})
+        self.assertEqual(state.get("key")["graph"], graph)
+
+    def test_template_route_payload_reaches_the_state(self):
+        """The /qq_mobile/template handler must forward `graph` into put().
+
+        Regression: put() read ``payload.get("graph")`` but the route built its
+        own dict without the key, so every template silently stored an empty
+        graph and submissions went out without extra_pnginfo.
+        """
+        import re
+
+        source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+        handler = source.split("async def qq_mobile_template")[1].split(
+            "@server.routes.get"
+        )[0]
+        self.assertIn('"graph"', handler, "template handler must forward the graph")
+
+
 class SettleWindowTests(unittest.TestCase):
     """A prompt missing from both queue and history is not instantly dead."""
 

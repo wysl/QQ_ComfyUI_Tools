@@ -181,6 +181,10 @@ async function prepareTemplate({ notify = true } = {}) {
             prompt: output,
             parameters,
             outputs: outputNodes(graph),
+            // Replayed as extra_pnginfo.workflow on submit. Nodes with an
+            // EXTRA_PNGINFO input look themselves up in it by node id, and
+            // SaveImage embeds it in the written file.
+            graph: workflow,
         }),
     });
     if (!response.ok) {
