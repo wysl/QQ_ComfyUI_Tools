@@ -493,6 +493,81 @@ main {
 }
 .reset-btn:active { color: var(--text); background: var(--surface-2); }
 
+/* ---------- batch count ---------- */
+.batch-btn {
+    flex: none; min-width: 52px; padding: 0 10px;
+    font: 600 13px/1 inherit;
+    color: var(--text); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 12px;
+    cursor: pointer;
+}
+.batch-btn:active { background: var(--surface-2); }
+.batch-btn.on { color: #fff; background: var(--accent); border-color: transparent; }
+
+/* ---------- recent results ---------- */.history {
+    display: flex; gap: 8px;
+    overflow-x: auto;
+    padding: 0 0 4px;
+    -webkit-overflow-scrolling: touch;
+}
+.history[hidden] { display: none; }
+.history-item {
+    flex: none; width: 76px;
+    padding: 0; border: 1px solid var(--line); border-radius: 10px;
+    overflow: hidden; background: var(--surface);
+    cursor: pointer;
+}
+.history-item img { display: block; width: 100%; height: 76px; object-fit: cover; }
+.history-item .stamp {
+    display: block; padding: 3px 0 4px;
+    font-size: 10px; color: var(--muted); text-align: center;
+}
+
+/* ---------- fullscreen image viewer ---------- */
+.viewer {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; flex-direction: column;
+    background: #0b0c11;
+}
+.viewer[hidden] { display: none; }
+.viewer-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: calc(10px + var(--safe-top)) 14px 10px;
+    font-size: 12px; color: var(--muted);
+}
+.viewer-bar span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.viewer-close {
+    width: 40px; height: 40px; flex: none;
+    display: grid; place-items: center;
+    border: 1px solid var(--line); border-radius: 10px;
+    background: var(--surface); color: var(--text); cursor: pointer;
+}
+.viewer-stage {
+    flex: 1; min-height: 0;
+    display: grid; place-items: center;
+    padding: 4px;
+}
+.viewer-stage img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.viewer-actions {
+    display: flex; gap: 10px;
+    padding: 12px 14px calc(14px + var(--safe-bottom));
+}
+.viewer-actions button,
+.viewer-actions a {
+    flex: 1;
+    display: grid; place-items: center;
+    min-height: 46px;
+    font: 600 14px/1 inherit;
+    border-radius: 12px; text-decoration: none;
+    border: 1px solid var(--line);
+    color: var(--text); background: var(--surface);
+    cursor: pointer;
+}
+.viewer-actions button {
+    color: #fff; background: var(--accent); border-color: transparent;
+}
+.viewer-actions button:active { background: var(--accent-press); }
+
 .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .switch input { width: 50px; height: 30px; accent-color: var(--accent); }
 
@@ -690,7 +765,26 @@ footer button.ghost:active { background: var(--surface-2); }
     <form id="form" autocomplete="off"></form>
     <div class="section-label" id="resultsLabel" hidden>结果</div>
     <div class="results" id="results"></div>
+    <div class="section-label" id="historyLabel" hidden>最近生成</div>
+    <div class="history" id="history"></div>
 </main>
+
+<div class="viewer" id="viewer" hidden>
+    <div class="viewer-bar">
+        <span id="viewerMeta"></span>
+        <button class="viewer-close" id="viewerClose" type="button" aria-label="关闭">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M6 6l12 12"></path><path d="M18 6L6 18"></path>
+            </svg>
+        </button>
+    </div>
+    <div class="viewer-stage"><img id="viewerImage" alt=""></div>
+    <div class="viewer-actions">
+        <button id="viewerReuse" type="button">用这组参数再跑</button>
+        <a id="viewerOpen" target="_blank" rel="noopener">原图</a>
+    </div>
+</div>
 
 <footer id="footer">
     <div class="progress" id="progress" hidden><div id="progressBar"></div></div>
@@ -706,6 +800,7 @@ footer button.ghost:active { background: var(--surface-2); }
         <span>查看结果</span>
     </button>
     <div class="footer-row">
+        <button class="batch-btn" id="batch" type="button" title="连续生成张数" aria-label="连续生成张数">×1</button>
         <button class="primary" id="generate" type="button"><span>生成</span></button>
         <button class="ghost" id="cancel" type="button" hidden>取消</button>
     </div>
@@ -742,6 +837,10 @@ const state = {
     parameters: [],
     values: {},
     promptId: "",
+    // Every id of the current run: a batch queues several at once.
+    promptIds: [],
+    media: [],
+    batch: 1,
     polling: false,
     timer: null,
 };
@@ -1079,6 +1178,138 @@ function textWrapWithExpand(input, parameter) {
     expand.addEventListener("click", () => openEditor(parameter, input));
     wrap.append(input, expand);
     return wrap;
+}
+
+/* ---------------- recent results ---------------- */
+/**
+ * The last few results, kept on the phone.
+ *
+ * The page is re-opened constantly, and before this the previous image was
+ * gone the moment it was closed. Each entry also keeps the parameter values
+ * that produced it, so "use these settings again" can bring back the same
+ * seed instead of asking the user to remember it.
+ */
+const HISTORY_KEY = "qq-mobile-history";
+const HISTORY_LIMIT = 24;
+
+function loadHistory() {
+    try {
+        const raw = localStorage.getItem(HISTORY_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveHistory(entries) {
+    try {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, HISTORY_LIMIT)));
+    } catch {
+        /* storage full or blocked: history is a convenience */
+    }
+}
+
+/** Record the media of a finished run, newest first. */
+function pushHistory(media) {
+    const seen = new Set();
+    const fresh = [];
+    for (const item of media) {
+        if (!item?.filename) continue;
+        if (item.kind === "text" || item.kind === "audio") continue;
+        const key = `${item.subfolder || ""}/${item.filename}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        fresh.push({
+            f: item.filename,
+            s: item.subfolder || "",
+            t: item.type || "output",
+            w: item.metadata?.width || null,
+            h: item.metadata?.height || null,
+            at: Date.now(),
+            title: el("title").textContent,
+            values: { ...state.values },
+            workflow: state.workflow,
+        });
+    }
+    if (!fresh.length) return;
+    // Keep one entry per file: regenerating the same seed must not duplicate.
+    const previous = loadHistory().filter((entry) => !seen.has(`${entry.s || ""}/${entry.f}`));
+    const entries = [...fresh, ...previous].slice(0, HISTORY_LIMIT);
+    saveHistory(entries);
+    renderHistory();
+}
+
+function renderHistory() {
+    const host = el("history");
+    const label = el("historyLabel");
+    if (!host) return;
+    const entries = loadHistory();
+    host.replaceChildren();
+    host.hidden = !entries.length;
+    label.hidden = !entries.length;
+    for (const entry of entries) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "history-item";
+        const img = document.createElement("img");
+        img.loading = "lazy";
+        img.alt = entry.f;
+        img.src = viewUrl({
+            filename: entry.f,
+            subfolder: entry.s,
+            type: entry.t,
+        });
+        const stamp = document.createElement("span");
+        stamp.className = "stamp";
+        stamp.textContent = relativeTime(Math.round((entry.at || 0) / 1000));
+        button.append(img, stamp);
+        button.addEventListener("click", () => openViewer(entry));
+        host.appendChild(button);
+    }
+}
+
+/** Full-screen view of one past result, with a way back to its settings. */
+let viewerEntry = null;
+
+function openViewer(entry) {
+    viewerEntry = entry;
+    const viewer = el("viewer");
+    el("viewerImage").src = viewUrl({ filename: entry.f, subfolder: entry.s, type: entry.t });
+    el("viewerOpen").href = el("viewerImage").src;
+    const size = entry.w && entry.h ? `${entry.w} × ${entry.h} · ` : "";
+    el("viewerMeta").textContent = `${size}${entry.title || ""} · ${relativeTime(Math.round((entry.at || 0) / 1000))}`;
+    // Only offer a re-run when the values are still meaningful for this form.
+    const sameWorkflow = !entry.workflow || entry.workflow === state.workflow;
+    el("viewerReuse").hidden = !sameWorkflow;
+    viewer.hidden = false;
+}
+
+function closeViewer() {
+    el("viewer").hidden = true;
+    viewerEntry = null;
+}
+
+/** Put a past run's values back into the form and run it again. */
+function reuseEntry() {
+    if (!viewerEntry) return;
+    const values = viewerEntry.values || {};
+    let touched = 0;
+    for (const [key, value] of Object.entries(values)) {
+        if (key in state.values) {
+            state.values[key] = value;
+            touched += 1;
+        }
+    }
+    if (!touched) {
+        toast("这条记录的参数已经不在表单里了");
+        return;
+    }
+    storeValues();
+    render(state.parameters);
+    closeViewer();
+    toast(`已填入 ${touched} 个参数，开始生成`);
+    generate();
 }
 
 /* ---------------- media picker ---------------- */
@@ -2078,6 +2309,7 @@ async function loadTemplate() {
         el("generate").disabled = false;
         setFooterVisible(true);
         render(state.parameters);
+        renderHistory();
         watchTemplate();
         return true;
     } catch (error) {
@@ -2101,6 +2333,51 @@ function setBusy(busy, label) {
     el("cancel").hidden = !busy;
 }
 
+/**
+ * How many images one press should queue.
+ *
+ * On a phone the whole point is to walk away: several variants queued at once,
+ * each with its own seed, then pick the best from the results.
+ */
+const BATCH_KEY = "qq-mobile-batch";
+const BATCH_MAX = 4;
+
+function loadBatch() {
+    try {
+        const value = Number(localStorage.getItem(BATCH_KEY));
+        return Number.isFinite(value) && value >= 1 && value <= BATCH_MAX
+            ? Math.floor(value) : 1;
+    } catch {
+        return 1;
+    }
+}
+
+function renderBatch() {
+    const button = el("batch");
+    button.textContent = `×${state.batch}`;
+    button.classList.toggle("on", state.batch > 1);
+}
+
+function cycleBatch() {
+    state.batch = state.batch >= BATCH_MAX ? 1 : state.batch + 1;
+    try {
+        localStorage.setItem(BATCH_KEY, String(state.batch));
+    } catch {
+        /* not important */
+    }
+    renderBatch();
+}
+
+/** Copy of the values with fresh seeds, for the 2nd..nth image. */
+function nextSeedValues(values) {
+    const copy = { ...values };
+    for (const parameter of state.parameters || []) {
+        if (!isSeedParameter(parameter)) continue;
+        copy[parameter.key] = randomSeed(parameter);
+    }
+    return copy;
+}
+
 async function generate() {
     if (state.polling) return;
     setBusy(true);
@@ -2108,15 +2385,26 @@ async function generate() {
     // Indeterminate until the server reports a step.
     setProgress(null);
     renderResults([]);
+    state.media = [];
 
+    const count = Math.max(1, state.batch || 1);
+    const ids = [];
     try {
-        const data = await fetchJson("/qq_mobile/prompt", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ workflow: state.workflow, values: state.values }),
-        });
-        state.promptId = data.prompt_id || "";
-        if (data.warnings?.length) toast(data.warnings.join("；"));
+        for (let index = 0; index < count; index += 1) {
+            // The first image keeps the form's seed; the rest get new ones, so a
+            // batch is not several copies of the same picture.
+            const values = index === 0 ? { ...state.values } : nextSeedValues(state.values);
+            const data = await fetchJson("/qq_mobile/prompt", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ workflow: state.workflow, values }),
+            });
+            if (data.prompt_id) ids.push(data.prompt_id);
+            if (data.warnings?.length) toast(data.warnings.join("；"));
+        }
+        if (!ids.length) throw new Error("没有返回任务号");
+        state.promptId = ids[ids.length - 1];
+        state.promptIds = ids;
         poll();
     } catch (error) {
         setBusy(false, "重试");
@@ -2131,53 +2419,66 @@ function stopPolling() {
     setBusy(false, "再生成一张");
 }
 
+/** Take in one job's result: done, failed or still running. */
+function absorb(data) {
+    if (data.media?.length) {
+        state.media.push(...data.media);
+        renderResults(state.media);
+        return true;
+    }
+    if (data.status === "failed") {
+        toast(String(data.execution_error || "执行失败").slice(0, 120));
+        return true;
+    }
+    return data.status === "completed"
+        || data.status === "cancelled"
+        || data.status === "lost";
+}
+
 async function poll() {
     state.polling = true;
+    const ids = state.promptIds?.length ? [...state.promptIds] : [state.promptId];
+    const total = ids.length;
     try {
-        const query = `?prompt_id=${encodeURIComponent(state.promptId)}`;
-        const data = await fetchJson(`/qq_mobile/jobs${query}`);
+        const remaining = [];
+        for (const [index, id] of ids.entries()) {
+            const data = await fetchJson(`/qq_mobile/jobs?prompt_id=${encodeURIComponent(id)}`);
+            const label = total > 1 ? `（${index + 1}/${total}）` : "";
+            if (data.status === "pending") {
+                const position = Number.isFinite(data.position) ? data.position + 1 : null;
+                setStatus("running", position
+                    ? `排队中，前面还有 ${position} 个任务${label}`
+                    : `排队中…${label}`);
+                setProgress(null);
+                remaining.push(id);
+                continue;
+            }
+            if (data.status === "in_progress") {
+                setStatus("running", total > 1
+                    ? `正在生成 ${index + 1}/${total}…`
+                    : "正在生成…");
+                setProgress(null);
+                remaining.push(id);
+                continue;
+            }
+            // Finished, failed or cancelled: nothing left to wait for.
+            absorb(data);
+        }
 
-        if (data.status === "in_progress") {
-            setStatus("running", "正在生成…");
-            setProgress(null);
-        } else if (data.status === "pending") {
-            const position = Number.isFinite(data.position) ? data.position + 1 : null;
-            setStatus("running", position ? `排队中，前面还有 ${position} 个任务` : "排队中…");
-            setProgress(null);
-        } else if (data.status === "settling") {
-            // Submitted, but ComfyUI has not listed it yet.
-            setStatus("running", "已提交，等待开始…");
-        } else if (data.media?.length) {
-            setStatus("done", "完成");
-            // No progress bar once finished: a full blue bar reads as
-            // "still loading" next to a completed result.
-            setProgress(undefined);
-            renderResults(data.media);
-            stopPolling();
-            return;
-        } else if (data.status === "failed") {
-            const detail = String(data.execution_error || "").slice(0, 200);
-            setStatus("error", detail ? `执行失败：${detail}` : "执行失败");
+        state.promptIds = remaining;
+        if (!remaining.length) {
+            const produced = state.media.length;
+            if (produced) {
+                setStatus("done", total > 1
+                    ? `完成，共 ${produced} 个结果`
+                    : "完成");
+                pushHistory(state.media);
+            } else {
+                setStatus("error", "完成，但没有输出媒体");
+            }
             setProgress(undefined);
             stopPolling();
             return;
-        } else if (data.status === "cancelled") {
-            setStatus("error", "已取消");
-            setProgress(undefined);
-            stopPolling();
-            return;
-        } else if (data.status === "completed") {
-            setStatus("done", "完成，但没有输出媒体");
-            setProgress(undefined);
-            stopPolling();
-            return;
-        } else if (data.status === "lost") {
-            setStatus("error", "任务已不在队列中，可能已取消或执行失败");
-            setProgress(undefined);
-            stopPolling();
-            return;
-        } else {
-            setStatus("running", "收尾中…");
         }
     } catch (error) {
         setStatus("error", `查询失败：${error.message}`);
@@ -2187,8 +2488,14 @@ async function poll() {
 
 async function cancel() {
     try {
-        await fetchJson("/qq_mobile/interrupt", { method: "POST" });
-        toast("已请求取消");
+        // The prompt id lets the backend drop a job that is still queued;
+        // /interrupt alone only stops the one that is executing.
+        await fetchJson("/qq_mobile/interrupt", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt_id: state.promptId || "" }),
+        });
+        toast("已取消");
     } catch (error) {
         toast(`取消失败：${error.message}`);
     }
@@ -2258,6 +2565,8 @@ async function showPipelinePicker() {
     const results = el("results");
     results.replaceChildren();
     el("resultsLabel").hidden = true;
+    el("history").hidden = true;
+    el("historyLabel").hidden = true;
     el("generate").disabled = true;
     el("switch").hidden = true;
     // The footer only holds actions for a loaded pipeline, and the refresh
@@ -2551,8 +2860,89 @@ function prepareFailureText(error, item) {
     return `「${item.name}」准备失败：${message.slice(0, 60) || "未知原因"}`;
 }
 
+/* ---------------- swipe between pipelines ---------------- */
+/**
+ * Swipe left/right on the form to move to the next/previous pipeline.
+ *
+ * Switching used to be: tap 切换 → find the row → tap. A swipe is the gesture
+ * a phone user reaches for. The gesture is only taken when it is clearly
+ * horizontal and did not start on something that scrolls sideways itself
+ * (media strip, history strip) or on a field being edited.
+ */
+const SWIPE_MIN = 70;
+let swipeStart = null;
+
+function swipeIgnored(target) {
+    return Boolean(target?.closest?.(
+        "input, textarea, select, .media-thumbs, .history, .picker, .viewer, .editor",
+    ));
+}
+
+/** Ordered keys of the pipelines the phone can actually open. */
+async function pipelineOrder() {
+    if (state.order?.length) return state.order;
+    try {
+        const [stateData, libData] = await Promise.all([
+            fetchJson("/qq_mobile/state").catch(() => ({ templates: [] })),
+            fetchJson("/qq_mobile/workflows").catch(() => ({ workflows: [] })),
+        ]);
+        const ready = new Set((stateData.templates || []).map((item) => item.workflow));
+        const keys = [];
+        for (const file of libData.workflows || []) {
+            if (!file.id) continue;
+            const key = `unsaved-${file.id}`;
+            if (ready.has(key)) keys.push(key);
+        }
+        state.order = keys;
+        return keys;
+    } catch {
+        return [];
+    }
+}
+
+async function swipeTo(direction) {
+    const order = await pipelineOrder();
+    const index = order.indexOf(state.workflow);
+    if (index < 0 || order.length < 2) {
+        toast("没有其他可切换的流水线");
+        return;
+    }
+    const key = order[(index + direction + order.length) % order.length];
+    state.workflow = key;
+    markRecent(key);
+    const url = new URL(window.location.href);
+    url.searchParams.set("workflow", key);
+    window.history.replaceState({}, "", url);
+    renderResults([]);
+    await loadTemplate();
+}
+
+function attachSwipe() {
+    const surface = el("main");
+    surface.addEventListener("touchstart", (event) => {
+        if (event.touches.length !== 1 || swipeIgnored(event.target)) {
+            swipeStart = null;
+            return;
+        }
+        const touch = event.touches[0];
+        swipeStart = { x: touch.clientX, y: touch.clientY };
+    }, { passive: true });
+
+    surface.addEventListener("touchend", (event) => {
+        if (!swipeStart) return;
+        const touch = event.changedTouches[0];
+        const dx = touch.clientX - swipeStart.x;
+        const dy = touch.clientY - swipeStart.y;
+        swipeStart = null;
+        if (Math.abs(dx) < SWIPE_MIN || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+        // Swiping left turns to the next pipeline.
+        swipeTo(dx < 0 ? 1 : -1);
+    }, { passive: true });
+}
+
 /* ---------------- boot ---------------- */
 el("generate").addEventListener("click", generate);
+el("batch").addEventListener("click", cycleBatch);
 el("cancel").addEventListener("click", cancel);
 el("reload").addEventListener("click", async () => {
     const ok = await loadTemplate();
@@ -2579,6 +2969,13 @@ el("switch").addEventListener("click", () => {
     state.workflow = "";
     clearTimeout(templateTimer);
     showPipelinePicker();
+});
+
+/* Fullscreen viewer for past results. */
+el("viewerClose").addEventListener("click", closeViewer);
+el("viewerReuse").addEventListener("click", reuseEntry);
+el("viewer").addEventListener("click", (event) => {
+    if (event.target === el("viewer") || event.target.closest(".viewer-stage")) closeViewer();
 });
 
 /* Fullscreen editor wiring. */
@@ -2614,6 +3011,10 @@ el("resultChip").addEventListener("click", () => {
  * there, so a phone can choose which pipeline to run instead of being locked
  * to whichever one the editor happened to have open. */
 const initialWorkflow = new URLSearchParams(location.search).get("workflow");
+state.batch = loadBatch();
+renderBatch();
+renderHistory();
+attachSwipe();
 if (initialWorkflow) {
     state.workflow = initialWorkflow;
     loadTemplate();

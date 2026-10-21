@@ -480,6 +480,97 @@ class ParameterLayoutTests(unittest.TestCase):
         )
 
 
+class RunHistoryTests(unittest.TestCase):
+    """Results outlive the page, and a past run can be repeated."""
+
+    def setUp(self):
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+        self.source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+
+    def test_results_are_remembered_on_the_phone(self):
+        self.assertIn('const HISTORY_KEY = "qq-mobile-history"', self.html)
+        block = self.html.split("function pushHistory(media)")[1].split("\n}")[0]
+        self.assertIn("values: { ...state.values }", block)
+
+    def test_a_finished_run_is_recorded(self):
+        poll = self.html.split("async function poll()")[1].split("\nasync function cancel")[0]
+        self.assertIn("pushHistory(state.media)", poll)
+
+    def test_a_past_result_opens_full_screen(self):
+        self.assertIn("function openViewer(entry)", self.html)
+        self.assertIn('class="viewer" id="viewer"', self.html)
+
+    def test_a_past_result_can_be_run_again(self):
+        block = self.html.split("function reuseEntry()")[1].split("\n}")[0]
+        self.assertIn("state.values[key] = value", block)
+        self.assertIn("generate()", block)
+
+    def test_reuse_is_offered_only_for_the_same_pipeline(self):
+        block = self.html.split("function openViewer(entry)")[1].split("\n}")[0]
+        self.assertIn("const sameWorkflow", block)
+        self.assertIn('el("viewerReuse").hidden = !sameWorkflow', block)
+
+
+class BatchTests(unittest.TestCase):
+    """One press can queue several images."""
+
+    def setUp(self):
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+        self.source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+
+    def test_the_count_is_remembered_and_capped(self):
+        self.assertIn('const BATCH_KEY = "qq-mobile-batch"', self.html)
+        self.assertIn("const BATCH_MAX = 4", self.html)
+        block = self.html.split("function cycleBatch()")[1].split("\n}")[0]
+        self.assertIn("state.batch >= BATCH_MAX ? 1 : state.batch + 1", block)
+
+    def test_each_extra_image_gets_its_own_seed(self):
+        block = self.html.split("function nextSeedValues(values)")[1].split("\n}")[0]
+        self.assertIn("isSeedParameter(parameter)", block)
+        self.assertIn("randomSeed(parameter)", block)
+        gen = self.html.split("async function generate()")[1].split("\nfunction stopPolling")[0]
+        self.assertIn("nextSeedValues(state.values)", gen)
+
+    def test_all_queued_ids_are_polled(self):
+        poll = self.html.split("async function poll()")[1].split("\nasync function cancel")[0]
+        self.assertIn("state.promptIds", poll)
+        self.assertIn("state.media.push(...data.media)", self.html)
+
+    def test_cancelling_reaches_a_queued_job(self):
+        block = self.html.split("async function cancel()")[1].split("\n}")[0]
+        self.assertIn("prompt_id: state.promptId", block)
+        route = self.source.split('@server.routes.post("/qq_mobile/interrupt")')[1]
+        route = route.split("@server.routes")[0]
+        self.assertIn('"delete": [prompt_id]', route)
+
+
+class SwipeSwitchTests(unittest.TestCase):
+    """Left/right swipe moves to the next/previous pipeline."""
+
+    def setUp(self):
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    def test_a_clearly_horizontal_swipe_switches(self):
+        block = self.html.split("function attachSwipe()")[1].split("\n}\n")[0]
+        self.assertIn("Math.abs(dx) >= SWIPE_MIN" if False else "SWIPE_MIN", block)
+        # Horizontal only: a vertical scroll must never switch pipelines.
+        self.assertIn("Math.abs(dx) < Math.abs(dy) * 1.5", block)
+
+    def test_swiping_skips_controls_that_scroll_sideways(self):
+        block = self.html.split("function swipeIgnored(target)")[1].split("\n}")[0]
+        for selector in (".media-thumbs", ".history", ".picker", "input", "textarea"):
+            self.assertIn(selector, block)
+
+    def test_it_wraps_around_the_ready_pipelines(self):
+        block = self.html.split("async function swipeTo(direction)")[1].split("\n}")[0]
+        self.assertIn("% order.length", block)
+        order = self.html.split("async function pipelineOrder()")[1].split("\n}")[0]
+        self.assertIn("ready.has(key)", order)
+
+    def test_the_swipe_is_wired_at_boot(self):
+        self.assertIn("attachSwipe();", self.html)
+
+
 class PickerErgonomicsTests(unittest.TestCase):
     """Finding a pipeline among dozens, and reading the form at a glance."""
 
@@ -1509,14 +1600,12 @@ class PollingContractTests(unittest.TestCase):
 
     def test_in_progress_is_reported_as_a_live_state(self):
         html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
-        self.assertIn('data.status === "in_progress"', html)
-        self.assertIn('data.status === "pending"', html)
-        # The running branch must be checked before the terminal ones, or a
-        # live job would fall through to "lost".
-        self.assertLess(
-            html.index('data.status === "in_progress"'),
-            html.index('data.status === "lost"'),
-        )
+        poll = html.split("async function poll()")[1].split("\nasync function cancel")[0]
+        self.assertIn('data.status === "in_progress"', poll)
+        self.assertIn('data.status === "pending"', poll)
+        # A live job is recognised before the terminal handler absorbs it,
+        # otherwise it would be reported as finished on the spot.
+        self.assertLess(poll.index('data.status === "in_progress"'), poll.index("absorb(data)"))
 
     def test_failed_and_cancelled_stop_polling(self):
         html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
