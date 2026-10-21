@@ -418,6 +418,37 @@ class ExtraDataTests(unittest.TestCase):
         self.assertIn('"graph"', handler, "template handler must forward the graph")
 
 
+class IconSetTests(unittest.TestCase):
+    """Controls draw the same stroked icon set instead of text glyphs."""
+
+    def setUp(self):
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    def test_one_icon_helper_exists(self):
+        self.assertIn("const ICON_PATHS = {", self.html)
+        self.assertIn("function iconSvg(name, size = 18", self.html)
+
+    def test_no_text_glyphs_are_left_in_the_controls(self):
+        for glyph in ('"⤢"', '"⚄"', '"−"', '"×"', '"▾"', '"›"'):
+            self.assertNotIn(f"textContent = {glyph}", self.html, f"{glyph} is still text")
+
+    def test_the_stepper_and_dice_use_icons(self):
+        self.assertIn('minus.innerHTML = iconSvg("minus")', self.html)
+        self.assertIn('plus.innerHTML = iconSvg("plus")', self.html)
+        self.assertIn('dice.innerHTML = iconSvg("dice")', self.html)
+
+    def test_the_two_model_blocks_are_told_apart(self):
+        self.assertIn("function advancedBlock(parameters, sectionName = \"\")", self.html)
+        block = self.html.split("function advancedBlock(")[1].split("\n}")[0]
+        self.assertIn('className = "group-where"', block)
+
+    def test_the_bar_shows_a_sweep_until_a_step_is_reported(self):
+        block = self.html.split("function setProgress(ratio) {")[1].split("\n}")[0]
+        self.assertIn("indeterminate", block)
+        self.assertIn("progress.indeterminate > div", self.html)
+        self.assertIn("@keyframes sweep", self.html)
+
+
 class ParameterLayoutTests(unittest.TestCase):
     """Where each parameter ends up on the phone form.
 
@@ -1578,7 +1609,7 @@ class PhoneUiTests(unittest.TestCase):
 
     def test_text_fields_have_a_tappable_expand_button(self):
         self.assertIn("function textWrapWithExpand", self.html)
-        self.assertIn('expand.textContent = "⤢"', self.html)
+        self.assertIn('expand.innerHTML = iconSvg("expand", 17)', self.html)
         self.assertIn("openEditor(parameter, input)", self.html)
 
     # -- seed ------------------------------------------------------------

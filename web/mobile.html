@@ -113,7 +113,7 @@ main {
 .pipeline-list { display: flex; flex-direction: column; gap: 10px; }
 /* A workflow that exists but has no template yet: listed, but not runnable. */
 .pipeline-row.is-pending { opacity: .55; }
-.pipeline-row.is-pending .pipeline-arrow { font-size: 22px; }
+.pipeline-row.is-pending .pipeline-arrow { opacity: .35; }
 .pipeline-row.is-preparing { opacity: .9; }
 .pipeline-row.is-preparing .pipeline-meta { color: var(--accent); }
 .pipeline-row {
@@ -133,7 +133,7 @@ main {
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .pipeline-meta { font-size: 12px; color: var(--muted); }
-.pipeline-arrow { flex: none; font-size: 20px; color: var(--muted); }
+.pipeline-arrow { flex: none; display: grid; place-items: center; color: var(--muted); }
 /* the picker's own search stays reachable while the list scrolls */
 .pipeline-search {
     position: sticky; top: 0; z-index: 2;
@@ -232,9 +232,10 @@ main {
 .picker-close {
     margin-left: auto;
     width: 32px; height: 32px;
+    display: grid; place-items: center;
     border: 0; border-radius: 8px;
     background: transparent; color: var(--muted);
-    font-size: 22px; line-height: 1; cursor: pointer;
+    line-height: 1; cursor: pointer;
 }
 .picker-list { flex: 1; overflow-y: auto; padding: 6px 0; }
 .picker-row {
@@ -267,7 +268,7 @@ main {
     color: var(--muted);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.picker-row.combo .tick { flex: none; color: var(--accent); font-weight: 700; }
+.picker-row.combo .tick { flex: none; display: grid; place-items: center; color: var(--accent); }
 .picker-row.combo.previewing {
     background: rgba(255, 255, 255, .05);
     box-shadow: inset 0 0 0 1px var(--accent);
@@ -340,7 +341,7 @@ main {
     font-size: 11px; color: var(--muted);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.select-field .chev { flex: none; color: var(--muted); font-size: 12px; }
+.select-field .chev { flex: none; display: grid; place-items: center; color: var(--muted); }
 
 /* ---------- fullscreen text editor ---------- */
 .editor {
@@ -454,6 +455,7 @@ main {
 .stepper { display: flex; align-items: stretch; gap: 8px; }
 .stepper button {
     flex: none; width: 46px;
+    display: grid; place-items: center;
     font-size: 20px; font-weight: 500;
     color: var(--text); background: var(--surface);
     border: 1px solid var(--line); border-radius: var(--radius);
@@ -461,8 +463,23 @@ main {
 }
 .stepper button:active { background: var(--surface-2); }
 .stepper input { text-align: center; min-width: 0; }
-.stepper .dice-btn { font-size: 18px; color: var(--muted); }
+.stepper .dice-btn { color: var(--muted); }
 .stepper .dice-btn:active { color: var(--text); }
+
+.group summary .group-where {
+    margin-left: 8px;
+    font-size: 11px; font-weight: 400;
+    color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* While a job runs the button breathes very slightly, so the screen never
+   looks stuck between two polls. */
+#generate.busy { animation: breathe 2.4s ease-in-out infinite; }
+@keyframes breathe {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(77, 124, 254, 0); }
+    50% { box-shadow: 0 0 0 4px rgba(77, 124, 254, .18); }
+}
 
 /* Reset the whole form back to the values baked into the workflow. */
 .reset-btn {
@@ -554,6 +571,16 @@ main > .section-label[hidden] { display: none; }
 .progress { height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; margin-bottom: 14px; }
 .progress[hidden] { display: none; }
 .progress > div { height: 100%; width: 0; background: var(--accent); transition: width .25s ease; }
+/* No step reported yet: a sweep instead of an empty bar, so a starting job
+   never looks like a frozen screen. */
+.progress.indeterminate > div {
+    width: 34%;
+    animation: sweep 1.15s ease-in-out infinite;
+}
+@keyframes sweep {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(295%); }
+}
 
 /* ---------- footer ---------- */
 footer {
@@ -671,7 +698,13 @@ footer button.ghost:active { background: var(--surface-2); }
         <span class="dot" id="statusDot"></span>
         <span class="status-text" id="statusText"></span>
     </div>
-    <button class="result-chip" id="resultChip" type="button" hidden>↓ 查看结果</button>
+    <button class="result-chip" id="resultChip" type="button" hidden>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path>
+        </svg>
+        <span>查看结果</span>
+    </button>
     <div class="footer-row">
         <button class="primary" id="generate" type="button"><span>生成</span></button>
         <button class="ghost" id="cancel" type="button" hidden>取消</button>
@@ -738,11 +771,29 @@ function setFooterVisible(visible) {
     }
 }
 
+/**
+ * Progress bar.
+ *
+ * ``ratio`` undefined hides it. ``null`` shows the indeterminate sweep used
+ * while the server has not reported a step yet: the old bar simply vanished,
+ * so a queued or starting job looked like a frozen screen.
+ */
 function setProgress(ratio) {
     const bar = el("progress");
-    if (ratio == null) { bar.hidden = true; return; }
+    const fill = el("progressBar");
+    if (ratio === undefined) {
+        bar.hidden = true;
+        bar.classList.remove("indeterminate");
+        return;
+    }
     bar.hidden = false;
-    el("progressBar").style.width = `${Math.max(0, Math.min(1, ratio)) * 100}%`;
+    if (ratio === null) {
+        bar.classList.add("indeterminate");
+        fill.style.width = "";
+        return;
+    }
+    bar.classList.remove("indeterminate");
+    fill.style.width = `${Math.max(0, Math.min(1, ratio)) * 100}%`;
 }
 
 /* ---------------- value persistence ---------------- */
@@ -884,7 +935,7 @@ function fieldFor(parameter) {
 
         const chev = document.createElement("span");
         chev.className = "chev";
-        chev.textContent = "▾";
+        chev.innerHTML = iconSvg("down", 15);
 
         const paint = (next) => {
             const { dir, name } = splitOptionPath(next);
@@ -934,10 +985,16 @@ function fieldFor(parameter) {
         };
 
         const minus = document.createElement("button");
-        minus.type = "button"; minus.textContent = "−";
+        minus.type = "button";
+        minus.innerHTML = iconSvg("minus");
+        minus.title = "减";
+        minus.setAttribute("aria-label", "减");
         minus.addEventListener("click", () => bump(-1));
         const plus = document.createElement("button");
-        plus.type = "button"; plus.textContent = "+";
+        plus.type = "button";
+        plus.innerHTML = iconSvg("plus");
+        plus.title = "加";
+        plus.setAttribute("aria-label", "加");
         plus.addEventListener("click", () => bump(1));
 
         input.addEventListener("input", () => {
@@ -952,7 +1009,7 @@ function fieldFor(parameter) {
             const dice = document.createElement("button");
             dice.type = "button";
             dice.className = "dice-btn";
-            dice.textContent = "⚄";
+            dice.innerHTML = iconSvg("dice");
             dice.title = "随机种子";
             dice.setAttribute("aria-label", "随机种子");
             dice.addEventListener("click", () => {
@@ -1016,7 +1073,7 @@ function textWrapWithExpand(input, parameter) {
     const expand = document.createElement("button");
     expand.type = "button";
     expand.className = "expand-btn";
-    expand.textContent = "⤢";
+    expand.innerHTML = iconSvg("expand", 17);
     expand.title = "全屏编辑";
     expand.setAttribute("aria-label", "全屏编辑");
     expand.addEventListener("click", () => openEditor(parameter, input));
@@ -1093,7 +1150,7 @@ function mediaField(parameter, value, commit) {
                 const remove = document.createElement("button");
                 remove.type = "button";
                 remove.className = "media-remove";
-                remove.textContent = "×";
+                remove.innerHTML = iconSvg("close", 16);
                 remove.setAttribute("aria-label", `移除 ${baseName(name)}`);
                 remove.addEventListener("click", () => {
                     const next = current.filter((entry) => entry !== name);
@@ -1222,7 +1279,7 @@ function chooseFromList(files, multiple, onPick) {
     const close = document.createElement("button");
     close.type = "button";
     close.className = "picker-close";
-    close.textContent = "×";
+    close.innerHTML = iconSvg("close", 18);
     close.addEventListener("click", () => overlay.remove());
     head.appendChild(close);
 
@@ -1307,7 +1364,7 @@ function chooseOption(title, options, current, onPick) {
     const close = document.createElement("button");
     close.type = "button";
     close.className = "picker-close";
-    close.textContent = "×";
+    close.innerHTML = iconSvg("close", 18);
     close.addEventListener("click", () => overlay.remove());
     head.append(heading, close);
 
@@ -1411,7 +1468,7 @@ function chooseOption(title, options, current, onPick) {
             }
             const tick = document.createElement("span");
             tick.className = "tick";
-            tick.textContent = option === current ? "✓" : "";
+            tick.innerHTML = option === current ? iconSvg("check", 18, 2.2) : "";
             row.append(main, tick);
             row.addEventListener("click", () => {
                 if (previewable(option) && previewing !== option) {
@@ -1703,7 +1760,9 @@ function render(parameters) {
         if (showHeadings) form.appendChild(sectionHeading(name, named > 0));
         for (const parameter of primary) form.appendChild(fieldFor(parameter));
         if (advanced.length) {
-            form.appendChild(advancedBlock(advanced));
+            // Only worth naming the block when the form has named sections;
+            // otherwise the title above it already says what it is.
+            form.appendChild(advancedBlock(advanced, showHeadings ? name : ""));
         }
     }
 
@@ -1756,7 +1815,15 @@ function sectionHeading(name, subgraphs) {
 }
 
 /** Collapsed block of rarely-touched model and sampler settings. */
-function advancedBlock(parameters) {
+/**
+ * The collapsed "model & sampler" block.
+ *
+ * A pipeline with two subgraph instances gets two of these, and both used to
+ * read "模型与采样" — sitting one above the other with no way to tell which
+ * belongs to which section. The section name is appended when the form has
+ * named sections at all.
+ */
+function advancedBlock(parameters, sectionName = "") {
     const group = document.createElement("details");
     group.className = "group";
     const summary = document.createElement("summary");
@@ -1766,6 +1833,12 @@ function advancedBlock(parameters) {
     count.className = "count";
     count.textContent = String(parameters.length);
     summary.append(label, count);
+    if (sectionName) {
+        const where = document.createElement("span");
+        where.className = "group-where";
+        where.textContent = sectionName;
+        summary.appendChild(where);
+    }
     const body = document.createElement("div");
     body.className = "body";
     for (const parameter of parameters) body.appendChild(fieldFor(parameter));
@@ -1902,6 +1975,39 @@ const basePath = () => {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Inline icons.
+ *
+ * Buttons used to mix text glyphs (⤢, ⚄, −, +, ▾, ×, ›) with the header's
+ * stroked SVGs: different weights, different vertical centring, and a few of
+ * them render in whatever the platform's fallback font has. One set, one
+ * stroke width, drawn at the size each control asks for.
+ */
+const ICON_PATHS = {
+    expand: '<path d="M9 3H3v6"/><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 15v6h-6"/>',
+    dice: '<rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="15.5" cy="8.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="8.5" cy="15.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="15.5" cy="15.5" r="1.1" fill="currentColor" stroke="none"/>',
+    minus: '<path d="M5 12h14"/>',
+    plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
+    close: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
+    next: '<path d="M9 6l6 6-6 6"/>',
+    down: '<path d="M6 9l6 6 6-6"/>',
+    check: '<path d="M4 12l5 5L20 6"/>',
+    download: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>',
+};
+
+function iconSvg(name, size = 18, strokeWidth = 1.8) {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none"
+        stroke="currentColor" stroke-width="${strokeWidth}" stroke-linecap="round"
+        stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ""}</svg>`;
+}
+
+/** Give a button an icon without losing its text. */
+function setIcon(element, name, size = 18) {
+    element.innerHTML = iconSvg(name, size);
+    element.dataset.icon = "1";
+    return element;
+}
+
 async function fetchJson(path, options) {
     const response = await fetch(`${basePath()}${path}`, options);
     const text = await response.text();
@@ -1986,6 +2092,9 @@ async function loadTemplate() {
 function setBusy(busy, label) {
     const button = el("generate");
     button.disabled = busy;
+    // A slow breathe while a job runs: the screen should not look stuck
+    // between two polls.
+    button.classList.toggle("busy", Boolean(busy));
     button.innerHTML = busy
         ? '<span class="spinner"></span><span>生成中</span>'
         : `<span>${label || "生成"}</span>`;
@@ -1996,6 +2105,7 @@ async function generate() {
     if (state.polling) return;
     setBusy(true);
     setStatus("running", "已提交，等待开始…");
+    // Indeterminate until the server reports a step.
     setProgress(null);
     renderResults([]);
 
@@ -2011,7 +2121,7 @@ async function generate() {
     } catch (error) {
         setBusy(false, "重试");
         setStatus("error", `提交失败：${error.message}`);
-        setProgress(null);
+        setProgress(undefined);
     }
 }
 
@@ -2041,29 +2151,29 @@ async function poll() {
             setStatus("done", "完成");
             // No progress bar once finished: a full blue bar reads as
             // "still loading" next to a completed result.
-            setProgress(null);
+            setProgress(undefined);
             renderResults(data.media);
             stopPolling();
             return;
         } else if (data.status === "failed") {
             const detail = String(data.execution_error || "").slice(0, 200);
             setStatus("error", detail ? `执行失败：${detail}` : "执行失败");
-            setProgress(null);
+            setProgress(undefined);
             stopPolling();
             return;
         } else if (data.status === "cancelled") {
             setStatus("error", "已取消");
-            setProgress(null);
+            setProgress(undefined);
             stopPolling();
             return;
         } else if (data.status === "completed") {
             setStatus("done", "完成，但没有输出媒体");
-            setProgress(null);
+            setProgress(undefined);
             stopPolling();
             return;
         } else if (data.status === "lost") {
             setStatus("error", "任务已不在队列中，可能已取消或执行失败");
-            setProgress(null);
+            setProgress(undefined);
             stopPolling();
             return;
         } else {
@@ -2084,7 +2194,7 @@ async function cancel() {
     }
     stopPolling();
     setStatus("error", "已取消");
-    setProgress(null);
+    setProgress(undefined);
 }
 
 /* ---------------- pipeline picker ---------------- */
@@ -2339,7 +2449,7 @@ function pipelineRow(item, titleCounts) {
 
     const arrow = document.createElement("span");
     arrow.className = "pipeline-arrow";
-    arrow.textContent = item.ready ? "›" : "·";
+    arrow.innerHTML = item.ready ? iconSvg("next", 18) : "";
 
     row.append(main, arrow);
     row.addEventListener("click", async () => {
@@ -2390,7 +2500,7 @@ async function preparePipeline(item, row, meta, arrow) {
         const outcome = await waitForTemplate(item.key);
         if (outcome.state === "ready") return true;
         meta.textContent = "待准备";
-        arrow.textContent = "·";
+        arrow.innerHTML = "";
         if (outcome.state === "failed") {
             toast(prepareFailureText(outcome.error, item));
         } else {
@@ -2399,7 +2509,7 @@ async function preparePipeline(item, row, meta, arrow) {
         return false;
     } catch (error) {
         meta.textContent = "待准备";
-        arrow.textContent = "·";
+        arrow.innerHTML = "";
         toast(`准备失败：${String(error.message || error)}`);
         return false;
     } finally {
