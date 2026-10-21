@@ -416,6 +416,45 @@ class ExtraDataTests(unittest.TestCase):
         self.assertIn('"graph"', handler, "template handler must forward the graph")
 
 
+class NodeModeFilteringTests(unittest.TestCase):
+    """Muted and bypassed nodes must not appear on the phone.
+
+    A bypassed media loader contributes no media, so showing its picker would
+    invite the user to choose a file that is silently ignored. The same applies
+    to a muted subgraph instance or a disabled QQ-多值输入.
+    """
+
+    def setUp(self):
+        self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
+
+    def test_mode_helper_covers_mute_and_bypass(self):
+        body = self.js.split("function isNodeActive(node)")[1].split("\n}")[0]
+        self.assertIn("mode !== 2", body)
+        self.assertIn("mode !== 4", body)
+
+    def test_media_loaders_are_filtered(self):
+        block = self.js.split("function mediaParameters(graph)")[1].split("\nfunction ")[0]
+        self.assertIn("isNodeActive(node)", block)
+
+    def test_multi_primitive_is_filtered(self):
+        block = self.js.split("function multiPrimitiveParameters(graph)")[1].split("\nfunction ")[0]
+        self.assertIn("isNodeActive(node)", block)
+
+    def test_subgraph_instances_are_filtered(self):
+        block = self.js.split("function subgraphInstances()")[1].split("\nfunction ")[0]
+        self.assertIn("isNodeActive(node)", block)
+
+    def test_helper_is_defined_once_and_before_use(self):
+        self.assertEqual(self.js.count("function isNodeActive("), 1)
+        self.assertLess(
+            self.js.index("function isNodeActive("),
+            self.js.index("function subgraphInstances()"),
+        )
+
+    def test_everything_disabled_is_reported_not_rendered_empty(self):
+        self.assertIn("既没有子图，也没有 QQ-多值输入 或媒体加载节点", self.js)
+
+
 class MediaInputTests(unittest.TestCase):
     """Image-to-image needs media, not just numbers.
 

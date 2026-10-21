@@ -58,11 +58,28 @@ const MEDIA_WIDGETS = {
 /** File-name suffix -> media kind, for combo values that are real files. */
 const MEDIA_FILE_RE = /\.(png|jpe?g|webp|bmp|gif|avif|tiff|mp4|webm|mov|mkv|avi|m4v|mp3|wav|flac|ogg|m4a|aac|opus)$/i;
 
+/**
+ * Whether a node will take part in execution.
+ *
+ * LiteGraph modes: 0 ALWAYS, 1 ON_EVENT, 2 NEVER (muted), 3 ON_TRIGGER,
+ * 4 BYPASS. Muted and bypassed nodes are excluded from the prompt, so their
+ * inputs cannot be edited meaningfully from the phone.
+ */
+function isNodeActive(node) {
+    const mode = Number(node?.mode ?? 0);
+    return mode !== 2 && mode !== 4;
+}
+
 /** Subgraph instances on the current canvas. */
 function subgraphInstances() {
     const graph = app.rootGraph ?? app.graph;
     const instances = (graph?._nodes ?? []).filter(
-        (node) => node?.isSubgraphNode?.() && node?.subgraph,
+        (node) =>
+            node?.isSubgraphNode?.() &&
+            node?.subgraph &&
+            // A muted or bypassed instance is not executed, so its promoted
+            // inputs have nothing to write to.
+            isNodeActive(node),
     );
     return { graph, instances };
 }
@@ -124,7 +141,13 @@ function parseMediaState(raw, kind) {
         : [];
 }
 
-/** Media loaders on the canvas, as phone parameters. */
+/** Media loaders on the canvas, as phone parameters.
+ *
+ * Muted (NEVER) and bypassed (BYPASS) nodes are skipped: a bypassed loader
+ * does not contribute media, so offering its picker would let the user choose
+ * a file that never gets used. This mirrors how the frontend drops those nodes
+ * from the prompt altogether.
+ */
 function mediaParameters(graph) {
     const found = [];
     const visit = (container) => {
@@ -135,6 +158,7 @@ function mediaParameters(graph) {
             }
             const spec = MEDIA_WIDGETS[node?.type];
             if (!spec) continue;
+            if (!isNodeActive(node)) continue;
             const parameter = mediaParameter(node, spec, container);
             if (parameter) found.push(parameter);
         }
@@ -165,6 +189,8 @@ function multiPrimitiveParameters(graph) {
             if (node?.type !== MULTI_PRIMITIVE_TYPE && node?.type !== MULTI_PRIMITIVE_LEGACY) {
                 continue;
             }
+            // A muted or bypassed node contributes no values at all.
+            if (!isNodeActive(node)) continue;
             const links = container.links instanceof Map
                 ? [...container.links.values()]
                 : Object.values(container.links ?? {});
