@@ -390,7 +390,138 @@ function groupTitle(instance, total, counters) {
     return count === 1 ? title : `${title} (${count})`;
 }
 
-async function prepareTemplate({ notify = true } = {}) {
+/**
+ * Every workflow saved in the editor's workflow directory.
+ *
+ * The phone cannot expand a workflow by itself (SetNode/GetNode and virtual
+ * nodes only exist in the frontend), so a pipeline has to be prepared here
+ * first. Listing the library means the picker can show all of them.
+ */
+async function listWorkflowFiles() {
+    try {
+        const response = await api.fetchApi("/qq_mobile/workflows");
+        if (!response.ok) return [];
+        const data = await response.json();
+        return Array.isArray(data.workflows) ? data.workflows : [];
+    } catch (error) {
+        console.warn("[QQ Mobile] workflow listing failed:", error);
+        return [];
+    }
+}
+
+/** Keys of the templates the server already holds. */
+async function preparedWorkflowKeys() {
+    try {
+        const response = await api.fetchApi("/qq_mobile/state");
+        if (!response.ok) return new Set();
+        const data = await response.json();
+        return new Set((data.templates || []).map((item) => item.workflow));
+    } catch {
+        return new Set();
+    }
+}
+
+/**
+ * Prepare every saved workflow that is not prepared yet.
+ *
+ * Preparing needs the real graph, so each workflow is loaded, expanded and
+ * then the user's own workflow is put back. That is why this runs only when
+ * the user explicitly asks for it, and why it reports progress.
+ */
+async function prepareAllWorkflows({ notify = true } = {}) {
+    if (batchRunning) return { prepared: 0, skipped: 0 };
+    const files = await listWorkflowFiles();
+    if (!files.length) return { prepared: 0, skipped: 0 };
+
+    const known = await preparedWorkflowKeys();
+    const missing = files.filter((file) => file.id && !known.has(`unsaved-${file.id}`));
+    if (!missing.length) return { prepared: 0, skipped: files.length };
+
+    // Keep what the user was working on, to restore at the end.
+    let restore = null;
+    try {
+        restore = (await app.graphToPrompt()).workflow;
+    } catch {
+        restore = null;
+    }
+
+    batchRunning = true;
+    toast(`正在准备 ${missing.length} 条流水线…`, 8000);
+    let prepared = 0;
+    let notApplicable = 0;
+    const failures = [];
+    try {
+        for (const [index, file] of missing.entries()) {
+            try {
+                const response = await api.fetchApi(
+                    `/api/userdata/workflows%2F${encodeURIComponent(file.path)}`,
+                );
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const workflow = await response.json();
+                await app.loadGraphData(workflow, true, true);
+                await prepareTemplate({
+                    notify: false,
+                    workflowKey: `unsaved-${file.id}`,
+                    title: file.name,
+                    folder: file.folder,
+                });
+                prepared += 1;
+            } catch (error) {
+                const message = String(error?.message || error);
+                // A workflow with nothing to expose is not a failure: it is
+                // simply not a phone pipeline (no subgraph, no 多值输入, no
+                // media loader).
+                if (message.includes("既没有子图")) {
+                    notApplicable += 1;
+                } else {
+                    failures.push(`${file.name}: ${message}`);
+                }
+            }
+            if (notify && index % 5 === 0) {
+                toast(`准备中 ${index + 1}/${missing.length}…`, 4000);
+            }
+        }
+    } finally {
+        batchRunning = false;
+        if (restore) {
+            try {
+                await app.loadGraphData(restore, true, true);
+            } catch (error) {
+                console.warn("[QQ Mobile] could not restore the workflow:", error);
+            }
+        }
+    }
+
+    if (failures.length) {
+        console.warn("[QQ Mobile] workflows that failed to prepare:", failures);
+    }
+    if (notify) {
+        app.extensionManager?.toast?.add?.({
+            severity: failures.length ? "warn" : "success",
+            summary: `已准备 ${prepared} 条流水线`,
+            detail: failures.length
+                ? `${failures.length} 条失败，详见控制台`
+                : `${notApplicable} 条无手机可用参数`,
+            life: failures.length ? 8000 : 4000,
+        });
+    }
+    return { prepared, skipped: files.length - missing.length, notApplicable, failures };
+}
+
+/** Guards against overlapping batch runs. */
+let batchRunning = false;
+
+/** Small progress toast; the page's own toast() lives in the phone HTML. */
+function toast(text, life = 2500) {
+    app.extensionManager?.toast?.add?.({
+        severity: "info",
+        summary: text,
+        life,
+    });
+}
+
+async function prepareTemplate(options = {}) {
+    const { notify = true, workflowKey: keyOverride, title, folder } = options;
     const { graph, instances } = subgraphInstances();
     if (!graph) throw new Error("没有打开的工作流");
 
@@ -448,7 +579,8 @@ async function prepareTemplate({ notify = true } = {}) {
         );
     }
 
-    const workflowKey = app.activeWorkflow?.path
+    const workflowKey = keyOverride
+        || app.activeWorkflow?.path
         || `unsaved-${workflow?.id ?? Date.now()}`;
     const signature = graphSignature(graph);
     const response = await api.fetchApi(TEMPLATE_ENDPOINT, {
@@ -456,7 +588,10 @@ async function prepareTemplate({ notify = true } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
             workflow: workflowKey,
-            title: workflowTitle(),
+            title: title || workflowTitle(),
+            // Folder inside the workflow directory, so the phone can group the
+            // library the way the editor does.
+            folder: folder || "",
             prompt: output,
             parameters,
             outputs: outputNodes(graph),
@@ -532,6 +667,9 @@ function startTemplateWatcher() {
     if (watcherTimer) return;
     watcherTimer = setInterval(async () => {
         if (!app || app.loading_graph || app.configuringGraph) return;
+        // A batch run swaps workflows on purpose; syncing mid-run would push
+        // whichever one happens to be loaded.
+        if (batchRunning) return;
         try {
             const { graph, instances } = subgraphInstances();
             if (!graph) return;
@@ -694,6 +832,11 @@ const openMobile = async (event) => {
         });
     }
 
+    // The picker lists the whole library, which means every workflow needs a
+    // template first. Already-prepared ones are skipped, so this is only
+    // noticeable on the first run or after adding workflows.
+    await prepareAllWorkflows({ notify: true });
+
     const params = new URLSearchParams();
     if (prepared?.workflow) params.set("workflow", prepared.workflow);
     const query = params.toString() ? `?${params.toString()}` : "";
@@ -741,9 +884,9 @@ const attachButton = async (attempt = 0) => {
     settingsGroup.element.before(group.element);
 };
 
-// Expose the entry point before registering, so the phone page and tests keep
+// Expose the entry points before registering, so the phone page and tests keep
 // working even if the UI registration below fails for any reason.
-globalThis.qqMobile = { prepareTemplate };
+globalThis.qqMobile = { prepareTemplate, prepareAllWorkflows };
 
 /**
  * Register the extension defensively.

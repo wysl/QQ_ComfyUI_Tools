@@ -855,14 +855,29 @@ class PipelinePickerTests(unittest.TestCase):
         block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
         self.assertIn("/qq_mobile/state", block)
 
-    def test_rows_are_sorted_newest_first(self):
+    def test_rows_are_sorted_ready_first_then_newest(self):
         block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
+        self.assertIn("a.ready !== b.ready", block)
         self.assertIn("(b.updated || 0) - (a.updated || 0)", block)
 
     def test_tapping_a_row_loads_that_pipeline(self):
-        block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
-        self.assertIn("state.workflow = item.workflow", block)
+        block = self.html.split("function pipelineRow(item, titleCounts)")[1].split("\n}")[0]
+        self.assertIn("state.workflow = item.key", block)
         self.assertIn("replaceState", block)
+
+    def test_tapping_an_unprepared_row_explains_why(self):
+        block = self.html.split("function pipelineRow(item, titleCounts)")[1].split("\n}")[0]
+        self.assertIn("if (!item.ready)", block)
+        self.assertIn("还没有准备", block)
+
+    def test_picker_lists_the_whole_library_not_only_templates(self):
+        block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
+        self.assertIn("/qq_mobile/workflows", block)
+        self.assertIn("/qq_mobile/state", block)
+
+    def test_rows_are_grouped_by_folder(self):
+        block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
+        self.assertIn('className = "folder-head"', block)
 
     def test_empty_state_explains_how_to_prepare_one(self):
         block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
@@ -1099,8 +1114,8 @@ class PhoneUiTests(unittest.TestCase):
         self.assertIn("relativeTime(item.updated)", block)
 
     def test_identical_titles_are_disambiguated(self):
-        block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
-        self.assertIn("shortWorkflowId(item.workflow)", block)
+        block = self.html.split("function pipelineRow(item, titleCounts)")[1].split("\n}")[0]
+        self.assertIn("shortWorkflowId(item.key)", block)
 
 
 class MobilePolishTests(unittest.TestCase):

@@ -101,7 +101,19 @@ main {
 }
 
 /* ---------- pipeline picker ---------- */
+/* Folder headings mirror the editor's workflow sidebar. */
+.folder-head {
+    margin: 18px 0 8px;
+    padding-left: 2px;
+    font-size: 12px; font-weight: 700; letter-spacing: .03em;
+    color: var(--muted);
+    text-transform: none;
+}
+.pipeline-list:first-child .folder-head { margin-top: 0; }
 .pipeline-list { display: flex; flex-direction: column; gap: 10px; }
+/* A workflow that exists but has no template yet: listed, but not runnable. */
+.pipeline-row.is-pending { opacity: .55; }
+.pipeline-row.is-pending .pipeline-arrow { font-size: 22px; }
 .pipeline-row {
     display: flex; align-items: center; gap: 12px;
     width: 100%; padding: 16px 14px;
@@ -1707,67 +1719,141 @@ async function showPipelinePicker() {
     setStatus(null);
 
     let templates = [];
+    let files = [];
     try {
-        const data = await fetchJson("/qq_mobile/state");
-        templates = data.templates || [];
+        // The library listing is what makes every saved pipeline visible; the
+        // template list only tells us which of them are ready to run.
+        const [stateData, libData] = await Promise.all([
+            fetchJson("/qq_mobile/state").catch(() => ({ templates: [] })),
+            fetchJson("/qq_mobile/workflows").catch(() => ({ workflows: [] })),
+        ]);
+        templates = stateData.templates || [];
+        files = libData.workflows || [];
     } catch (error) {
         host.innerHTML = `<div class="empty"><strong>读取流水线失败</strong>
             ${String(error.message || error)}</div>`;
         return;
     }
 
-    if (!templates.length) {
+    // Merge: every saved workflow gets a row. Ones with a template are ready;
+    // the rest are listed as a reminder that they exist but need a pass
+    // through the editor first.
+    const byKey = new Map(templates.map((item) => [item.workflow, item]));
+    const rows = [];
+    for (const file of files) {
+        if (!file.id) continue;
+        const key = `unsaved-${file.id}`;
+        const template = byKey.get(key);
+        byKey.delete(key);
+        rows.push({
+            key,
+            title: template?.title || file.name,
+            folder: file.folder || template?.folder || "",
+            name: file.name,
+            parameters: template?.parameters || 0,
+            ready: Boolean(template),
+            updated: template?.updated || file.updated || 0,
+        });
+    }
+    // Templates with no file behind them (a canvas that was never saved).
+    for (const template of byKey.values()) {
+        rows.push({
+            key: template.workflow,
+            title: template.title || template.workflow,
+            folder: template.folder || "",
+            name: template.title || template.workflow,
+            parameters: template.parameters || 0,
+            ready: true,
+            updated: template.updated || 0,
+        });
+    }
+
+    if (!rows.length) {
         host.innerHTML = `<div class="empty"><strong>还没有可用的流水线</strong>
             在 ComfyUI 里打开工作流，点顶部「手机界面」按钮即可生成。</div>`;
         return;
     }
 
     host.replaceChildren();
-    const list = document.createElement("div");
-    list.className = "pipeline-list";
-    // Newest first: the one just prepared from the editor is what the user
-    // most likely wants.
-    const sorted = [...templates].sort((a, b) => (b.updated || 0) - (a.updated || 0));
-    // Two unsaved workflows are both called "Unsaved Workflow (3)", so titles
-    // that repeat get a short id suffix to tell them apart.
-    const counts = new Map();
-    for (const item of sorted) {
-        const key = item.title || item.workflow;
-        counts.set(key, (counts.get(key) || 0) + 1);
+    // Group by the folder the workflow lives in, the way the editor sidebar
+    // does; root-level files come first.
+    const groups = new Map();
+    for (const row of rows) {
+        if (!groups.has(row.folder)) groups.set(row.folder, []);
+        groups.get(row.folder).push(row);
     }
-    for (const item of sorted) {
-        const row = document.createElement("button");
-        row.type = "button";
-        row.className = "pipeline-row";
+    const folderOrder = [...groups.keys()].sort((a, b) => {
+        if (a === b) return 0;
+        if (!a) return -1;
+        if (!b) return 1;
+        return a.localeCompare(b, "zh");
+    });
 
-        const main = document.createElement("div");
-        main.className = "pipeline-main";
-        const name = document.createElement("span");
-        name.className = "pipeline-name";
-        const title = item.title || item.workflow;
-        name.textContent = (counts.get(title) || 0) > 1
-            ? `${title} · ${shortWorkflowId(item.workflow)}`
-            : title;
-        const meta = document.createElement("span");
-        meta.className = "pipeline-meta";
-        meta.textContent = `${item.parameters || 0} 个参数 · ${relativeTime(item.updated)}`;
-        main.append(name, meta);
+    // Duplicate titles (two "Unsaved Workflow") get a short id suffix.
+    const titleCounts = new Map();
+    for (const row of rows) {
+        titleCounts.set(row.title, (titleCounts.get(row.title) || 0) + 1);
+    }
 
-        const arrow = document.createElement("span");
-        arrow.className = "pipeline-arrow";
-        arrow.textContent = "›";
-
-        row.append(main, arrow);
-        row.addEventListener("click", () => {
-            state.workflow = item.workflow;
-            const url = new URL(window.location.href);
-            url.searchParams.set("workflow", item.workflow);
-            window.history.replaceState({}, "", url);
-            loadTemplate();
+    for (const folder of folderOrder) {
+        const list = document.createElement("div");
+        list.className = "pipeline-list";
+        if (folderOrder.length > 1) {
+            const head = document.createElement("div");
+            head.className = "folder-head";
+            head.textContent = folder || "未分组";
+            list.appendChild(head);
+        }
+        const items = groups.get(folder).sort((a, b) => {
+            if (a.ready !== b.ready) return a.ready ? -1 : 1;
+            return (b.updated || 0) - (a.updated || 0);
         });
-        list.appendChild(row);
+        for (const item of items) {
+            list.appendChild(pipelineRow(item, titleCounts));
+        }
+        host.appendChild(list);
     }
-    host.appendChild(list);
+}
+
+/** One row in the pipeline picker. */
+function pipelineRow(item, titleCounts) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "pipeline-row" + (item.ready ? "" : " is-pending");
+
+    const main = document.createElement("div");
+    main.className = "pipeline-main";
+    const name = document.createElement("span");
+    name.className = "pipeline-name";
+    name.textContent = (titleCounts.get(item.title) || 0) > 1
+        ? `${item.title} · ${shortWorkflowId(item.key)}`
+        : item.title;
+    const meta = document.createElement("span");
+    meta.className = "pipeline-meta";
+    meta.textContent = item.ready
+        ? `${item.parameters} 个参数 · ${relativeTime(item.updated)}`
+        : "待准备";
+    main.append(name, meta);
+
+    const arrow = document.createElement("span");
+    arrow.className = "pipeline-arrow";
+    arrow.textContent = item.ready ? "›" : "·";
+
+    row.append(main, arrow);
+    row.addEventListener("click", () => {
+        if (!item.ready) {
+            // Neutral wording: some of these have no phone-usable inputs at
+            // all, so promising that opening them will help would be wrong.
+            toast(`「${item.name}」还没有准备，请在 ComfyUI 里点一次「手机界面」`);
+            return;
+        }
+        state.workflow = item.key;
+        const url = new URL(window.location.href);
+        url.searchParams.set("workflow", item.key);
+        window.history.replaceState({}, "", url);
+        loadTemplate();
+    });
+    return row;
 }
 
 /* ---------------- boot ---------------- */
