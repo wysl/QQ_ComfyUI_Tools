@@ -416,6 +416,36 @@ class ExtraDataTests(unittest.TestCase):
         self.assertIn('"graph"', handler, "template handler must forward the graph")
 
 
+class TitleTests(unittest.TestCase):
+    """The page title is the pipeline name, never a subgraph's name.
+
+    A subgraph instance is usually titled after the stage it wraps ("Text to
+    Image (Z-Image-Turbo)"), and using that as the page title made the whole
+    pipeline look like that one stage.
+    """
+
+    def setUp(self):
+        self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+        self.title_fn = self.js.split("function workflowTitle()")[1].split("\n}\n")[0]
+
+    def test_title_comes_from_the_document_title(self):
+        self.assertIn("document.title", self.title_fn)
+        # The frontend renders "<workflow> - ComfyUI".
+        self.assertIn("ComfyUI", self.title_fn)
+
+    def test_suffix_asterisk_and_extension_are_stripped(self):
+        self.assertIn('replace(/\\s+-\\s+ComfyUI\\s*$/i', self.title_fn)
+        self.assertIn('replace(/^\\*+/, "")', self.title_fn)
+        self.assertIn('replace(/\\.json$/i', self.title_fn)
+
+    def test_subgraph_title_is_not_used_as_a_fallback(self):
+        self.assertNotIn("subgraph", self.title_fn.replace("subgraph instance", ""))
+
+    def test_page_keeps_the_tab_title_in_sync(self):
+        self.assertIn("document.title = data.title", self.html)
+
+
 class NodeModeFilteringTests(unittest.TestCase):
     """Muted and bypassed nodes must not appear on the phone.
 

@@ -1287,6 +1287,8 @@ async function loadTemplate() {
         state.workflow = data.workflow;
         state.parameters = data.parameters || [];
         el("title").textContent = data.title || "手机界面";
+        // Keep the browser tab in sync with the pipeline name.
+        document.title = data.title || "手机界面";
         render(state.parameters);
         return true;
     } catch (error) {

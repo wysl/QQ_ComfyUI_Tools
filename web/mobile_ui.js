@@ -482,14 +482,47 @@ async function prepareTemplate({ notify = true } = {}) {
     return { workflow: workflowKey, parameters: parameters.length, unbound };
 }
 
-/** Human name for the current workflow, falling back to its file name. */
+/**
+ * Name shown as the phone page title: the *workflow* name, not a subgraph's.
+ *
+ * A subgraph instance is often titled by the pipeline stage it wraps ("Text to
+ * Image (Z-Image-Turbo)"), which reads as if that stage were the whole
+ * pipeline. So the workflow's own name is preferred, and a subgraph title is
+ * never used as a fallback.
+ *
+ * The document title is the most dependable source: the frontend renders it as
+ * ``<workflow name> - ComfyUI`` (prefixed with ``*`` while unsaved), and it is
+ * exactly the name the user sees on the canvas tab. The workflow object itself
+ * carries no name field, and ``app.activeWorkflow`` is not populated in every
+ * frontend version.
+ */
 function workflowTitle() {
+    const cleaned = (value) =>
+        String(value || "")
+            .replace(/\s+-\s+ComfyUI\s*$/i, "")
+            .replace(/^\*+/, "")
+            .replace(/\.json$/i, "")
+            .trim();
+
+    // 1. What the browser tab shows: "<workflow> - ComfyUI".
+    const fromDocument = cleaned(document.title);
+    // "ComfyUI" alone means no workflow is open.
+    if (fromDocument && fromDocument.toLowerCase() !== "comfyui") {
+        return fromDocument;
+    }
+
+    // 2. An explicitly saved file name, when the frontend exposes one.
     const active = app.activeWorkflow;
-    const name = active?.filename || active?.name || "";
-    if (name) return String(name).replace(/\.json$/i, "");
-    const subgraph = (app.rootGraph ?? app.graph)?._nodes
-        ?.find((node) => node?.isSubgraphNode?.());
-    return subgraph?.subgraph?.name || "当前工作流";
+    const fromFile = cleaned(active?.filename || active?.name || "");
+    if (fromFile) return fromFile;
+
+    // 3. The graph's own name, if a package set one.
+    const graph = app.rootGraph ?? app.graph;
+    const fromGraph = cleaned(graph?.name || graph?.title || "");
+    if (fromGraph) return fromGraph;
+
+    // 4. Nothing usable: say so instead of borrowing a stage name.
+    return "手机界面";
 }
 
 const openMobile = async (event) => {
