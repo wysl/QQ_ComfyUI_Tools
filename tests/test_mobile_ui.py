@@ -415,6 +415,41 @@ class ExtraDataTests(unittest.TestCase):
         self.assertIn('"graph"', handler, "template handler must forward the graph")
 
 
+class MultiSubgraphTests(unittest.TestCase):
+    """One pipeline may hold several subgraph instances.
+
+    Distinct instances share promoted-input names ("prompt", "seed"), so the
+    template has to keep them apart by instance id and the page has to render
+    them under separate headings.
+    """
+
+    def setUp(self):
+        self.source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+        self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    def test_parameters_are_keyed_per_instance(self):
+        # Keys carry the execution id, so two instances cannot collide.
+        self.assertIn("key: `${instance.id}:${entry.name}`", self.js)
+
+    def test_every_instance_is_walked(self):
+        self.assertIn("for (const instance of instances)", self.js)
+
+    def test_each_parameter_carries_a_group(self):
+        self.assertIn("group,", self.js)
+        self.assertIn("groupTitle(instance", self.js)
+
+    def test_backend_preserves_the_group_field(self):
+        self.assertIn('"group": entry.get("group")', self.source)
+
+    def test_page_renders_sections_per_group(self):
+        self.assertIn("sectionHeading(", self.html)
+        self.assertIn("sections.set(name", self.html)
+
+    def test_headings_only_appear_when_there_are_several_groups(self):
+        self.assertIn("const showHeadings = order.length > 1;", self.html)
+
+
 class PollingContractTests(unittest.TestCase):
     """The poller must use endpoints that actually know about running jobs.
 

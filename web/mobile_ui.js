@@ -138,6 +138,23 @@ function outputNodes(graph) {
         .map((node) => String(node.id));
 }
 
+/**
+ * Display title for one subgraph instance's parameter group.
+ *
+ * The user's own node title wins (that is what they see on the canvas), then
+ * the subgraph's name. *counters* is per-build state so repeated calls produce
+ * stable titles instead of drifting suffixes.
+ */
+function groupTitle(instance, total, counters) {
+    const title = String(
+        instance.title || instance.subgraph?.name || `子图 ${instance.id}`,
+    ).trim();
+    if (total <= 1) return title;
+    const count = (counters.get(title) ?? 0) + 1;
+    counters.set(title, count);
+    return count === 1 ? title : `${title} (${count})`;
+}
+
 async function prepareTemplate({ notify = true } = {}) {
     const { graph, instances } = subgraphInstances();
     if (!graph) throw new Error("没有打开的工作流");
@@ -146,7 +163,14 @@ async function prepareTemplate({ notify = true } = {}) {
     const { output, workflow } = await app.graphToPrompt();
     const parameters = [];
     const unbound = [];
+    // A pipeline often holds several subgraph instances, frequently of the
+    // same definition. Their promoted inputs share names ("prompt", "seed"),
+    // so each group needs a title or the form becomes ambiguous.
+    const groups = [];
+    const counters = new Map();
     for (const instance of instances) {
+        const group = groupTitle(instance, instances.length, counters);
+        groups.push(group);
         for (const entry of promotedTargets(instance)) {
             if (!entry.targets.length) unbound.push(entry.label || entry.name);
             parameters.push({
@@ -157,6 +181,7 @@ async function prepareTemplate({ notify = true } = {}) {
                 value: entry.value,
                 options: entry.options,
                 targets: entry.targets,
+                group,
                 ...widgetBounds(instance, entry.name),
             });
         }

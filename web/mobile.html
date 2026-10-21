@@ -76,6 +76,24 @@ main {
     padding: 14px 14px calc(104px + var(--safe-bottom));
 }
 
+/* ---------- per-subgraph sections ---------- */
+.section-head {
+    display: flex; align-items: center; gap: 8px;
+    margin: 4px 0 12px;
+    padding-bottom: 7px;
+    border-bottom: 1px solid var(--line);
+}
+.section-head + .field { margin-top: 0; }
+.section-title {
+    font-size: 14px; font-weight: 700; color: var(--text);
+    letter-spacing: .01em;
+}
+.section-head::before {
+    content: ""; flex: none;
+    width: 3px; height: 14px; border-radius: 2px;
+    background: var(--accent);
+}
+
 /* ---------- fields ---------- */
 .field { margin-bottom: 16px; }
 .field > label {
@@ -471,14 +489,23 @@ const isAdvanced = (parameter) => {
     return ADVANCED_NAMES.has(String(parameter.name || ""));
 };
 
+/**
+ * Render the form.
+ *
+ * A pipeline may hold several subgraph instances (often of the same
+ * definition), whose promoted inputs share names. Each instance therefore
+ * becomes its own titled section with its own collapsed "模型与采样" block,
+ * so two "prompt" fields can never be confused for one another.
+ */
 function render(parameters) {
     const form = el("form");
     form.replaceChildren();
     const stored = loadStoredValues();
     const seen = new Set();
 
-    const primary = [];
-    const advanced = [];
+    // Preserve first-seen order of group names.
+    const order = [];
+    const sections = new Map();
     for (const parameter of parameters) {
         if (parameter.hidden) continue;
         seen.add(parameter.key);
@@ -487,26 +514,25 @@ function render(parameters) {
         } else if (state.values[parameter.key] === undefined) {
             state.values[parameter.key] = parameter.value;
         }
-        (isAdvanced(parameter) ? advanced : primary).push(parameter);
+        const name = String(parameter.group ?? "");
+        if (!sections.has(name)) {
+            sections.set(name, { primary: [], advanced: [] });
+            order.push(name);
+        }
+        const bucket = sections.get(name);
+        (isAdvanced(parameter) ? bucket.advanced : bucket.primary).push(parameter);
     }
 
-    for (const parameter of primary) form.appendChild(fieldFor(parameter));
+    const named = order.filter((name) => name).length;
+    const showHeadings = order.length > 1;
 
-    if (advanced.length) {
-        const group = document.createElement("details");
-        group.className = "group";
-        const summary = document.createElement("summary");
-        const label = document.createElement("span");
-        label.textContent = "模型与采样";
-        const count = document.createElement("span");
-        count.className = "count";
-        count.textContent = String(advanced.length);
-        summary.append(label, count);
-        const body = document.createElement("div");
-        body.className = "body";
-        for (const parameter of advanced) body.appendChild(fieldFor(parameter));
-        group.append(summary, body);
-        form.appendChild(group);
+    for (const name of order) {
+        const { primary, advanced } = sections.get(name);
+        if (showHeadings) form.appendChild(sectionHeading(name, named > 0));
+        for (const parameter of primary) form.appendChild(fieldFor(parameter));
+        if (advanced.length) {
+            form.appendChild(advancedBlock(advanced));
+        }
     }
 
     // Drop remembered values for parameters that no longer exist.
@@ -519,6 +545,35 @@ function render(parameters) {
         form.innerHTML = `<div class="empty"><strong>这个工作流没有可调参数</strong>
             在 ComfyUI 里把子图的输入提升为参数后，重新点击「手机界面」。</div>`;
     }
+}
+
+/** Heading for one subgraph instance's parameter section. */
+function sectionHeading(name, subgraphs) {
+    const heading = document.createElement("div");
+    heading.className = "section-head";
+    const title = document.createElement("span");
+    title.className = "section-title";
+    title.textContent = name || (subgraphs ? "未命名子图" : "参数");
+    heading.appendChild(title);
+    return heading;
+}
+
+/** Collapsed block of rarely-touched model and sampler settings. */
+function advancedBlock(parameters) {
+    const group = document.createElement("details");
+    group.className = "group";
+    const summary = document.createElement("summary");
+    const label = document.createElement("span");
+    label.textContent = "模型与采样";
+    const count = document.createElement("span");
+    count.className = "count";
+    count.textContent = String(parameters.length);
+    summary.append(label, count);
+    const body = document.createElement("div");
+    body.className = "body";
+    for (const parameter of parameters) body.appendChild(fieldFor(parameter));
+    group.append(summary, body);
+    return group;
 }
 
 /* ---------------- results ---------------- */
