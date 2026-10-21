@@ -1257,6 +1257,52 @@ const isAdvanced = (parameter) => {
 };
 
 /**
+ * Shared prefix of a label such as "LoRA_1_名称" -> "LoRA_1".
+ *
+ * Multi-value and promoted inputs are labelled by row, so a LoRA's name and
+ * weight carry the same prefix and differ only in the last segment.
+ */
+const labelStem = (label) => {
+    const text = String(label || "").trim();
+    const cut = Math.max(text.lastIndexOf("_"), text.lastIndexOf(" "));
+    return cut > 0 ? text.slice(0, cut).trim() : "";
+};
+
+/**
+ * Keep a model picker next to the number it belongs to.
+ *
+ * A LoRA row reads "LoRA_1_名称 / LoRA_1_权重". The name is a combo full of
+ * *.safetensors, so on its own it is filed under 模型与采样 — while its weight
+ * stays on the main form. The result reads as "0.8" with no clue which LoRA it
+ * belongs to, and the LoRA can only be chosen after expanding a block that is
+ * collapsed by default. When a sibling shares the prefix, the name is the
+ * primary choice, so it moves up and sits right before its weight.
+ */
+function pairModelPickers(sections) {
+    for (const bucket of sections.values()) {
+        const primaryStems = new Map();
+        for (const parameter of bucket.primary) {
+            const stem = labelStem(parameter.label);
+            if (stem && !primaryStems.has(stem)) primaryStems.set(stem, parameter);
+        }
+        if (!primaryStems.size) continue;
+        const promoted = [];
+        bucket.advanced = bucket.advanced.filter((parameter) => {
+            const stem = labelStem(parameter.label);
+            const sibling = stem ? primaryStems.get(stem) : null;
+            if (!sibling) return true;
+            promoted.push({ parameter, sibling });
+            return false;
+        });
+        for (const { parameter, sibling } of promoted) {
+            const index = bucket.primary.indexOf(sibling);
+            if (index < 0) continue;
+            bucket.primary.splice(index, 0, parameter);
+        }
+    }
+}
+
+/**
  * Render the form.
  *
  * A pipeline may hold several subgraph instances (often of the same
@@ -1289,6 +1335,9 @@ function render(parameters) {
         const bucket = sections.get(name);
         (isAdvanced(parameter) ? bucket.advanced : bucket.primary).push(parameter);
     }
+
+    // A LoRA's name belongs next to its weight, not in the collapsed block.
+    pairModelPickers(sections);
 
     const named = order.filter((name) => name).length;
     const showHeadings = order.length > 1;

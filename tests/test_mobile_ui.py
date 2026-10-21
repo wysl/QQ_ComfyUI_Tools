@@ -417,6 +417,37 @@ class ExtraDataTests(unittest.TestCase):
         self.assertIn('"graph"', handler, "template handler must forward the graph")
 
 
+class ParameterLayoutTests(unittest.TestCase):
+    """Where each parameter ends up on the phone form.
+
+    Model file pickers are collapsed, but a LoRA's name is only hidden there
+    by accident: its weight is on the main form, so the user sees "0.8" without
+    knowing which LoRA it applies to.
+    """
+
+    def setUp(self):
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    def test_label_stem_strips_the_last_segment(self):
+        self.assertIn('const labelStem = (label) => {', self.html)
+        block = self.html.split("const labelStem = (label) => {")[1].split("};")[0]
+        self.assertIn("text.lastIndexOf(\"_\")", block)
+
+    def test_a_named_model_picker_is_paired_with_its_weight(self):
+        block = self.html.split("function pairModelPickers(sections)")[1].split("\n}\n")[0]
+        # It moves the picker into primary, right before the sibling.
+        self.assertIn("bucket.primary.splice(index, 0, parameter)", block)
+        self.assertIn("labelStem(parameter.label)", block)
+
+    def test_pairing_runs_after_bucketing(self):
+        block = self.html.split("function render(parameters)")[1].split("const named")[0]
+        self.assertIn("pairModelPickers(sections)", block)
+        self.assertLess(
+            block.index("isAdvanced(parameter)"),
+            block.index("pairModelPickers(sections)"),
+        )
+
+
 class OnDemandPrepareTests(unittest.TestCase):
     """Preparing every workflow on the button press is wasteful.
 
