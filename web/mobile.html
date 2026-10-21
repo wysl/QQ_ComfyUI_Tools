@@ -2,7 +2,10 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- No maximum-scale: pinch-zoom has to stay available to inspect a generated
+     image in detail. iOS instead zooms on its own when a focused field is
+     smaller than 16px, which is why form controls get an explicit 16px. -->
 <meta name="theme-color" content="#12131a">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -299,7 +302,13 @@ main {
 .field select {
     width: 100%;
     padding: 12px 13px;
-    font: inherit;
+    /* 16px, not the inherited 15px: iOS Safari zooms the whole page when a
+       focused control is smaller than that, which feels like a broken layout.
+       Written as longhands because `font: 16px/1.5 inherit` is invalid CSS and
+       would be dropped, leaving the browser default. */
+    font-size: 16px;
+    line-height: 1.5;
+    font-family: inherit;
     color: var(--text);
     background: var(--surface);
     border: 1px solid var(--line);
@@ -1200,7 +1209,9 @@ function viewUrl(item) {
         type: item.type || "output",
     });
     if (item.format) params.set("format", item.format);
-    return `/view?${params.toString()}`;
+    // Prefix the mount path: behind a reverse proxy serving ComfyUI under a
+    // subpath, a bare "/view" points outside the mount and 404s.
+    return `${basePath()}/view?${params.toString()}`;
 }
 
 function renderResults(media) {

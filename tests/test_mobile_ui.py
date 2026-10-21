@@ -1012,5 +1012,104 @@ class TemplateStateTests(unittest.TestCase):
         self.assertIsNone(state.get("a"))
 
 
+class MobilePolishTests(unittest.TestCase):
+    """Small correctness details that break real phones."""
+
+    def setUp(self):
+        self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    def test_result_urls_respect_a_reverse_proxy_subpath(self):
+        # A bare "/view" escapes the mount and 404s under e.g. /comfyui/.
+        block = self.html.split("function viewUrl(item)")[1].split("\nfunction ")[0]
+        self.assertIn("basePath()", block)
+
+    def test_form_controls_use_16px_to_stop_ios_zoom(self):
+        block = self.html.split('.field input[type="number"],')[1].split("}")[0]
+        self.assertIn("font-size: 16px", block)
+        # The shorthand with `inherit` as family is invalid and gets dropped.
+        # Matched with the terminator so the explanatory comment does not count.
+        self.assertNotIn("font: 16px/1.5 inherit;", self.html)
+
+    def test_pinch_zoom_is_not_disabled(self):
+        # Check the meta tag itself: the word also appears in a comment.
+        meta = self.html.split('name="viewport"')[1].split(">")[0]
+        self.assertNotIn("maximum-scale", meta)
+        self.assertNotIn("user-scalable=no", meta)
+
+    def test_watcher_accepts_workflows_without_a_subgraph(self):
+        block = self.js.split("function startTemplateWatcher")[1].split("\nfunction ")[0]
+        self.assertIn("hasMultiPrimitive(graph)", block)
+        self.assertIn("hasMediaLoader(graph)", block)
+        self.assertNotIn("if (!instances.length) return;", block)
+
+
+class TemplatePersistenceTests(unittest.TestCase):
+    """Templates are mirrored to disk so a restart keeps the picker usable."""
+
+    def setUp(self):
+        import tempfile
+
+        self.ui = _load("mobile_ui_persist_under_test", _MODULES_DIR / "mobile_ui.py")
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.store = pathlib.Path(self.tempdir.name) / "QQ_ComfyUI_Tools" / "mobile_templates.json"
+        # Redirect the store path without touching the real user directory.
+        self.ui._store_path = lambda: str(self.store)
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def test_put_then_save_then_load_round_trips(self):
+        first = self.ui.MobileState()
+        first.put("a", {"prompt": {"1": {"class_type": "X", "inputs": {}}},
+                        "parameters": [{"key": "k"}], "graph": {"id": "g", "nodes": []}})
+        first.save_now()
+        self.assertTrue(self.store.exists())
+
+        second = self.ui.MobileState()
+        restored = second.load()
+        self.assertEqual(restored, 1)
+        record = second.get("a")
+        self.assertIsNotNone(record)
+        self.assertEqual(record["parameters"], [{"key": "k"}])
+        self.assertEqual(record["graph"], {"id": "g", "nodes": []})
+
+    def test_missing_file_loads_nothing(self):
+        state = self.ui.MobileState()
+        self.assertEqual(state.load(), 0)
+
+    def test_corrupt_file_is_ignored(self):
+        self.store.parent.mkdir(parents=True, exist_ok=True)
+        self.store.write_text("{not json", encoding="utf-8")
+        state = self.ui.MobileState()
+        self.assertEqual(state.load(), 0)
+        self.assertEqual(state.templates, {})
+
+    def test_stale_records_are_not_restored(self):
+        first = self.ui.MobileState()
+        record = first.put("old", {"prompt": {"1": {}}, "parameters": []})
+        record["updated"] -= self.ui.TEMPLATE_MAX_AGE_SECONDS + 10
+        first.save_now()
+        second = self.ui.MobileState()
+        self.assertEqual(second.load(), 0)
+
+    def test_store_is_capped(self):
+        state = self.ui.MobileState()
+        for index in range(self.ui.TEMPLATE_STORE_LIMIT + 8):
+            state.put(f"wf{index}", {"prompt": {"1": {}}, "parameters": []})
+        state.save_now()
+        saved = json.loads(self.store.read_text(encoding="utf-8"))
+        self.assertEqual(len(saved["templates"]), self.ui.TEMPLATE_STORE_LIMIT)
+
+    def test_write_is_atomic_via_temp_file(self):
+        source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+        block = source.split("def save_now(self)")[1].split("\n    def ")[0]
+        self.assertIn("os.replace(temp, path)", block)
+
+    def test_module_restores_the_cache_on_import(self):
+        source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+        self.assertIn("STATE.load()", source)
+
+
 if __name__ == "__main__":
     unittest.main()

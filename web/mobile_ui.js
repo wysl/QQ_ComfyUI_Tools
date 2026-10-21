@@ -535,7 +535,13 @@ function startTemplateWatcher() {
         try {
             const { graph, instances } = subgraphInstances();
             if (!graph) return;
-            if (!instances.length) return;
+            // Workflows may have no subgraph at all and still be supported
+            // (QQ-多值输入 or media loaders only), so do not require one here.
+            const usable =
+                instances.length > 0 ||
+                hasMultiPrimitive(graph) ||
+                hasMediaLoader(graph);
+            if (!usable) return;
             // Structural check only: cheap enough to run every tick.
             if (graphSignature(graph) === lastPushedSignature) return;
             await prepareTemplate({ notify: false });
@@ -543,6 +549,45 @@ function startTemplateWatcher() {
             console.warn("[QQ Mobile] template auto-sync skipped:", error);
         }
     }, 2500);
+}
+
+/** Cheap existence checks, without building the parameter list. */
+function hasMultiPrimitive(graph) {
+    let found = false;
+    const visit = (container) => {
+        for (const node of container?._nodes ?? []) {
+            if (found) return;
+            if (node?.subgraph) {
+                visit(node.subgraph);
+                continue;
+            }
+            if (node?.type === MULTI_PRIMITIVE_TYPE || node?.type === MULTI_PRIMITIVE_LEGACY) {
+                found = true;
+                return;
+            }
+        }
+    };
+    visit(graph);
+    return found;
+}
+
+function hasMediaLoader(graph) {
+    let found = false;
+    const visit = (container) => {
+        for (const node of container?._nodes ?? []) {
+            if (found) return;
+            if (node?.subgraph) {
+                visit(node.subgraph);
+                continue;
+            }
+            if (MEDIA_WIDGETS[node?.type]) {
+                found = true;
+                return;
+            }
+        }
+    };
+    visit(graph);
+    return found;
 }
 
 /**
