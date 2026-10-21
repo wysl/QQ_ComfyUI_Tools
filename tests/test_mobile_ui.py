@@ -415,6 +415,57 @@ class ExtraDataTests(unittest.TestCase):
         self.assertIn('"graph"', handler, "template handler must forward the graph")
 
 
+class MultiPrimitiveTests(unittest.TestCase):
+    """``QQ-多值输入`` wins over subgraph promoted inputs.
+
+    That node is a frontend virtual node: it never reaches the submitted
+    prompt. Its values flow along links into real node inputs, so those links
+    are what a parameter has to write to.
+    """
+
+    def setUp(self):
+        self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    def test_both_node_type_names_are_recognised(self):
+        self.assertIn('const MULTI_PRIMITIVE_TYPE = "QQ-多值输入";', self.js)
+        self.assertIn('const MULTI_PRIMITIVE_LEGACY = "QQMultiPrimitive";', self.js)
+
+    def test_multi_primitive_is_checked_before_subgraphs(self):
+        body = self.js.split("async function prepareTemplate")[1].split("const workflowKey")[0]
+        multi_at = body.index("multiPrimitiveParameters(graph)")
+        sub_at = body.index("promotedTargets(instance)")
+        self.assertLess(multi_at, sub_at)
+        # And it is an either/or, not an addition.
+        self.assertIn("else if (instances.length)", body)
+
+    def test_targets_are_the_linked_real_inputs(self):
+        block = self.js.split("function multiPrimitiveParameters")[1].split("\nfunction ")[0]
+        self.assertIn("link.target_id", block)
+        self.assertIn("link.target_slot", block)
+        self.assertIn("targets.push(entry)", block)
+
+    def test_labels_come_from_the_widget(self):
+        block = self.js.split("function multiPrimitiveParameters")[1].split("\nfunction ")[0]
+        self.assertIn("widget.label", block)
+
+    def test_widget_types_map_to_form_controls(self):
+        block = self.js.split("function widgetTypeToSlot")[1].split("\nfunction ")[0]
+        self.assertIn('"combo"', block)
+        self.assertIn("INT", block)
+        self.assertIn("FLOAT", block)
+        self.assertIn("BOOLEAN", block)
+
+    def test_workflow_with_neither_subgraph_nor_multi_primitive_is_rejected(self):
+        self.assertIn("既没有子图，也没有 QQ-多值输入", self.js)
+
+    def test_promoted_dropdowns_are_not_collapsed_as_advanced(self):
+        # Task mode / aspect ratio are primary choices, not model files.
+        block = self.html.split("const isAdvanced = ")[1].split("\n};")[0]
+        self.assertIn("MODEL_FILE_RE", block)
+        self.assertIn("ADVANCED_LABELS", block)
+
+
 class ExtensionRegistrationTests(unittest.TestCase):
     """The extension must survive a hostile frontend environment.
 

@@ -17,6 +17,11 @@ const TEMPLATE_ENDPOINT = "/qq_mobile/template";
 const MOBILE_PAGE = "/qq_mobile/";
 const BUTTON_GROUP_CLASS = "qq-mobile-top-menu-group";
 
+/** Frontend virtual node whose values win over subgraph promoted inputs. */
+const MULTI_PRIMITIVE_TYPE = "QQ-多值输入";
+const MULTI_PRIMITIVE_LEGACY = "QQMultiPrimitive";
+const MULTI_PRIMITIVE_GROUP = "多值输入";
+
 const getBasePath = () => {
     const { pathname } = window.location;
     return pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
@@ -39,6 +44,113 @@ function subgraphInstances() {
         (node) => node?.isSubgraphNode?.() && node?.subgraph,
     );
     return { graph, instances };
+}
+
+/**
+ * Collect parameters from ``QQ-多值输入`` nodes.
+ *
+ * That node is a frontend virtual node: it never appears in the submitted
+ * prompt. Instead each of its output slots is linked to a real node input, and
+ * the value flows there at submit time. So a parameter's write targets are the
+ * real inputs at the far end of those links.
+ *
+ * Labels come from the widget label, which the node keeps in sync with the
+ * target input's name.
+ */
+function multiPrimitiveParameters(graph) {
+    const parameters = [];
+    const visit = (container) => {
+        for (const node of container?._nodes ?? []) {
+            if (node?.subgraph) {
+                visit(node.subgraph);
+                continue;
+            }
+            if (node?.type !== MULTI_PRIMITIVE_TYPE && node?.type !== MULTI_PRIMITIVE_LEGACY) {
+                continue;
+            }
+            const links = container.links instanceof Map
+                ? [...container.links.values()]
+                : Object.values(container.links ?? {});
+            const linkById = new Map();
+            for (const link of links) {
+                if (link?.id != null) linkById.set(Number(link.id), link);
+            }
+            const nodesById = new Map();
+            for (const other of container._nodes ?? []) {
+                if (other?.id != null) nodesById.set(Number(other.id), other);
+            }
+
+            for (const widget of node.widgets ?? []) {
+                const slot = widget?.__h3MultiPrimitiveSlot;
+                if (slot == null) continue;
+                const output = node.outputs?.[slot];
+                const targets = [];
+                for (const linkId of output?.links ?? []) {
+                    const link = linkById.get(Number(linkId));
+                    if (!link) continue;
+                    const target = nodesById.get(Number(link.target_id));
+                    const inputName = target?.inputs?.[Number(link.target_slot)]?.name;
+                    if (!inputName) continue;
+                    const entry = [String(link.target_id), inputName];
+                    if (!targets.some(([id, name]) => id === entry[0] && name === entry[1])) {
+                        targets.push(entry);
+                    }
+                }
+                parameters.push({
+                    key: `${node.id}:${widget.name}`,
+                    name: widget.name,
+                    label: widget.label || inputLabel(node, slot) || widget.name,
+                    type: widgetTypeToSlot(widget, output),
+                    value: widget.value,
+                    options: comboOptions(widget),
+                    targets,
+                    group: MULTI_PRIMITIVE_GROUP,
+                    ...numberBounds(widget),
+                });
+            }
+        }
+    };
+    visit(graph);
+    return parameters;
+}
+
+/** Readable name for one multi-primitive output slot. */
+function inputLabel(node, slot) {
+    const name = node?.outputs?.[slot]?.name;
+    if (!name) return "";
+    // Slot names end with an ordinal ("任务模式 1"); the label is the prefix.
+    return String(name).replace(/\s+\d+$/, "");
+}
+
+/** Widget type -> the SlotType the page's form switches on. */
+function widgetTypeToSlot(widget, output) {
+    const type = String(widget?.type || "").toLowerCase();
+    if (type === "combo") return "COMBO";
+    if (type === "toggle" || type === "boolean") return "BOOLEAN";
+    if (type === "number") {
+        return Number.isInteger(widget?.value) ? "INT" : "FLOAT";
+    }
+    if (type === "text" || type === "customtext") return "STRING";
+    return String(output?.type || "STRING");
+}
+
+function comboOptions(widget) {
+    const values = widget?.options?.values;
+    const resolved = typeof values === "function" ? values() : values;
+    return Array.isArray(resolved) ? [...resolved] : null;
+}
+
+function numberBounds(widget) {
+    const options = widget?.options ?? {};
+    if (String(widget?.type || "").toLowerCase() !== "number") {
+        return { min: null, max: null, step: null, multiline: false };
+    }
+    return {
+        min: Number.isFinite(options.min) ? options.min : null,
+        max: Number.isFinite(options.max) ? options.max : null,
+        step: Number.isFinite(options.step) ? options.step : null,
+        multiline: false,
+    };
 }
 
 /**
@@ -158,40 +270,52 @@ function groupTitle(instance, total, counters) {
 async function prepareTemplate({ notify = true } = {}) {
     const { graph, instances } = subgraphInstances();
     if (!graph) throw new Error("没有打开的工作流");
-    if (!instances.length) throw new Error("当前工作流没有子图，手机界面需要子图提升参数");
 
     const { output, workflow } = await app.graphToPrompt();
     const parameters = [];
     const unbound = [];
-    // A pipeline often holds several subgraph instances, frequently of the
-    // same definition. Their promoted inputs share names ("prompt", "seed"),
-    // so each group needs a title or the form becomes ambiguous.
-    const groups = [];
-    const counters = new Map();
-    for (const instance of instances) {
-        const group = groupTitle(instance, instances.length, counters);
-        groups.push(group);
-        for (const entry of promotedTargets(instance)) {
+
+    // ``QQ-多值输入`` takes priority: when the workflow drives its inputs
+    // through one, those are the values the user means, so the subgraph's
+    // promoted inputs are not shown at all.
+    const multi = multiPrimitiveParameters(graph);
+    if (multi.length) {
+        for (const entry of multi) {
             if (!entry.targets.length) unbound.push(entry.label || entry.name);
-            parameters.push({
-                key: `${instance.id}:${entry.name}`,
-                name: entry.name,
-                label: entry.label,
-                type: entry.type,
-                value: entry.value,
-                options: entry.options,
-                targets: entry.targets,
-                group,
-                ...widgetBounds(instance, entry.name),
-            });
+            parameters.push(entry);
         }
+    } else if (instances.length) {
+        // A pipeline often holds several subgraph instances, frequently of the
+        // same definition. Their promoted inputs share names ("prompt", "seed"),
+        // so each group needs a title or the form becomes ambiguous.
+        const counters = new Map();
+        for (const instance of instances) {
+            const group = groupTitle(instance, instances.length, counters);
+            for (const entry of promotedTargets(instance)) {
+                if (!entry.targets.length) unbound.push(entry.label || entry.name);
+                parameters.push({
+                    key: `${instance.id}:${entry.name}`,
+                    name: entry.name,
+                    label: entry.label,
+                    type: entry.type,
+                    value: entry.value,
+                    options: entry.options,
+                    targets: entry.targets,
+                    group,
+                    ...widgetBounds(instance, entry.name),
+                });
+            }
+        }
+    } else {
+        throw new Error("当前工作流既没有子图，也没有 QQ-多值输入 节点");
     }
+
     if (unbound.length) {
         console.warn("[QQ Mobile] parameters without writable targets:", unbound);
     }
     if (parameters.length && unbound.length === parameters.length) {
         throw new Error(
-            `全部 ${parameters.length} 个参数都无法定位写入目标，请报告此工作流的子图结构`,
+            `全部 ${parameters.length} 个参数都无法定位写入目标，请报告此工作流的结构`,
         );
     }
 

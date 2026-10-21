@@ -684,17 +684,32 @@ function attachLongPress(input, parameter) {
 /** Model file pickers and sampler internals are rarely touched from a phone.
  * They go into a collapsed group so the first screen stays focused on the
  * prompt and the numbers that actually change per image.
+ *
+ * Membership is decided by name and by what the options look like, not by the
+ * widget type. A dropdown the user promoted (任务模式 / 宽高比 / 增强方式) is a
+ * primary choice and must stay visible, while a model file picker is noise
+ * even though both are combos.
  */
 const ADVANCED_NAMES = new Set([
     "unet_name", "clip_name", "vae_name", "ckpt_name", "lora_name",
     "sampler_name", "scheduler", "cfg", "denoise", "batch_size",
-    "type", "device", "weight_dtype",
+    "type", "device", "weight_dtype", "filename_prefix",
 ]);
 
+const ADVANCED_LABELS = /模型|采样器|调度器|精度|设备/;
+const MODEL_FILE_RE = /\.(safetensors|ckpt|pt|pth|bin|gguf)$/i;
+
 const isAdvanced = (parameter) => {
+    if (ADVANCED_NAMES.has(String(parameter.name || ""))) return true;
+    if (ADVANCED_LABELS.test(String(parameter.label || ""))) return true;
     const type = String(parameter.type || "").toUpperCase();
-    if (type === "COMBO" && parameter.options?.length) return true;
-    return ADVANCED_NAMES.has(String(parameter.name || ""));
+    if (type === "COMBO" && parameter.options?.length) {
+        // A combo whose options are file names is a model picker.
+        return parameter.options.some(
+            (option) => typeof option === "string" && MODEL_FILE_RE.test(option),
+        );
+    }
+    return false;
 };
 
 /**
