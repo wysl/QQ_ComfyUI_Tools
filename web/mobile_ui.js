@@ -520,11 +520,179 @@ function toast(text, life = 2500) {
     });
 }
 
+const GROUP_TAG_TYPE = "QQGroupBypassTag";
+const GROUP_TAG_MODE = "模式";
+const GROUP_TAG_ON = "启用";
+const GROUP_TAG_OFF = "绕过";
+
+/**
+ * Group switches the phone is allowed to flip.
+ *
+ * A QQ-魔术贴 bypasses every node in its group while its 模式 widget says
+ * 绕过. When a QQ-多值输入 drives that widget, the phone can turn the whole
+ * group on — but a bypassed node is missing from the prompt entirely, so the
+ * prompt has to be rebuilt for that state instead of patched.
+ *
+ * The wiring is read from the graph itself: the link that feeds the tag's
+ * 模式 input comes from a QQ-多值输入 output slot, and that slot's widget is
+ * the phone parameter that carries the switch.
+ */
+function switchableTags(graph) {
+    const tags = [];
+    const visit = (container) => {
+        const links = container.links instanceof Map
+            ? [...container.links.values()]
+            : Object.values(container.links ?? {});
+        const nodesById = new Map();
+        for (const node of container._nodes ?? []) {
+            if (node?.id != null) nodesById.set(Number(node.id), node);
+        }
+        for (const node of container._nodes ?? []) {
+            if (node?.type !== GROUP_TAG_TYPE) continue;
+            const modeSlot = (node.inputs ?? []).findIndex(
+                (input) => input?.name === GROUP_TAG_MODE,
+            );
+            if (modeSlot < 0) continue;
+            const link = links.find((entry) => (
+                Number(entry?.target_id) === Number(node.id)
+                && Number(entry?.target_slot) === modeSlot
+            ));
+            if (!link) continue;
+            const source = nodesById.get(Number(link.origin_id));
+            if (!source) continue;
+            if (source.type !== MULTI_PRIMITIVE_TYPE && source.type !== MULTI_PRIMITIVE_LEGACY) {
+                continue;
+            }
+            const slot = Number(link.origin_slot);
+            const slotWidget = (source.widgets ?? []).find(
+                (widget) => widget?.__h3MultiPrimitiveSlot === slot,
+            );
+            if (!slotWidget) continue;
+            const modeWidget = (node.widgets ?? []).find(
+                (widget) => widget?.name === GROUP_TAG_MODE,
+            );
+            if (!modeWidget) continue;
+            tags.push({
+                id: String(node.id),
+                node,
+                widget: modeWidget,
+                // The 多值输入 and the slot widget that carries the value. The
+                // multi keeps writing its value into the tag, so it — not the
+                // tag's widget — is what decides the state.
+                source: source,
+                slotWidget,
+                // The phone parameter that carries the switch.
+                key: `${source.id}:${slotWidget.name}`,
+                default: String(slotWidget.value ?? GROUP_TAG_OFF),
+            });
+        }
+        for (const node of container._nodes ?? []) {
+            if (node?.subgraph) visit(node.subgraph);
+        }
+    };
+    visit(graph);
+    return tags;
+}
+
+/** Stable name for one combination of switch states. */
+function variantKey(pairs) {
+    return pairs
+        .map(([tag, value]) => `${tag}=${value}`)
+        .sort()
+        .join(";");
+}
+
+/** The states one group switch can be in. */
+function tagStates(tag) {
+    const options = tag.widget?.options;
+    if (Array.isArray(options) && options.length > 1) return options.map((value) => String(value));
+    return [GROUP_TAG_OFF, GROUP_TAG_ON];
+}
+
+/**
+ * Put one group switch into a state.
+ *
+ * The QQ-多值输入 owns the value: it writes it into the tag's widget
+ * (applySlotToGraph) and the tag then bypasses or restores its group. Setting
+ * the tag's widget directly would not stick — the multi writes it back on its
+ * next tick.
+ */
+function applyTagState(tag, value) {
+    const widget = tag.slotWidget;
+    if (!widget) return;
+    widget.value = value;
+    widget.callback?.(value, app.canvas, tag.source, app.canvas?.graph_mouse || [0, 0], {});
+}
+
+/**
+ * Build one prompt per combination of switch states.
+ *
+ * ``app.graphToPrompt`` re-applies the 魔术贴 state before it runs, so setting
+ * the switch and asking for the prompt yields exactly the prompt that state
+ * produces — the group members are restored or bypassed, and the consumers
+ * are rewired accordingly.
+ */
+async function promptVariants(graph, tags) {
+    if (!tags.length) return { variants: {}, switches: [], media: [] };
+
+    const original = tags.map((tag) => tag.slotWidget?.value);
+    const switches = tags.map((tag) => ({
+        tag: tag.id,
+        key: tag.key,
+        default: tag.default,
+    }));
+    const variants = {};
+    // Media loaders of a bypassed group are missing from the canvas state,
+    // so they are collected while every state is applied. Otherwise the phone
+    // would never offer a picker for a group it can switch on.
+    const media = [];
+    try {
+        // Every state per tag, but keep the number of prompts sane.
+        const perTag = tags.map((tag) => tagStates(tag));
+        let combos = [[]];
+        for (const states of perTag) {
+            combos = combos.flatMap((prefix) => states.map((state) => [...prefix, state]));
+        }
+        if (combos.length > 8) {
+            console.warn(
+                `[QQ Mobile] ${tags.length} group switches is too many to pre-build;`
+                + " only the canvas state and the all-on state are prepared.",
+            );
+            combos = [
+                perTag.map((states) => states[0]),
+                perTag.map((states) => states[states.length - 1]),
+            ];
+        }
+        for (const combo of combos) {
+            tags.forEach((tag, index) => applyTagState(tag, combo[index]));
+            const { output } = await app.graphToPrompt();
+            variants[variantKey(tags.map((tag, index) => [tag.id, combo[index]]))] = output;
+            for (const entry of mediaParameters(graph)) {
+                if (!media.some((known) => known.key === entry.key)) media.push(entry);
+            }
+        }
+    } finally {
+        // Put the canvas back the way the user left it.
+        tags.forEach((tag, index) => applyTagState(tag, original[index]));
+        await app.graphToPrompt();
+    }
+    return { variants, switches, media };
+}
+
 async function prepareTemplate(options = {}) {
     const { notify = true, workflowKey: keyOverride, title, folder } = options;
     const { graph, instances } = subgraphInstances();
     if (!graph) throw new Error("没有打开的工作流");
 
+    const multi = multiPrimitiveParameters(graph);
+    // A group switch the phone can flip decides which nodes exist in the
+    // prompt, so the variants have to be built before the parameters are read.
+    const tags = switchableTags(graph);
+    const { variants: variantsByState, switches, media: switchableMedia } = await promptVariants(graph, tags);
+    const stateKey = variantKey(tags.map((tag) => [
+        tag.id,
+        String(tag.slotWidget?.value ?? tag.widget.value),
+    ]));
     const { output, workflow } = await app.graphToPrompt();
     const parameters = [];
     const unbound = [];
@@ -532,12 +700,15 @@ async function prepareTemplate(options = {}) {
     // ``QQ-多值输入`` takes priority: when the workflow drives its inputs
     // through one, those are the values the user means, so the subgraph's
     // promoted inputs are not shown at all.
-    const multi = multiPrimitiveParameters(graph);
     // Media loaders are listed first: on a phone the picture to work from is
     // the first thing chosen, and it is what makes the workflow image-to-image.
     const media = mediaParameters(graph);
-    if (media.length) {
-        for (const entry of media) parameters.push(entry);
+    for (const entry of media) parameters.push(entry);
+    // Loaders that only exist once a group is switched on are listed too:
+    // the phone may turn that group on, and a picker that appears only
+    // afterwards cannot be used.
+    for (const entry of switchableMedia) {
+        if (!parameters.some((known) => known.key === entry.key)) parameters.push(entry);
     }
     if (multi.length) {
         for (const entry of multi) {
@@ -583,6 +754,10 @@ async function prepareTemplate(options = {}) {
         || app.activeWorkflow?.path
         || `unsaved-${workflow?.id ?? Date.now()}`;
     const signature = graphSignature(graph);
+    // The prompt for the canvas state is the default; the other states are
+    // kept aside so the phone can pick the right one when it flips a switch.
+    const variants = { ...variantsByState };
+    variants[stateKey] = output;
     const response = await api.fetchApi(TEMPLATE_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -593,6 +768,10 @@ async function prepareTemplate(options = {}) {
             // library the way the editor does.
             folder: folder || "",
             prompt: output,
+            // One prompt per combination of group-switch states.
+            variants,
+            // Which phone parameter drives which switch.
+            switches,
             parameters,
             outputs: outputNodes(graph),
             // Replayed as extra_pnginfo.workflow on submit. Nodes with an

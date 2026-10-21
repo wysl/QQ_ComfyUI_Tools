@@ -527,6 +527,172 @@ class NodeModeFilteringTests(unittest.TestCase):
         self.assertIn("既没有子图，也没有 QQ-多值输入 或媒体加载节点", self.js)
 
 
+class GroupSwitchTests(unittest.TestCase):
+    """A QQ-魔术贴 group must be switchable from the phone.
+
+    A QQ-魔术贴 bypasses every node of its group while its 模式 widget says
+    绕过. A bypassed node is not merely disabled, it is absent from the prompt
+    altogether — so the phone cannot offer a picker for it, and flipping the
+    switch on the phone cannot bring it back.
+
+    The fix is to keep one prompt per switch state: the extension sets the
+    tag's 模式 widget and asks the frontend for the prompt again, which
+    produces exactly the prompt that state runs. The backend then picks the
+    prompt that matches the values the phone sent.
+    """
+
+    def setUp(self):
+        self.ui = _load("mobile_ui_group_switch", _MODULES_DIR / "mobile_ui.py")
+        self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
+
+    @staticmethod
+    def _record():
+        return {
+            "workflow": "wf",
+            "title": "wf",
+            # The bypassed state: the loader is gone from the prompt.
+            "prompt": {"1": {"class_type": "Tag", "inputs": {}}},
+            "variants": {
+                "106=绕过": {"1": {"class_type": "Tag", "inputs": {}}},
+                "106=启用": {
+                    "1": {"class_type": "Tag", "inputs": {}},
+                    "70": {"class_type": "LoadImage", "inputs": {"image": "old.png"}},
+                },
+            },
+            "switches": [{"tag": "106", "key": "108:模式", "default": "绕过"}],
+            "parameters": [
+                {
+                    "key": "108:模式",
+                    "name": "模式",
+                    "label": "模式",
+                    "type": "COMBO",
+                    "value": "绕过",
+                    "options": ["绕过", "启用"],
+                    "targets": [["106", "模式"]],
+                },
+                {
+                    "key": "70:image",
+                    "name": "image",
+                    "label": "加载图像",
+                    "type": "COMBO",
+                    "value": "old.png",
+                    "media": "image",
+                    "targets": [["70", "image"]],
+                },
+            ],
+        }
+
+    # -- backend: picking the prompt --------------------------------------
+    def test_switch_state_picks_its_own_prompt(self):
+        record = self._record()
+        chosen = self.ui._select_variant(record, {"108:模式": "启用"})
+        self.assertIn("70", chosen)
+
+    def test_bypassed_state_picks_the_prompt_without_the_group(self):
+        record = self._record()
+        chosen = self.ui._select_variant(record, {"108:模式": "绕过"})
+        self.assertNotIn("70", chosen)
+
+    def test_missing_value_falls_back_to_the_stored_default(self):
+        record = self._record()
+        chosen = self.ui._select_variant(record, {})
+        self.assertNotIn("2", chosen)
+
+    def test_unknown_state_falls_back_to_the_default_prompt(self):
+        record = self._record()
+        chosen = self.ui._select_variant(record, {"108:模式": "半开"})
+        self.assertEqual(chosen, record["prompt"])
+
+    def test_template_without_variants_uses_its_prompt(self):
+        record = self._record()
+        record["variants"] = {}
+        record["switches"] = []
+        self.assertEqual(self.ui._select_variant(record, {"108:模式": "启用"}), record["prompt"])
+
+    def test_variant_key_matches_the_extension(self):
+        pairs = [("106", "启用"), ("7", "绕过")]
+        self.assertEqual(self.ui._variant_key(pairs), "106=启用;7=绕过")
+        self.assertIn('`${tag}=${value}`', self.js)
+        self.assertIn('.sort()\n        .join(";")', self.js)
+
+    def test_switched_group_runs_with_the_chosen_file(self):
+        record = self._record()
+        values = {"108:模式": "启用", "70:image": "new.png"}
+        prompt, _warnings = self.ui.apply_parameter_values(
+            self.ui._select_variant(record, values), record["parameters"], values
+        )
+        self.assertIn("70", prompt)
+        self.assertEqual(prompt["70"]["inputs"]["image"], "new.png")
+
+    def test_bypassed_group_does_not_run(self):
+        record = self._record()
+        values = {"108:模式": "绕过", "70:image": "new.png"}
+        prompt, warnings = self.ui.apply_parameter_values(
+            self.ui._select_variant(record, values), record["parameters"], values
+        )
+        self.assertNotIn("70", prompt)
+        self.assertTrue(any("不在模板中" in item for item in warnings))
+
+    # -- backend: storing the variants ------------------------------------
+    def test_template_stores_the_variants_and_the_switches(self):
+        payload = {
+            "workflow": "wf",
+            "title": "wf",
+            "prompt": {"1": {}},
+            "parameters": [],
+            "variants": {"106=启用": {"1": {}, "2": {}}},
+            "switches": [{"tag": "106", "key": "108:模式", "default": "绕过"}],
+        }
+        state = self.ui.MobileState()
+        record = state.put("wf", payload)
+        self.assertIn("106=启用", record["variants"])
+        self.assertEqual(record["switches"][0]["key"], "108:模式")
+
+    def test_template_route_forwards_the_variants(self):
+        source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+        handler = source.split('@server.routes.post("/qq_mobile/template")')[1].split("@server.routes")[0]
+        self.assertIn('"variants"', handler)
+        self.assertIn('"switches"', handler)
+
+    def test_get_template_reports_the_switches(self):
+        source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+        handler = source.split('@server.routes.get("/qq_mobile/template")')[1].split("@server.routes")[0]
+        self.assertIn('"switches"', handler)
+
+    # -- extension: finding the switch and building the prompts -----------
+    def test_switch_is_found_through_the_tag_mode_input(self):
+        block = self.js.split("function switchableTags(graph)")[1].split("\nfunction ")[0]
+        self.assertIn("GROUP_TAG_TYPE", block)
+        self.assertIn("GROUP_TAG_MODE", block)
+        self.assertIn("target_slot", block)
+        self.assertIn("__h3MultiPrimitiveSlot", block)
+
+    def test_one_prompt_is_built_per_switch_state(self):
+        block = self.js.split("async function promptVariants(")[1].split("\nfunction ")[0]
+        self.assertIn("app.graphToPrompt()", block)
+        self.assertIn("tagStates(tag)", block)
+        states = self.js.split("function tagStates(")[1].split("\nfunction ")[0]
+        self.assertIn("GROUP_TAG_ON", states)
+        self.assertIn("GROUP_TAG_OFF", states)
+
+    def test_the_canvas_is_restored_after_building_the_prompts(self):
+        block = self.js.split("async function promptVariants(")[1].split("\nfunction ")[0]
+        self.assertIn("finally", block)
+        self.assertIn("applyTagState(tag, original[index])", block)
+
+    def test_the_switch_is_driven_through_the_multi_primitive(self):
+        # The 多值输入 keeps writing its value into the tag, so the tag's own
+        # widget cannot be set directly.
+        block = self.js.split("function applyTagState(")[1].split("\nfunction ")[0]
+        self.assertIn("tag.slotWidget", block)
+        self.assertIn("widget.callback?.(", block)
+
+    def test_a_bypassed_group_still_gets_a_picker(self):
+        block = self.js.split("async function prepareTemplate(")[1].split("\nasync function ")[0]
+        self.assertIn("switchableMedia", block)
+        self.assertIn("mediaParameters(graph)", block)
+
+
 class MediaInputTests(unittest.TestCase):
     """Image-to-image needs media, not just numbers.
 
