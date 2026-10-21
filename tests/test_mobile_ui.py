@@ -5,6 +5,7 @@ import json
 import pathlib
 import re
 import sys
+import tempfile
 import unittest
 
 _MODULES_DIR = pathlib.Path(__file__).resolve().parent.parent / "node_modules"
@@ -446,6 +447,123 @@ class ParameterLayoutTests(unittest.TestCase):
             block.index("isAdvanced(parameter)"),
             block.index("pairModelPickers(sections)"),
         )
+
+
+class LoraPreviewTests(unittest.TestCase):
+    """A LoRA is looked at before it is chosen.
+
+    Thirty LoRAs in one folder share almost the same name; the preview image
+    that downloaders write next to the weights is what tells them apart. So the
+    first tap on a row shows the picture and the second one picks it.
+    """
+
+    def setUp(self):
+        self.ui = _load("mobile_ui_lora_preview", _MODULES_DIR / "mobile_ui.py")
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+        self.source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+        # Tests point the lookup at a temporary directory.
+        self._orig_roots = self.ui._loras_roots
+
+    def tearDown(self):
+        self.ui._loras_roots = self._orig_roots
+
+    def _use(self, root):
+        self.ui._loras_roots = lambda: [str(root)]
+
+    # -- finding the file ---------------------------------------------------
+    def test_a_sibling_image_is_found(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "sub").mkdir()
+            (root / "sub" / "a.safetensors").write_bytes(b"x")
+            preview = root / "sub" / "a.jpeg"
+            preview.write_bytes(b"jpg")
+            self._use(root)
+            self.assertEqual(self.ui._find_lora_preview("sub/a.safetensors"), str(preview))
+
+    def test_a_preview_suffix_wins_over_a_bare_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "a.safetensors").write_bytes(b"x")
+            (root / "a.png").write_bytes(b"png")
+            (root / "a.preview.png").write_bytes(b"preview")
+            self._use(root)
+            self.assertEqual(
+                self.ui._find_lora_preview("a.safetensors"), str(root / "a.preview.png")
+            )
+
+    def test_a_video_preview_is_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "a.safetensors").write_bytes(b"x")
+            (root / "a.mp4").write_bytes(b"mp4")
+            self._use(root)
+            self.assertEqual(self.ui._find_lora_preview("a.safetensors"), str(root / "a.mp4"))
+
+    def test_windows_separators_are_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "sub").mkdir()
+            (root / "sub" / "a.safetensors").write_bytes(b"x")
+            (root / "sub" / "a.png").write_bytes(b"png")
+            self._use(root)
+            self.assertIsNotNone(self.ui._find_lora_preview("sub\\a.safetensors"))
+
+    def test_leaving_the_loras_directory_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "a.safetensors").write_bytes(b"x")
+            (root / "a.png").write_bytes(b"png")
+            self._use(root)
+            for probe in (
+                "../a.safetensors",
+                "..\\a.safetensors",
+                "/etc/passwd",
+                "C:/Windows/win.ini",
+                "",
+            ):
+                self.assertIsNone(
+                    self.ui._find_lora_preview(probe), f"{probe!r} must be refused"
+                )
+
+    def test_a_lora_without_preview_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "a.safetensors").write_bytes(b"x")
+            self._use(root)
+            self.assertIsNone(self.ui._find_lora_preview("a.safetensors"))
+
+    def test_the_route_exists(self):
+        self.assertIn('@server.routes.get("/qq_mobile/preview")', self.source)
+        self.assertIn("web.FileResponse", self.source)
+
+    # -- the interaction ----------------------------------------------------
+    def test_the_first_tap_only_previews(self):
+        block = self.html.split("function chooseOption(")[1].split("/* ---------------- fullscreen")[0]
+        self.assertIn("if (previewable(option) && previewing !== option)", block)
+        self.assertIn("showPreview(option)", block)
+        # The second tap is the one that commits.
+        self.assertIn("onPick(option);", block)
+
+    def test_only_model_rows_need_two_taps(self):
+        block = self.html.split("function chooseOption(")[1].split("/* ---------------- fullscreen")[0]
+        self.assertIn("MODEL_FILE_RE.test(String(option", block)
+
+    def test_the_preview_says_what_to_do(self):
+        self.assertIn("再点一次选择", self.html)
+
+    def test_the_preview_falls_back_to_a_video_then_to_nothing(self):
+        block = self.html.split("const showPreview = (option) => {")[1].split("\n    };")[0]
+        self.assertIn('createElement("video")', block)
+        self.assertIn("无预览图", block)
+        # The video element is attached immediately, not only once a frame has
+        # decoded: an undecodable codec would otherwise leave an empty box.
+        self.assertIn("thumb.replaceChildren(video)", block)
+
+    def test_the_preview_image_is_not_lazy(self):
+        """loading="lazy" on a detached <img> never fetches: it is not in the DOM."""
+        block = self.html.split("const showPreview = (option) => {")[1].split("\n    };")[0]
+        self.assertNotIn('loading = "lazy"', block)
 
 
 class ComboPickerTests(unittest.TestCase):

@@ -261,6 +261,45 @@ main {
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .picker-row.combo .tick { flex: none; color: var(--accent); font-weight: 700; }
+.picker-row.combo.previewing {
+    background: rgba(255, 255, 255, .05);
+    box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* the preview strip: one tap looks, a second tap picks */
+.picker-preview {
+    display: flex; gap: 12px; align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+}
+.picker-preview[hidden] { display: none; }
+.picker-preview .thumb {
+    flex: none;
+    width: 92px; height: 92px;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--surface-2);
+    display: grid; place-items: center;
+}
+.picker-preview .thumb img,
+.picker-preview .thumb video {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.picker-preview .thumb .none {
+    font-size: 11px; line-height: 1.3; color: var(--muted);
+    text-align: center; padding: 0 6px;
+}
+.picker-preview .meta { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.picker-preview .pname {
+    font-size: 14px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.picker-preview .pdir {
+    font-size: 11px; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.picker-preview .pdir[hidden] { display: none; }
+.picker-preview .phint { font-size: 11px; color: var(--accent); margin-top: 2px; }
 .picker-search { padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .picker-search input {
     width: 100%; box-sizing: border-box;
@@ -1192,6 +1231,11 @@ function splitOptionPath(option) {
  * a dark UI, long model paths wrapped over several lines, no way to filter, and
  * it covers the whole screen on Android. Model lists run to hundreds of files,
  * so this offers a search box as well.
+ *
+ * Model files (LoRAs) are picked in two taps: the first shows what the file
+ * actually looks like — its preview image — and the second confirms. Thirty
+ * LoRAs with near-identical names cannot be told apart otherwise. Plain
+ * choices (an aspect ratio, a sampler) are still a single tap.
  */
 function chooseOption(title, options, current, onPick) {
     const overlay = document.createElement("div");
@@ -1210,12 +1254,72 @@ function chooseOption(title, options, current, onPick) {
     close.addEventListener("click", () => overlay.remove());
     head.append(heading, close);
 
+    // Rows that carry a file name can be previewed before they are chosen.
+    const previewable = (option) => MODEL_FILE_RE.test(String(option ?? ""));
+
+    const preview = document.createElement("div");
+    preview.className = "picker-preview";
+    preview.hidden = true;
+    const thumb = document.createElement("div");
+    thumb.className = "thumb";
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const pname = document.createElement("span");
+    pname.className = "pname";
+    const pdir = document.createElement("span");
+    pdir.className = "pdir";
+    const phint = document.createElement("span");
+    phint.className = "phint";
+    meta.append(pname, pdir, phint);
+    preview.append(thumb, meta);
+
+    /** Show one row in the preview strip; the LoRA's picture comes from disk. */
+    const showPreview = (option) => {
+        preview.hidden = false;
+        const { dir, name } = splitOptionPath(option);
+        pname.textContent = name;
+        pdir.textContent = dir;
+        pdir.hidden = !dir;
+        // The hint is the whole interaction: one tap looks, two taps pick.
+        phint.textContent = "再点一次选择";
+        thumb.replaceChildren();
+        const placeholder = (text) => {
+            const none = document.createElement("span");
+            none.className = "none";
+            none.textContent = text;
+            thumb.replaceChildren(none);
+        };
+        const url = `/qq_mobile/preview?name=${encodeURIComponent(option)}`;
+        const image = new Image();
+        image.alt = name;
+        // No loading="lazy": the element is not in the document until it has
+        // loaded, and a lazy image that is never in the viewport never loads.
+        image.addEventListener("load", () => thumb.replaceChildren(image));
+        image.addEventListener("error", () => {
+            // Video LoRAs ship an mp4 preview instead of an image. The element
+            // goes in straight away: waiting for a frame would leave an empty
+            // box until the browser decoded it.
+            const video = document.createElement("video");
+            video.muted = true;
+            video.loop = true;
+            video.autoplay = true;
+            video.playsInline = true;
+            video.preload = "auto";
+            video.addEventListener("error", () => placeholder("无预览图"));
+            video.src = url;
+            thumb.replaceChildren(video);
+        });
+        image.src = url;
+    };
+
     const list = document.createElement("div");
     list.className = "picker-list";
 
     // Long model lists are unusable without a filter; short ones do not need it.
     const searchable = options.length > 12;
     let query = "";
+    // The row seen but not yet chosen (first tap of the two).
+    let previewing = null;
     const renderRows = () => {
         list.replaceChildren();
         const needle = query.trim().toLowerCase();
@@ -1232,7 +1336,9 @@ function chooseOption(title, options, current, onPick) {
         for (const option of matches) {
             const row = document.createElement("button");
             row.type = "button";
-            row.className = "picker-row combo" + (option === current ? " on" : "");
+            row.className = "picker-row combo"
+                + (option === current ? " on" : "")
+                + (option === previewing ? " previewing" : "");
             const main = document.createElement("span");
             main.className = "row-main";
             const { dir, name } = splitOptionPath(option);
@@ -1251,6 +1357,17 @@ function chooseOption(title, options, current, onPick) {
             tick.textContent = option === current ? "✓" : "";
             row.append(main, tick);
             row.addEventListener("click", () => {
+                if (previewable(option) && previewing !== option) {
+                    previewing = option;
+                    showPreview(option);
+                    // Only the class list changes; rebuilding would lose the
+                    // scroll position of a several-hundred entry list.
+                    for (const other of list.querySelectorAll(".picker-row.previewing")) {
+                        other.classList.remove("previewing");
+                    }
+                    row.classList.add("previewing");
+                    return;
+                }
                 onPick(option);
                 overlay.remove();
             });
@@ -1259,7 +1376,7 @@ function chooseOption(title, options, current, onPick) {
     };
     renderRows();
 
-    sheet.append(head);
+    sheet.append(head, preview);
     if (searchable) {
         const bar = document.createElement("div");
         bar.className = "picker-search";
