@@ -134,6 +134,13 @@ main {
 }
 .pipeline-meta { font-size: 12px; color: var(--muted); }
 .pipeline-arrow { flex: none; font-size: 20px; color: var(--muted); }
+/* the picker's own search stays reachable while the list scrolls */
+.pipeline-search {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--bg);
+    padding-bottom: 10px;
+}
+.folder-head.recent { color: var(--accent); }
 
 /* ---------- media picker ---------- */
 .media { display: flex; flex-direction: column; gap: 10px; }
@@ -773,12 +780,60 @@ function isCombo(parameter) {
         || type === "COMBO";
 }
 
+/**
+ * Readable name for a field.
+ *
+ * Workflows label most inputs in Chinese, but a promoted ComfyUI input often
+ * arrives as its raw socket name — "seed", "sampler_name", "clip" sitting next
+ * to "随机种" and "采样器" from the same form. Only the well-known internals are
+ * translated; a name the user chose themselves is left exactly as written.
+ */
+const LABEL_ALIASES = {
+    seed: "随机种",
+    noise_seed: "随机种",
+    sampler_name: "采样器",
+    sampler: "采样器",
+    scheduler: "调度器",
+    steps: "步数",
+    cfg: "CFG",
+    denoise: "重绘幅度",
+    batch_size: "批量张数",
+    filename_prefix: "保存前缀",
+    width: "宽度",
+    height: "高度",
+    vae: "VAE",
+    clip: "CLIP",
+    model: "模型",
+    image: "图像",
+    text: "文本",
+    prompt: "提示词",
+    negative_prompt: "反向提示词",
+    unet_name: "主模型",
+    ckpt_name: "检查点",
+    lora_name: "LoRA",
+};
+
+function prettyLabel(text) {
+    const raw = String(text ?? "").trim();
+    if (!raw) return raw;
+    return LABEL_ALIASES[raw.toLowerCase()] || raw;
+}
+
+/** A hint inside an empty field, so a blank row still says what goes in it. */
+function placeholderFor(parameter) {
+    const text = String(parameter.label || parameter.name || "");
+    if (/提示词|prompt|文本|text/i.test(text)) return "输入提示词…";
+    if (/前缀|prefix/i.test(text)) return "文件名前缀";
+    if (/图像|图片|image/i.test(text)) return "图片文件名…";
+    return "";
+}
+
 function fieldFor(parameter) {
     const wrap = document.createElement("div");
     wrap.className = "field";
 
     const label = document.createElement("label");
-    label.textContent = parameter.label || parameter.name;
+    label.textContent = prettyLabel(parameter.label || parameter.name);
     label.setAttribute("for", `f-${parameter.key}`);
     wrap.appendChild(label);
 
@@ -923,6 +978,8 @@ function fieldFor(parameter) {
     }
     input.id = `f-${parameter.key}`;
     input.value = value ?? "";
+    const hint = placeholderFor(parameter);
+    if (hint) input.placeholder = hint;
     input.addEventListener("input", () => commit(input.value));
     // Hold for 2s to edit this text full screen; the corner button is the
     // discoverable way to do the same thing.
@@ -2039,6 +2096,34 @@ function shortWorkflowId(workflow) {
     return id.slice(-4);
 }
 
+/** Which pipelines were opened from this phone, and when. */
+const RECENT_KEY = "qq-mobile-recent";
+
+function loadRecent() {
+    try {
+        const raw = localStorage.getItem(RECENT_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+/** Remember a pipeline as used; keeps the twelve newest entries. */
+function markRecent(key) {
+    if (!key) return;
+    const map = loadRecent();
+    map[key] = Date.now();
+    const entries = Object.entries(map)
+        .sort((a, b) => Number(b[1]) - Number(a[1]))
+        .slice(0, 12);
+    try {
+        localStorage.setItem(RECENT_KEY, JSON.stringify(Object.fromEntries(entries)));
+    } catch {
+        /* private mode: the ordering is a nicety, not a requirement */
+    }
+}
+
 /** "刚刚" / "3 分钟前" / "2 天前", for the picker's secondary line. */
 function relativeTime(stamp) {
     const seconds = Math.floor(Date.now() / 1000 - Number(stamp || 0));
@@ -2054,7 +2139,9 @@ function relativeTime(stamp) {
  * List the prepared pipelines so one can be chosen on the phone.
  *
  * Shown when the page was opened without a specific workflow, or when the user
- * asks to switch. Tapping a row loads that pipeline's form.
+ * asks to switch. Tapping a row loads that pipeline's form. The library runs to
+ * dozens of files, so the list is searchable and the pipelines actually used
+ * recently are offered first.
  */
 async function showPipelinePicker() {
     const host = el("form");
@@ -2128,44 +2215,106 @@ async function showPipelinePicker() {
     }
 
     host.replaceChildren();
-    // Group by the folder the workflow lives in, the way the editor sidebar
-    // does; root-level files come first.
-    const groups = new Map();
-    for (const row of rows) {
-        if (!groups.has(row.folder)) groups.set(row.folder, []);
-        groups.get(row.folder).push(row);
-    }
-    const folderOrder = [...groups.keys()].sort((a, b) => {
-        if (a === b) return 0;
-        if (!a) return -1;
-        if (!b) return 1;
-        return a.localeCompare(b, "zh");
-    });
-
     // Duplicate titles (two "Unsaved Workflow") get a short id suffix.
     const titleCounts = new Map();
     for (const row of rows) {
         titleCounts.set(row.title, (titleCounts.get(row.title) || 0) + 1);
     }
 
-    for (const folder of folderOrder) {
-        const list = document.createElement("div");
-        list.className = "pipeline-list";
-        if (folderOrder.length > 1) {
+    // A search bar, because the folder grouping alone means scrolling past
+    // everything in the library to find one pipeline by name.
+    const bar = document.createElement("div");
+    bar.className = "picker-search pipeline-search";
+    const input = document.createElement("input");
+    input.type = "search";
+    input.placeholder = "搜索流水线…";
+    input.setAttribute("aria-label", "搜索流水线");
+    bar.appendChild(input);
+
+    const body = document.createElement("div");
+    body.className = "pipeline-body";
+
+    const paint = (query) => {
+        body.replaceChildren();
+        const needle = String(query || "").trim().toLowerCase();
+        if (needle) {
+            const hits = rows.filter((row) => [row.title, row.name, row.folder, row.key]
+                .some((value) => String(value || "").toLowerCase().includes(needle)));
+            if (!hits.length) {
+                const empty = document.createElement("div");
+                empty.className = "empty";
+                empty.innerHTML = "<strong>没有匹配的流水线</strong>";
+                body.appendChild(empty);
+                return;
+            }
+            const list = document.createElement("div");
+            list.className = "pipeline-list";
+            for (const item of hits) list.appendChild(pipelineRow(item, titleCounts));
+            body.appendChild(list);
+            return;
+        }
+
+        // Recently opened pipelines first: the phone is used to repeat the two
+        // or three pipelines that are in rotation, not to browse the library.
+        const recent = loadRecent();
+        const recentRows = rows
+            .filter((row) => recent[row.key])
+            .sort((a, b) => recent[b.key] - recent[a.key])
+            .slice(0, 4);
+        const shownAbove = new Set();
+        if (recentRows.length) {
+            const list = document.createElement("div");
+            list.className = "pipeline-list";
             const head = document.createElement("div");
-            head.className = "folder-head";
-            head.textContent = folder || "未分组";
+            head.className = "folder-head recent";
+            head.textContent = "最近使用";
             list.appendChild(head);
+            for (const item of recentRows) {
+                list.appendChild(pipelineRow(item, titleCounts));
+                shownAbove.add(item.key);
+            }
+            body.appendChild(list);
         }
-        const items = groups.get(folder).sort((a, b) => {
-            if (a.ready !== b.ready) return a.ready ? -1 : 1;
-            return (b.updated || 0) - (a.updated || 0);
+
+        // Group by the folder the workflow lives in, the way the editor sidebar
+        // does; root-level files come first. Anything already listed under
+        // 最近使用 is not repeated below — on a phone the repeat reads as a bug.
+        const groups = new Map();
+        for (const row of rows) {
+            if (shownAbove.has(row.key)) continue;
+            if (!groups.has(row.folder)) groups.set(row.folder, []);
+            groups.get(row.folder).push(row);
+        }
+        const folderOrder = [...groups.keys()].sort((a, b) => {
+            if (a === b) return 0;
+            if (!a) return -1;
+            if (!b) return 1;
+            return a.localeCompare(b, "zh");
         });
-        for (const item of items) {
-            list.appendChild(pipelineRow(item, titleCounts));
+
+        for (const folder of folderOrder) {
+            const list = document.createElement("div");
+            list.className = "pipeline-list";
+            if (folderOrder.length > 1) {
+                const head = document.createElement("div");
+                head.className = "folder-head";
+                head.textContent = folder || "未分组";
+                list.appendChild(head);
+            }
+            const items = groups.get(folder).sort((a, b) => {
+                if (a.ready !== b.ready) return a.ready ? -1 : 1;
+                return (b.updated || 0) - (a.updated || 0);
+            });
+            for (const item of items) {
+                list.appendChild(pipelineRow(item, titleCounts));
+            }
+            body.appendChild(list);
         }
-        host.appendChild(list);
-    }
+    };
+
+    input.addEventListener("input", () => paint(input.value));
+    host.append(bar, body);
+    paint("");
 }
 
 /** One row in the pipeline picker. */
@@ -2203,6 +2352,7 @@ function pipelineRow(item, titleCounts) {
             if (!ok) return;
         }
         state.workflow = item.key;
+        markRecent(item.key);
         const url = new URL(window.location.href);
         url.searchParams.set("workflow", item.key);
         window.history.replaceState({}, "", url);

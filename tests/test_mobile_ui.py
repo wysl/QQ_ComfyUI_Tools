@@ -449,6 +449,57 @@ class ParameterLayoutTests(unittest.TestCase):
         )
 
 
+class PickerErgonomicsTests(unittest.TestCase):
+    """Finding a pipeline among dozens, and reading the form at a glance."""
+
+    def setUp(self):
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    # -- the pipeline list --------------------------------------------------
+    def test_the_picker_can_be_searched(self):
+        block = self.html.split("async function showPipelinePicker()")[1].split("\nfunction ")[0]
+        self.assertIn('placeholder = "搜索流水线…"', block)
+        self.assertIn("paint(input.value)", block)
+
+    def test_search_matches_title_name_and_folder(self):
+        block = self.html.split("const paint = (query) => {")[1].split("input.addEventListener")[0]
+        self.assertIn("row.title, row.name, row.folder, row.key", block)
+
+    def test_an_empty_search_result_says_so(self):
+        block = self.html.split("const paint = (query) => {")[1].split("input.addEventListener")[0]
+        self.assertIn("没有匹配的流水线", block)
+
+    def test_recently_used_pipelines_come_first(self):
+        block = self.html.split("const paint = (query) => {")[1].split("input.addEventListener")[0]
+        self.assertIn("loadRecent()", block)
+        self.assertIn("最近使用", block)
+
+    def test_opening_a_pipeline_marks_it_recent(self):
+        self.assertIn("markRecent(item.key)", self.html)
+        self.assertIn('const RECENT_KEY = "qq-mobile-recent"', self.html)
+
+    def test_a_recent_pipeline_is_not_listed_twice(self):
+        block = self.html.split("const paint = (query) => {")[1].split("input.addEventListener")[0]
+        self.assertIn("shownAbove.add(item.key)", block)
+        self.assertIn("if (shownAbove.has(row.key)) continue;", block)
+
+    # -- the form -----------------------------------------------------------
+    def test_raw_socket_names_are_shown_in_readable_form(self):
+        self.assertIn('seed: "随机种"', self.html)
+        self.assertIn('sampler_name: "采样器"', self.html)
+        self.assertIn("prettyLabel(parameter.label || parameter.name)", self.html)
+
+    def test_a_user_chosen_label_is_left_alone(self):
+        block = self.html.split("function prettyLabel(text) {")[1].split("\n}")[0]
+        # Only the known aliases are translated; everything else is kept.
+        self.assertIn("|| raw", block)
+
+    def test_empty_text_fields_carry_a_hint(self):
+        self.assertIn("input.placeholder = hint", self.html)
+        block = self.html.split("function placeholderFor(parameter) {")[1].split("\n}")[0]
+        self.assertIn("输入提示词…", block)
+
+
 class LoraPreviewTests(unittest.TestCase):
     """A LoRA is looked at before it is chosen.
 
