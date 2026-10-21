@@ -1,6 +1,7 @@
 """Tests for the phone UI backend: subgraph expansion and value binding."""
 
 import importlib.util
+import json
 import pathlib
 import sys
 import unittest
@@ -413,6 +414,89 @@ class ExtraDataTests(unittest.TestCase):
             "@server.routes.get"
         )[0]
         self.assertIn('"graph"', handler, "template handler must forward the graph")
+
+
+class MediaInputTests(unittest.TestCase):
+    """Image-to-image needs media, not just numbers.
+
+    ``LoadImage`` stores a file name in a combo widget, while
+    ``QQ-多媒体加载`` keeps one JSON string holding images/audios/videos. Both
+    are ordinary widgets, so the same (node, input) override carries them —
+    only the encoding differs.
+    """
+
+    def setUp(self):
+        self.ui = _load("mobile_ui_media_under_test", _MODULES_DIR / "mobile_ui.py")
+        self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    # -- backend encoding ------------------------------------------------
+    def test_plain_media_parameter_passes_the_file_name_through(self):
+        parameter = {"media": "image", "mediaState": False}
+        self.assertEqual(self.ui._serialise_media_value(parameter, "a.png"), "a.png")
+
+    def test_media_state_list_is_encoded_as_images(self):
+        parameter = {"media": "image", "mediaState": True}
+        encoded = self.ui._serialise_media_value(parameter, ["a.png", "b.jpg"])
+        self.assertEqual(json.loads(encoded), {"images": ["a.png", "b.jpg"]})
+
+    def test_media_state_uses_the_matching_key_per_kind(self):
+        for kind, key in (("image", "images"), ("video", "videos"), ("audio", "audios")):
+            parameter = {"media": kind, "mediaState": True}
+            encoded = self.ui._serialise_media_value(parameter, ["x"])
+            self.assertIn(key, json.loads(encoded))
+
+    def test_media_state_single_string_is_wrapped(self):
+        parameter = {"media": "image", "mediaState": True}
+        self.assertEqual(json.loads(self.ui._serialise_media_value(parameter, "a.png")),
+                         {"images": ["a.png"]})
+
+    def test_already_encoded_media_state_is_kept(self):
+        parameter = {"media": "image", "mediaState": True}
+        original = '{"images": ["x.png"]}'
+        self.assertEqual(self.ui._serialise_media_value(parameter, original), original)
+
+    def test_state_is_written_as_a_json_string_not_an_object(self):
+        prompt = {"9": {"class_type": "QQMediaLoader", "inputs": {"media_state": ""}}}
+        parameters = [{
+            "key": "9:media_state", "name": "media_state",
+            "targets": [["9", "media_state"]],
+            "mediaState": True, "media": "image",
+        }]
+        updated, warnings = self.ui.apply_parameter_values(
+            prompt, parameters, {"9:media_state": ["a.png"]}
+        )
+        value = updated["9"]["inputs"]["media_state"]
+        self.assertIsInstance(value, str)
+        self.assertEqual(json.loads(value), {"images": ["a.png"]})
+        self.assertEqual(warnings, [])
+
+    def test_media_extensions_cover_the_three_kinds(self):
+        self.assertIn(".png", self.ui.MEDIA_EXTENSIONS["image"])
+        self.assertIn(".mp4", self.ui.MEDIA_EXTENSIONS["video"])
+        self.assertIn(".mp3", self.ui.MEDIA_EXTENSIONS["audio"])
+
+    # -- frontend wiring -------------------------------------------------
+    def test_known_loader_nodes_are_mapped(self):
+        for node in ("LoadImage", "LoadVideo", "LoadAudio", "QQ-多媒体加载"):
+            self.assertIn(node, self.js)
+
+    def test_media_fields_render_a_picker_with_upload(self):
+        self.assertIn("mediaField(parameter", self.html)
+        self.assertIn("uploadMedia(", self.html)
+        self.assertIn("/qq_mobile/upload", self.html)
+
+    def test_media_list_endpoint_is_used_for_existing_files(self):
+        self.assertIn("/qq_mobile/media?kind=", self.html)
+
+    def test_media_parameters_come_before_regular_ones(self):
+        body = self.js.split("const media = mediaParameters(graph)")[0]
+        self.assertIn("mediaParameters(graph)", self.js)
+        # The media block is pushed before multi/subgraph parameters.
+        after = self.js.split("const media = mediaParameters(graph)")[1]
+        media_push = after.index("parameters.push(entry)")
+        sub_push = after.index("promotedTargets(instance)")
+        self.assertLess(media_push, sub_push)
 
 
 class MultiPrimitiveTests(unittest.TestCase):

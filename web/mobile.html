@@ -94,6 +94,114 @@ main {
     background: var(--accent);
 }
 
+/* ---------- media picker ---------- */
+.media { display: flex; flex-direction: column; gap: 10px; }
+.media-thumbs {
+    display: flex; gap: 10px; overflow-x: auto;
+    padding: 10px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    min-height: 96px;
+    -webkit-overflow-scrolling: touch;
+}
+.media-empty {
+    flex: 1; display: grid; place-items: center;
+    color: var(--muted); font-size: 13px;
+}
+.media-item {
+    position: relative; flex: none;
+    width: 96px;
+    display: flex; flex-direction: column; gap: 4px;
+}
+.media-item img,
+.media-item .media-audio {
+    width: 96px; height: 96px;
+    object-fit: cover;
+    border-radius: 10px;
+    background: #0b0c11;
+    display: block;
+}
+.media-item video {
+    width: 96px; height: 96px;
+    object-fit: cover;
+    border-radius: 10px;
+    background: #0b0c11;
+}
+.media-item .media-audio {
+    display: grid; place-items: center;
+    font-size: 32px; color: var(--muted);
+}
+.media-item span {
+    font-size: 11px; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.media-remove {
+    position: absolute; top: -6px; right: -6px;
+    width: 24px; height: 24px;
+    display: grid; place-items: center;
+    border: 0; border-radius: 50%;
+    background: var(--danger); color: #fff;
+    font-size: 15px; line-height: 1;
+    cursor: pointer;
+}
+.media-actions { display: flex; gap: 10px; }
+.media-btn {
+    flex: 1; min-height: 44px;
+    font: 600 14px/1 inherit;
+    color: var(--text); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 11px;
+    cursor: pointer;
+}
+.media-btn:active { background: var(--surface-2); }
+.media-btn.primary { color: #fff; background: var(--accent); border-color: transparent; }
+.media-btn:disabled { opacity: .5; }
+
+/* modal list */
+.picker {
+    position: fixed; inset: 0; z-index: 90;
+    display: flex; align-items: flex-end;
+    background: rgba(0, 0, 0, .55);
+}
+.picker-sheet {
+    width: 100%; max-height: 80dvh;
+    display: flex; flex-direction: column;
+    background: var(--surface);
+    border-radius: 18px 18px 0 0;
+    padding-bottom: var(--safe-bottom);
+    animation: sheetIn .2s ease-out;
+}
+@keyframes sheetIn {
+    from { transform: translateY(24px); opacity: .6; }
+    to { transform: translateY(0); opacity: 1; }
+}
+.picker-head {
+    display: flex; align-items: center;
+    padding: 14px 16px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--line);
+}
+.picker-close {
+    margin-left: auto;
+    width: 32px; height: 32px;
+    border: 0; border-radius: 8px;
+    background: transparent; color: var(--muted);
+    font-size: 22px; line-height: 1; cursor: pointer;
+}
+.picker-list { flex: 1; overflow-y: auto; padding: 6px 0; }
+.picker-row {
+    display: block; width: 100%;
+    padding: 13px 16px;
+    text-align: left;
+    font: inherit; font-size: 14px;
+    color: var(--text); background: transparent;
+    border: 0; border-bottom: 1px solid rgba(255,255,255,.04);
+    cursor: pointer;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.picker-row.on { background: rgba(77, 124, 254, .16); color: #b9cbff; }
+.picker-foot { padding: 12px 16px; border-top: 1px solid var(--line); }
+
 /* ---------- fullscreen text editor ---------- */
 .editor {
     position: fixed; inset: 0; z-index: 100;
@@ -464,6 +572,12 @@ function fieldFor(parameter) {
         storeValues();
     };
 
+    // Media inputs (LoadImage, QQ-多媒体加载, ...) get a picker with upload.
+    if (parameter.media) {
+        wrap.appendChild(mediaField(parameter, value, commit));
+        return wrap;
+    }
+
     if (type === "BOOLEAN") {
         wrap.classList.add("switch");
         wrap.removeChild(label);
@@ -557,6 +671,255 @@ function fieldFor(parameter) {
     attachLongPress(input, parameter);
     wrap.appendChild(input);
     return wrap;
+}
+
+/* ---------------- media picker ---------------- */
+/**
+ * Picker for a media input: choose from files already in ComfyUI's input
+ * directory, or upload a new one from the phone.
+ *
+ * The value written back is the file name (ComfyUI loaders accept nothing
+ * else). For QQ-多媒体加载 the list is sent and the backend encodes it into
+ * that node's JSON state.
+ */
+const MEDIA_LABELS = { image: "图片", video: "视频", audio: "音频" };
+const MEDIA_ACCEPT = {
+    image: "image/*",
+    video: "video/*",
+    audio: "audio/*",
+};
+
+function mediaField(parameter, value, commit) {
+    const kind = parameter.media;
+    const multiple = Boolean(parameter.multiple);
+    const box = document.createElement("div");
+    box.className = "media";
+
+    const current = multiple
+        ? (Array.isArray(value) ? value : [])
+        : (value ? [value] : []);
+
+    const thumbs = document.createElement("div");
+    thumbs.className = "media-thumbs";
+    const actions = document.createElement("div");
+    actions.className = "media-actions";
+
+    const render = (names) => {
+        thumbs.replaceChildren();
+        if (!names.length) {
+            const empty = document.createElement("div");
+            empty.className = "media-empty";
+            empty.textContent = `未选择${MEDIA_LABELS[kind] || "媒体"}`;
+            thumbs.appendChild(empty);
+            return;
+        }
+        for (const name of names) {
+            const item = document.createElement("div");
+            item.className = "media-item";
+            if (kind === "image") {
+                const img = document.createElement("img");
+                img.src = mediaSrc(name);
+                img.loading = "lazy";
+                img.alt = name;
+                item.appendChild(img);
+            } else if (kind === "video") {
+                const video = document.createElement("video");
+                video.src = mediaSrc(name);
+                video.muted = true;
+                video.playsInline = true;
+                video.preload = "metadata";
+                item.appendChild(video);
+            } else {
+                const icon = document.createElement("div");
+                icon.className = "media-audio";
+                icon.textContent = "♪";
+                item.appendChild(icon);
+            }
+            const caption = document.createElement("span");
+            caption.textContent = baseName(name);
+            item.appendChild(caption);
+            if (multiple) {
+                const remove = document.createElement("button");
+                remove.type = "button";
+                remove.className = "media-remove";
+                remove.textContent = "×";
+                remove.setAttribute("aria-label", `移除 ${baseName(name)}`);
+                remove.addEventListener("click", () => {
+                    const next = current.filter((entry) => entry !== name);
+                    current.length = 0;
+                    current.push(...next);
+                    commit(multiple ? [...current] : (current[0] ?? ""));
+                    render(current);
+                });
+                item.appendChild(remove);
+            }
+            thumbs.appendChild(item);
+        }
+    };
+
+    const pickExisting = async () => {
+        toast("读取可用媒体…");
+        try {
+            const data = await fetchJson(`/qq_mobile/media?kind=${encodeURIComponent(kind)}`);
+            const files = (data.files || []).map((entry) => entry.name);
+            if (!files.length) {
+                toast("input 目录里没有可用的" + (MEDIA_LABELS[kind] || "媒体"));
+                return;
+            }
+            chooseFromList(files, multiple, (chosen) => {
+                if (multiple) {
+                    current.length = 0;
+                    current.push(...chosen);
+                    commit([...current]);
+                } else {
+                    current.length = 0;
+                    current.push(chosen[0]);
+                    commit(chosen[0]);
+                }
+                render(current);
+            });
+        } catch (error) {
+            toast(`读取失败：${error.message}`);
+        }
+    };
+
+    const upload = () => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = MEDIA_ACCEPT[kind] || "*/*";
+        input.multiple = multiple;
+        input.style.display = "none";
+        input.addEventListener("change", async () => {
+            const files = [...(input.files || [])];
+            if (!files.length) return;
+            for (const file of files) {
+                try {
+                    const name = await uploadMedia(file);
+                    if (!name) continue;
+                    if (multiple) {
+                        if (!current.includes(name)) current.push(name);
+                    } else {
+                        current.length = 0;
+                        current.push(name);
+                    }
+                } catch (error) {
+                    toast(`上传失败 ${file.name}：${error.message}`);
+                }
+            }
+            commit(multiple ? [...current] : (current[0] ?? ""));
+            render(current);
+        });
+        document.body.appendChild(input);
+        input.click();
+        setTimeout(() => input.remove(), 60000);
+    };
+
+    const pick = document.createElement("button");
+    pick.type = "button";
+    pick.className = "media-btn";
+    pick.textContent = multiple ? "选择已有" : "选择文件";
+    pick.addEventListener("click", pickExisting);
+
+    const up = document.createElement("button");
+    up.type = "button";
+    up.className = "media-btn primary";
+    up.textContent = "上传";
+    up.addEventListener("click", upload);
+
+    actions.append(pick, up);
+    render(current);
+    box.append(thumbs, actions);
+    return box;
+}
+
+function baseName(name) {
+    const text = String(name || "");
+    const index = text.lastIndexOf("/");
+    return index === -1 ? text : text.slice(index + 1);
+}
+
+/** URL that serves one input-directory file for preview. */
+function mediaSrc(name) {
+    const params = new URLSearchParams({
+        filename: name,
+        subfolder: "",
+        type: "input",
+    });
+    return `${basePath()}/view?${params.toString()}`;
+}
+
+/** Upload one file; resolves to the name ComfyUI stored it under. */
+async function uploadMedia(file) {
+    const form = new FormData();
+    form.append("image", file, file.name);
+    form.append("overwrite", "true");
+    const data = await fetchJson("/qq_mobile/upload", { method: "POST", body: form });
+    if (!data?.name) throw new Error("服务器没有返回文件名");
+    return data.subfolder ? `${data.subfolder}/${data.name}` : data.name;
+}
+
+/** Simple modal list for choosing from files already on the server. */
+function chooseFromList(files, multiple, onPick) {
+    const overlay = document.createElement("div");
+    overlay.className = "picker";
+    const sheet = document.createElement("div");
+    sheet.className = "picker-sheet";
+
+    const head = document.createElement("div");
+    head.className = "picker-head";
+    head.textContent = multiple ? "选择媒体（可多选）" : "选择媒体";
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "picker-close";
+    close.textContent = "×";
+    close.addEventListener("click", () => overlay.remove());
+    head.appendChild(close);
+
+    const list = document.createElement("div");
+    list.className = "picker-list";
+    const selected = new Set();
+    for (const name of files) {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "picker-row";
+        row.textContent = name;
+        row.addEventListener("click", () => {
+            if (!multiple) {
+                onPick([name]);
+                overlay.remove();
+                return;
+            }
+            if (selected.has(name)) {
+                selected.delete(name);
+                row.classList.remove("on");
+            } else {
+                selected.add(name);
+                row.classList.add("on");
+            }
+            confirm.disabled = selected.size === 0;
+        });
+        list.appendChild(row);
+    }
+
+    const foot = document.createElement("div");
+    foot.className = "picker-foot";
+    const confirm = document.createElement("button");
+    confirm.type = "button";
+    confirm.className = "media-btn primary";
+    confirm.textContent = "确定";
+    confirm.disabled = true;
+    confirm.addEventListener("click", () => {
+        onPick([...selected]);
+        overlay.remove();
+    });
+    foot.appendChild(confirm);
+
+    sheet.append(head, list, foot);
+    overlay.appendChild(sheet);
+    overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) overlay.remove();
+    });
+    document.body.appendChild(overlay);
 }
 
 /* ---------------- fullscreen text editor ---------------- */

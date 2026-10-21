@@ -37,6 +37,27 @@ const ICON = `
   <circle cx="12" cy="18.4" r="0.9" fill="currentColor" stroke="none"></circle>
 </svg>`;
 
+/**
+ * Media loading nodes the phone page turns into pickers.
+ *
+ * Each entry names the node type and the widget that holds the chosen file.
+ * `media` decides which extensions the picker offers, and `state` marks nodes
+ * that keep a JSON media bundle instead of a single file name.
+ */
+const MEDIA_WIDGETS = {
+    LoadImage: { widget: "image", media: "image" },
+    LoadImageMask: { widget: "image", media: "image" },
+    LoadVideo: { widget: "file", media: "video" },
+    LoadAudio: { widget: "audio", media: "audio" },
+    VHS_LoadVideo: { widget: "video", media: "video" },
+    VHS_LoadAudio: { widget: "audio", media: "audio" },
+    "QQ-多媒体加载": { widget: "media_state", media: "image", state: true },
+    QQMediaLoader: { widget: "media_state", media: "image", state: true },
+};
+
+/** File-name suffix -> media kind, for combo values that are real files. */
+const MEDIA_FILE_RE = /\.(png|jpe?g|webp|bmp|gif|avif|tiff|mp4|webm|mov|mkv|avi|m4v|mp3|wav|flac|ogg|m4a|aac|opus)$/i;
+
 /** Subgraph instances on the current canvas. */
 function subgraphInstances() {
     const graph = app.rootGraph ?? app.graph;
@@ -44,6 +65,82 @@ function subgraphInstances() {
         (node) => node?.isSubgraphNode?.() && node?.subgraph,
     );
     return { graph, instances };
+}
+
+/**
+ * Read a media loading node as a phone parameter.
+ *
+ * The node keeps its choice in an ordinary widget: a file name for LoadImage
+ * and friends, or a JSON media bundle for QQ-多媒体加载. Both are reachable
+ * through the same (node id, widget name) target the rest of the page uses.
+ */
+function mediaParameter(node, spec, container, labelPrefix) {
+    const widget = (node.widgets ?? []).find((entry) => entry?.name === spec.widget);
+    if (!widget) return null;
+
+    const targets = [[String(node.id), spec.widget]];
+    let value = widget.value;
+    if (spec.state) {
+        // Parse the JSON bundle so the phone can show a list of names.
+        value = parseMediaState(widget.value, spec.media);
+    }
+
+    const id = String(node.id);
+    return {
+        key: `${id}:${spec.widget}`,
+        name: spec.widget,
+        label: labelPrefix || node.title || spec.widget,
+        type: spec.state ? "STRING" : "COMBO",
+        value,
+        options: spec.state ? null : comboOptions(widget),
+        targets,
+        group: node.title || undefined,
+        media: spec.media,
+        mediaState: Boolean(spec.state),
+        multiple: Boolean(spec.state),
+        min: null,
+        max: null,
+        step: null,
+        multiline: false,
+    };
+}
+
+/** Parse a QQ-多媒体加载 state string into the list shown on the phone. */
+function parseMediaState(raw, kind) {
+    if (raw && typeof raw === "object") return raw;
+    let parsed = null;
+    try {
+        parsed = typeof raw === "string" && raw.trim().startsWith("{")
+            ? JSON.parse(raw)
+            : null;
+    } catch {
+        parsed = null;
+    }
+    const key = kind === "video" ? "videos" : kind === "audio" ? "audios" : "images";
+    if (!parsed) return [];
+    const list = parsed[key];
+    return Array.isArray(list)
+        ? list.map((item) => (item && typeof item === "object" ? item.filename : item)).filter(Boolean)
+        : [];
+}
+
+/** Media loaders on the canvas, as phone parameters. */
+function mediaParameters(graph) {
+    const found = [];
+    const visit = (container) => {
+        for (const node of container?._nodes ?? []) {
+            if (node?.subgraph) {
+                visit(node.subgraph);
+                continue;
+            }
+            const spec = MEDIA_WIDGETS[node?.type];
+            if (!spec) continue;
+            const parameter = mediaParameter(node, spec, container);
+            if (parameter) found.push(parameter);
+        }
+    };
+    visit(graph);
+    return found;
 }
 
 /**
@@ -279,6 +376,12 @@ async function prepareTemplate({ notify = true } = {}) {
     // through one, those are the values the user means, so the subgraph's
     // promoted inputs are not shown at all.
     const multi = multiPrimitiveParameters(graph);
+    // Media loaders are listed first: on a phone the picture to work from is
+    // the first thing chosen, and it is what makes the workflow image-to-image.
+    const media = mediaParameters(graph);
+    if (media.length) {
+        for (const entry of media) parameters.push(entry);
+    }
     if (multi.length) {
         for (const entry of multi) {
             if (!entry.targets.length) unbound.push(entry.label || entry.name);
@@ -306,8 +409,8 @@ async function prepareTemplate({ notify = true } = {}) {
                 });
             }
         }
-    } else {
-        throw new Error("当前工作流既没有子图，也没有 QQ-多值输入 节点");
+    } else if (!parameters.length) {
+        throw new Error("当前工作流既没有子图，也没有 QQ-多值输入 或媒体加载节点");
     }
 
     if (unbound.length) {
