@@ -494,6 +494,14 @@ class ParameterLayoutTests(unittest.TestCase):
         self.assertIn('input.tagName === "TEXTAREA"', block)
         self.assertIn("clear.hidden = !input.value", block)
 
+    def test_the_fullscreen_editor_can_clear_too(self):
+        # The editor is the multi-line surface for long prompts.
+        self.assertIn('id="editorWipe"', self.html)
+        block = self.html.split('el("editorWipe").addEventListener')[1].split("});")[0]
+        self.assertIn('text.value = ""', block)
+        self.assertIn("updateEditorCount()", block)
+        self.assertIn("text.focus()", block)
+
     def test_clearing_commits_the_empty_value(self):
         block = self.html.split("function textWrapWithExpand(input, parameter)")[1].split("\n}")[0]
         self.assertIn('input.value = ""', block)

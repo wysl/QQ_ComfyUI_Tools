@@ -823,6 +823,7 @@ footer button.ghost:active { background: var(--surface-2); }
 <section class="editor" id="editor" hidden aria-hidden="true">
     <div class="editor-head">
         <h2 id="editorTitle">编辑</h2>
+        <button type="button" class="clear" id="editorWipe" title="清空内容" aria-label="清空内容">清空</button>
         <button type="button" class="clear" id="editorRevert">还原</button>
         <button type="button" class="done" id="editorDone">完成</button>
     </div>
@@ -3034,6 +3035,14 @@ el("viewer").addEventListener("click", (event) => {
 /* Fullscreen editor wiring. */
 el("editorText").addEventListener("input", updateEditorCount);
 el("editorDone").addEventListener("click", () => closeEditor(true));
+el("editorWipe").addEventListener("click", () => {
+    // Same promise as the field's own button, and the caret stays in the box
+    // so a new prompt can be typed straight away.
+    const text = el("editorText");
+    text.value = "";
+    updateEditorCount();
+    text.focus();
+});
 el("editorRevert").addEventListener("click", () => {
     el("editorText").value = editor.original;
     updateEditorCount();
