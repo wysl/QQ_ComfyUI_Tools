@@ -834,6 +834,83 @@ function graphSignature(graph) {
 /** Last graph signature pushed, so the watcher skips identical states. */
 let lastPushedSignature = "";
 let watcherTimer = null;
+let prepareBusy = false;
+
+/**
+ * Prepare a workflow the phone asked for.
+ *
+ * Only a browser holding the real graph can expand a workflow, so the phone
+ * leaves a request and the editor picks it up. The workflow is loaded, expanded
+ * and put away again, and the canvas the user was working on is restored —
+ * exactly what the bulk run does, but for one workflow.
+ */
+async function servePrepareRequests() {
+    if (prepareBusy) return;
+    let requests = [];
+    try {
+        const response = await api.fetchApi("/qq_mobile/prepare");
+        if (!response.ok) return;
+        const data = await response.json();
+        requests = (data?.requests || []).filter((entry) => entry?.state === "pending");
+    } catch (error) {
+        return;
+    }
+    if (!requests.length) return;
+
+    for (const request of requests) {
+        const workflowKey = String(request.workflow || "");
+        const path = String(request.path || "");
+        if (!workflowKey || !path) continue;
+        prepareBusy = true;
+        // Keep what the user was working on, to restore at the end.
+        let restore = null;
+        try {
+            restore = (await app.graphToPrompt()).workflow;
+        } catch {
+            restore = null;
+        }
+        try {
+            const response = await api.fetchApi(
+                `/api/userdata/workflows%2F${encodeURIComponent(path)}`,
+            );
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const workflow = await response.json();
+            await app.loadGraphData(workflow, true, true);
+            await prepareTemplate({
+                notify: false,
+                workflowKey,
+                title: request.title || workflowKey,
+                folder: request.folder || "",
+            });
+            // The stored template settles the request on the server.
+        } catch (error) {
+            const message = String(error?.message || error);
+            console.warn("[QQ Mobile] prepare request failed:", message);
+            try {
+                await api.fetchApi("/qq_mobile/prepare-result", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        workflow: workflowKey,
+                        ok: false,
+                        error: message,
+                    }),
+                });
+            } catch {
+                /* 忽略 */
+            }
+        } finally {
+            if (restore) {
+                try {
+                    await app.loadGraphData(restore, true, true);
+                } catch (error) {
+                    console.warn("[QQ Mobile] could not restore the workflow:", error);
+                }
+            }
+            prepareBusy = false;
+        }
+    }
+}
 
 /**
  * Keep the pushed template in step with the canvas.
@@ -849,6 +926,12 @@ function startTemplateWatcher() {
         // A batch run swaps workflows on purpose; syncing mid-run would push
         // whichever one happens to be loaded.
         if (batchRunning) return;
+        // The phone may be waiting for a workflow to be prepared.
+        try {
+            await servePrepareRequests();
+        } catch (error) {
+            console.warn("[QQ Mobile] prepare requests skipped:", error);
+        }
         try {
             const { graph, instances } = subgraphInstances();
             if (!graph) return;
@@ -1011,11 +1094,9 @@ const openMobile = async (event) => {
         });
     }
 
-    // The picker lists the whole library, which means every workflow needs a
-    // template first. Already-prepared ones are skipped, so this is only
-    // noticeable on the first run or after adding workflows.
-    await prepareAllWorkflows({ notify: true });
-
+    // Only the workflow that is open gets prepared. Expanding every saved
+    // workflow here would block the click for seconds and swap the canvas
+    // once per file; the phone prepares the one it is asked for instead.
     const params = new URLSearchParams();
     if (prepared?.workflow) params.set("workflow", prepared.workflow);
     const query = params.toString() ? `?${params.toString()}` : "";

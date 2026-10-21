@@ -416,6 +416,103 @@ class ExtraDataTests(unittest.TestCase):
         self.assertIn('"graph"', handler, "template handler must forward the graph")
 
 
+class OnDemandPrepareTests(unittest.TestCase):
+    """Preparing every workflow on the button press is wasteful.
+
+    Expanding a workflow needs the real graph, so the editor has to load the
+    file, expand it and put the user's canvas back. Doing that for the whole
+    library blocks the click for seconds and swaps the canvas once per file.
+    The phone lists the library anyway (a directory scan), so unprepared
+    workflows can simply be shown as 待准备 and expanded when they are picked.
+    """
+
+    def setUp(self):
+        self.ui = _load("mobile_ui_on_demand", _MODULES_DIR / "mobile_ui.py")
+        self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    # -- the button no longer expands the whole library --------------------
+    def test_the_button_does_not_prepare_every_workflow(self):
+        button = self.js.split("const openMobile = async (event)")[1].split("\n};\n")[0]
+        self.assertNotIn("prepareAllWorkflows", button)
+
+    def test_the_button_still_prepares_the_open_workflow(self):
+        button = self.js.split("const openMobile = async (event)")[1].split("\n};\n")[0]
+        self.assertIn("prepareTemplate({ notify: false })", button)
+
+    def test_the_bulk_run_is_kept_as_a_manual_entry_point(self):
+        self.assertIn("async function prepareAllWorkflows(", self.js)
+        self.assertIn("prepareAllWorkflows", self.js)
+
+    # -- the request queue -------------------------------------------------
+    def test_a_request_is_queued(self):
+        state = self.ui.MobileState()
+        record = state.request_prepare("unsaved-1", {"path": "a.json", "title": "A"})
+        self.assertEqual(record["state"], "pending")
+        self.assertEqual([r["workflow"] for r in state.pending_requests()], ["unsaved-1"])
+
+    def test_a_request_needs_a_path(self):
+        state = self.ui.MobileState()
+        record = state.request_prepare("unsaved-1", {})
+        self.assertEqual(record["path"], "")
+
+    def test_storing_a_template_settles_the_request(self):
+        state = self.ui.MobileState()
+        state.request_prepare("unsaved-1", {"path": "a.json"})
+        state.settle_request("unsaved-1", True)
+        self.assertEqual(state.pending_requests(), [])
+        self.assertEqual(state.requests["unsaved-1"]["state"], "done")
+
+    def test_a_failure_is_reported_to_the_phone(self):
+        state = self.ui.MobileState()
+        state.request_prepare("unsaved-1", {"path": "a.json"})
+        state.settle_request("unsaved-1", False, "没有可调参数")
+        self.assertEqual(state.requests["unsaved-1"]["state"], "failed")
+        self.assertEqual(state.requests["unsaved-1"]["error"], "没有可调参数")
+
+    def test_the_routes_exist(self):
+        source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+        self.assertIn('@server.routes.post("/qq_mobile/prepare")', source)
+        self.assertIn('@server.routes.get("/qq_mobile/prepare")', source)
+        self.assertIn('@server.routes.post("/qq_mobile/prepare-result")', source)
+
+    def test_storing_a_template_settles_the_request_over_http(self):
+        source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+        handler = source.split('@server.routes.post("/qq_mobile/template")')[1]
+        handler = handler.split("@server.routes")[0]
+        self.assertIn("settle_request(workflow_key, True)", handler)
+
+    # -- the editor serves the requests ------------------------------------
+    def test_the_editor_polls_for_requests(self):
+        self.assertIn("/qq_mobile/prepare", self.js)
+        self.assertIn("servePrepareRequests()", self.js)
+
+    def test_the_editor_restores_the_canvas_after_preparing(self):
+        block = self.js.split("async function servePrepareRequests(")[1].split("\nfunction ")[0]
+        self.assertIn("finally", block)
+        self.assertIn("app.loadGraphData(restore, true, true)", block)
+
+    def test_the_editor_reports_a_failure(self):
+        block = self.js.split("async function servePrepareRequests(")[1].split("\nfunction ")[0]
+        self.assertIn("/qq_mobile/prepare-result", block)
+        self.assertIn("ok: false", block)
+
+    # -- the phone asks for what it wants ----------------------------------
+    def test_a_pending_row_asks_for_preparation(self):
+        self.assertIn("async function preparePipeline(", self.html)
+        self.assertIn('"/qq_mobile/prepare"', self.html)
+
+    def test_the_phone_waits_for_the_template(self):
+        block = self.html.split("async function waitForTemplate(")[1].split("\nfunction ")[0]
+        self.assertIn("/qq_mobile/template?workflow=", block)
+        self.assertIn('"ready"', block)
+        self.assertIn('"failed"', block)
+        self.assertIn('"timeout"', block)
+
+    def test_unprepared_rows_are_listed_as_pending(self):
+        self.assertIn("待准备", self.html)
+
+
 class DynamicSyncTests(unittest.TestCase):
     """The phone form tracks canvas changes after it was prepared.
 
@@ -1031,10 +1128,10 @@ class PipelinePickerTests(unittest.TestCase):
         self.assertIn("state.workflow = item.key", block)
         self.assertIn("replaceState", block)
 
-    def test_tapping_an_unprepared_row_explains_why(self):
+    def test_tapping_an_unprepared_row_prepares_it(self):
         block = self.html.split("function pipelineRow(item, titleCounts)")[1].split("\n}")[0]
         self.assertIn("if (!item.ready)", block)
-        self.assertIn("还没有准备", block)
+        self.assertIn("preparePipeline(item, row, meta, arrow)", block)
 
     def test_picker_lists_the_whole_library_not_only_templates(self):
         block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]

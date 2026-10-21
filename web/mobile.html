@@ -114,6 +114,8 @@ main {
 /* A workflow that exists but has no template yet: listed, but not runnable. */
 .pipeline-row.is-pending { opacity: .55; }
 .pipeline-row.is-pending .pipeline-arrow { font-size: 22px; }
+.pipeline-row.is-preparing { opacity: .9; }
+.pipeline-row.is-preparing .pipeline-meta { color: var(--accent); }
 .pipeline-row {
     display: flex; align-items: center; gap: 12px;
     width: 100%; padding: 16px 14px;
@@ -1493,6 +1495,8 @@ const basePath = () => {
     return trimmed.endsWith("/qq_mobile") ? trimmed.slice(0, -11) : "";
 };
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function fetchJson(path, options) {
     const response = await fetch(`${basePath()}${path}`, options);
     const text = await response.text();
@@ -1750,6 +1754,7 @@ async function showPipelinePicker() {
             title: template?.title || file.name,
             folder: file.folder || template?.folder || "",
             name: file.name,
+            path: file.path || "",
             parameters: template?.parameters || 0,
             ready: Boolean(template),
             updated: template?.updated || file.updated || 0,
@@ -1840,12 +1845,14 @@ function pipelineRow(item, titleCounts) {
     arrow.textContent = item.ready ? "›" : "·";
 
     row.append(main, arrow);
-    row.addEventListener("click", () => {
+    row.addEventListener("click", async () => {
+        if (row.dataset.busy === "1") return;
         if (!item.ready) {
-            // Neutral wording: some of these have no phone-usable inputs at
-            // all, so promising that opening them will help would be wrong.
-            toast(`「${item.name}」还没有准备，请在 ComfyUI 里点一次「手机界面」`);
-            return;
+            // Not prepared yet: ask the editor to expand this one workflow and
+            // wait for it. Preparing every workflow up front would cost
+            // seconds per file and swap the canvas once per file.
+            const ok = await preparePipeline(item, row, meta, arrow);
+            if (!ok) return;
         }
         state.workflow = item.key;
         const url = new URL(window.location.href);
@@ -1854,6 +1861,86 @@ function pipelineRow(item, titleCounts) {
         loadTemplate();
     });
     return row;
+}
+
+/**
+ * Ask the editor to prepare one workflow and wait for it.
+ *
+ * The editor is the only place that can expand a workflow, so the phone
+ * leaves a request and watches for the template to appear.
+ */
+async function preparePipeline(item, row, meta, arrow) {
+    if (!item.path) {
+        toast(`「${item.name}」还没有准备，请在 ComfyUI 里点一次「手机界面」`);
+        return false;
+    }
+    row.dataset.busy = "1";
+    row.classList.add("is-preparing");
+    meta.textContent = "准备中…";
+    arrow.textContent = "…";
+    try {
+        await fetchJson("/qq_mobile/prepare", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                workflow: item.key,
+                path: item.path,
+                title: item.title || item.name,
+                folder: item.folder || "",
+            }),
+        });
+        const outcome = await waitForTemplate(item.key);
+        if (outcome.state === "ready") return true;
+        meta.textContent = "待准备";
+        arrow.textContent = "·";
+        if (outcome.state === "failed") {
+            toast(prepareFailureText(outcome.error, item));
+        } else {
+            toast("还没准备好：请在电脑上回到 ComfyUI 页面，打开这条流水线后点一次「手机界面」");
+        }
+        return false;
+    } catch (error) {
+        meta.textContent = "待准备";
+        arrow.textContent = "·";
+        toast(`准备失败：${String(error.message || error)}`);
+        return false;
+    } finally {
+        row.dataset.busy = "0";
+        row.classList.remove("is-preparing");
+    }
+}
+
+/**
+ * Wait for a workflow to be prepared.
+ *
+ * Returns "ready", "failed" or "timeout". A failure carries the reason.
+ */
+async function waitForTemplate(key, timeoutMs = 12000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        await sleep(700);
+        const template = await fetchJson(
+            `/qq_mobile/template?workflow=${encodeURIComponent(key)}`,
+        ).catch(() => null);
+        if (template && !template.error) return { state: "ready" };
+        const data = await fetchJson("/qq_mobile/prepare").catch(() => null);
+        const request = (data?.requests || []).find(
+            (entry) => entry.workflow === key,
+        );
+        if (request?.state === "failed") {
+            return { state: "failed", error: request.error || "" };
+        }
+    }
+    return { state: "timeout" };
+}
+
+/** Wording for a workflow that could not be prepared. */
+function prepareFailureText(error, item) {
+    const message = String(error || "");
+    if (message.includes("既没有子图")) {
+        return `「${item.name}」没有可在手机上调节的参数`;
+    }
+    return `「${item.name}」准备失败：${message.slice(0, 60) || "未知原因"}`;
 }
 
 /* ---------------- boot ---------------- */
