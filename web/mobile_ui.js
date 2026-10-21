@@ -588,22 +588,70 @@ function workflowTitle() {
     return "手机界面";
 }
 
-const openMobile = async (event) => {
-    let workflowKey = "";
+/**
+ * Check whether a phone could reach this server at all.
+ *
+ * The phone opens the page at whatever address the user types, which is not
+ * necessarily one the desktop editor can see. What can be checked from here
+ * is whether ComfyUI was started in a way that accepts remote connections:
+ * ``--listen`` binds 0.0.0.0 (or a NIC address), while a bare local run binds
+ * 127.0.0.1 and is unreachable from a phone.
+ *
+ * Falls back to treating the server as reachable when the setting cannot be
+ * read, so a detection failure never blocks the feature.
+ */
+async function probeMobileReachable() {
     try {
-        const prepared = await prepareTemplate({ notify: false });
-        workflowKey = prepared.workflow;
+        const response = await api.fetchApi("/qq_mobile/reachability");
+        if (!response.ok) return { reachable: true, known: false };
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.warn("[QQ Mobile] reachability probe failed:", error);
+        return { reachable: true, known: false };
+    }
+}
+
+const openMobile = async (event) => {
+    // Prepare the current workflow so it appears in the list, but do not force
+    // the user into it: the picker below is where a pipeline is chosen.
+    let prepared = null;
+    try {
+        prepared = await prepareTemplate({ notify: false });
     } catch (error) {
         console.warn("[QQ Mobile] prepare failed:", error);
         app.extensionManager?.toast?.add?.({
-            severity: "error",
-            summary: "无法准备手机界面",
+            severity: "warn",
+            summary: "当前工作流无法生成手机界面",
             detail: String(error?.message || error),
-            life: 6000,
+            life: 5000,
+        });
+    }
+
+    const probe = await probeMobileReachable();
+    if (probe.known && !probe.reachable) {
+        app.extensionManager?.toast?.add?.({
+            severity: "error",
+            summary: "手机无法访问这个 ComfyUI",
+            detail: probe.hint || "请用 --listen 0.0.0.0 启动 ComfyUI，并确认端口可被局域网访问",
+            life: 9000,
         });
         return;
     }
-    const query = workflowKey ? `?workflow=${encodeURIComponent(workflowKey)}` : "";
+    // Opened on this machine, so the address here is not one a phone can use.
+    // Tell the user what to type there instead.
+    if (probe.suggested_url && !probe.via_proxy) {
+        app.extensionManager?.toast?.add?.({
+            severity: "info",
+            summary: "手机请访问下面的地址",
+            detail: probe.suggested_url,
+            life: 12000,
+        });
+    }
+
+    const params = new URLSearchParams();
+    if (prepared?.workflow) params.set("workflow", prepared.workflow);
+    const query = params.toString() ? `?${params.toString()}` : "";
     const url = mobileUrl(`${MOBILE_PAGE}${query}`);
     if (event?.shiftKey || event?.ctrlKey || event?.metaKey) {
         window.open(url, "_blank");

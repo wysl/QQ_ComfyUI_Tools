@@ -94,6 +94,27 @@ main {
     background: var(--accent);
 }
 
+/* ---------- pipeline picker ---------- */
+.pipeline-list { display: flex; flex-direction: column; gap: 10px; }
+.pipeline-row {
+    display: flex; align-items: center; gap: 12px;
+    width: 100%; padding: 16px 14px;
+    text-align: left;
+    font: inherit; color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    cursor: pointer;
+}
+.pipeline-row:active { background: var(--surface-2); }
+.pipeline-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pipeline-name {
+    font-size: 15px; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pipeline-meta { font-size: 12px; color: var(--muted); }
+.pipeline-arrow { flex: none; font-size: 20px; color: var(--muted); }
+
 /* ---------- media picker ---------- */
 .media { display: flex; flex-direction: column; gap: 10px; }
 .media-thumbs {
@@ -438,6 +459,15 @@ footer button.ghost:active { background: var(--surface-2); }
         </svg>
     </button>
     <h1 id="title">手机界面</h1>
+    <button class="icon-btn" id="switch" aria-label="切换流水线" title="切换流水线" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 7h13"></path>
+            <path d="M14 4l3 3-3 3"></path>
+            <path d="M20 17H7"></path>
+            <path d="M10 14l-3 3 3 3"></path>
+        </svg>
+    </button>
     <button class="icon-btn" id="reload" aria-label="刷新参数" title="刷新参数">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round">
@@ -1332,6 +1362,9 @@ async function loadTemplate() {
         el("title").textContent = data.title || "手机界面";
         // Keep the browser tab in sync with the pipeline name.
         document.title = data.title || "手机界面";
+        // Only meaningful once a pipeline is loaded.
+        el("switch").hidden = false;
+        el("generate").disabled = false;
         render(state.parameters);
         watchTemplate();
         return true;
@@ -1445,6 +1478,77 @@ async function cancel() {
     setProgress(null);
 }
 
+/* ---------------- pipeline picker ---------------- *//**
+ * List the prepared pipelines so one can be chosen on the phone.
+ *
+ * Shown when the page was opened without a specific workflow, or when the user
+ * asks to switch. Tapping a row loads that pipeline's form.
+ */
+async function showPipelinePicker() {
+    const host = el("form");
+    const results = el("results");
+    results.replaceChildren();
+    el("resultsLabel").hidden = true;
+    el("generate").disabled = true;
+    el("switch").hidden = true;
+    el("title").textContent = "选择流水线";
+    document.title = "选择流水线";
+    setStatus(null);
+
+    let templates = [];
+    try {
+        const data = await fetchJson("/qq_mobile/state");
+        templates = data.templates || [];
+    } catch (error) {
+        host.innerHTML = `<div class="empty"><strong>读取流水线失败</strong>
+            ${String(error.message || error)}</div>`;
+        return;
+    }
+
+    if (!templates.length) {
+        host.innerHTML = `<div class="empty"><strong>还没有可用的流水线</strong>
+            在 ComfyUI 里打开工作流，点顶部「手机界面」按钮即可生成。</div>`;
+        return;
+    }
+
+    host.replaceChildren();
+    const list = document.createElement("div");
+    list.className = "pipeline-list";
+    // Newest first: the one just prepared from the editor is what the user
+    // most likely wants.
+    const sorted = [...templates].sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    for (const item of sorted) {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "pipeline-row";
+
+        const main = document.createElement("div");
+        main.className = "pipeline-main";
+        const name = document.createElement("span");
+        name.className = "pipeline-name";
+        name.textContent = item.title || item.workflow;
+        const meta = document.createElement("span");
+        meta.className = "pipeline-meta";
+        meta.textContent = `${item.parameters || 0} 个参数`;
+        main.append(name, meta);
+
+        const arrow = document.createElement("span");
+        arrow.className = "pipeline-arrow";
+        arrow.textContent = "›";
+
+        row.append(main, arrow);
+        row.addEventListener("click", () => {
+            state.workflow = item.workflow;
+            const url = new URL(window.location.href);
+            url.searchParams.set("workflow", item.workflow);
+            window.history.replaceState({}, "", url);
+            loadTemplate();
+        });
+        list.appendChild(row);
+    }
+    host.appendChild(list);
+}
+
 /* ---------------- boot ---------------- */
 el("generate").addEventListener("click", generate);
 el("cancel").addEventListener("click", cancel);
@@ -1465,6 +1569,16 @@ el("back").addEventListener("click", () => {
     window.location.assign(`${base}/`);
 });
 
+/* Switch pipelines without leaving the page. */
+el("switch").addEventListener("click", () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("workflow");
+    window.history.replaceState({}, "", url);
+    state.workflow = "";
+    clearTimeout(templateTimer);
+    showPipelinePicker();
+});
+
 /* Fullscreen editor wiring. */
 el("editorText").addEventListener("input", updateEditorCount);
 el("editorDone").addEventListener("click", () => closeEditor(true));
@@ -1483,7 +1597,15 @@ document.addEventListener("keydown", (event) => {
     }
 });
 
-loadTemplate();
-</script>
+/* Open the pipeline picker: without a workflow in the URL the page starts
+ * there, so a phone can choose which pipeline to run instead of being locked
+ * to whichever one the editor happened to have open. */
+const initialWorkflow = new URLSearchParams(location.search).get("workflow");
+if (initialWorkflow) {
+    state.workflow = initialWorkflow;
+    loadTemplate();
+} else {
+    showPipelinePicker();
+}</script>
 </body>
 </html>

@@ -785,6 +785,103 @@ class BackButtonTests(unittest.TestCase):
         self.assertIn("location.assign", block)
 
 
+class ReachabilityTests(unittest.TestCase):
+    """The entry point must not send the user to a page their phone cannot open.
+
+    A ComfyUI started without ``--listen`` binds 127.0.0.1, which no phone on
+    the network can reach. Detecting that up front beats navigating to a dead
+    URL.
+    """
+
+    def setUp(self):
+        self.source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+        self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
+
+    def test_endpoint_exists(self):
+        self.assertIn('"/qq_mobile/reachability"', self.source)
+
+    def test_loopback_binding_is_reported_as_unreachable(self):
+        block = self.source.split("async def qq_mobile_reachability")[1].split("async def")[0]
+        self.assertIn('"127.0.0.1"', block)
+        self.assertIn('"reachable": False', block)
+
+    def test_wildcard_binding_is_reported_as_reachable(self):
+        block = self.source.split("async def qq_mobile_reachability")[1].split("async def")[0]
+        self.assertIn('"reachable": True', block)
+
+    def test_probe_failure_does_not_block_entry(self):
+        block = self.js.split("async function probeMobileReachable")[1].split("\nconst openMobile")[0]
+        self.assertIn("reachable: true, known: false", block)
+
+    def test_entry_checks_reachability_before_navigating(self):
+        block = self.js.split("const openMobile")[1].split("\nconst createButton")[0]
+        self.assertIn("probeMobileReachable()", block)
+        # The warning is shown instead of navigating.
+        self.assertIn("手机无法访问这个 ComfyUI", block)
+        self.assertLess(
+            block.index("probeMobileReachable()"),
+            block.index("location.assign"),
+        )
+
+    def test_network_access_is_not_blocked_by_the_bind_address(self):
+        # Viewing through a proxy means a phone can use the same address, even
+        # when ComfyUI itself listens on loopback only.
+        block = self.source.split("async def qq_mobile_reachability")[1].split("async def")[0]
+        self.assertIn("viewed_over_network", block)
+
+    def test_local_view_suggests_the_lan_address(self):
+        block = self.source.split("async def qq_mobile_reachability")[1].split("async def")[0]
+        self.assertIn("_lan_url(port)", block)
+        self.assertIn('"suggested_url"', block)
+
+    def test_lan_url_helper_ignores_loopback(self):
+        block = self.source.split("def _lan_url(")[1].split("\ndef ")[0]
+        self.assertIn("127.", block)
+        self.assertIn("/qq_mobile/", block)
+
+
+class PipelinePickerTests(unittest.TestCase):
+    """The phone lands on a chooser instead of one hard-coded pipeline."""
+
+    def setUp(self):
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    def test_picker_is_shown_when_no_workflow_is_given(self):
+        boot = self.html.split("const initialWorkflow")[1].split("</script>")[0]
+        self.assertIn("showPipelinePicker()", boot)
+        self.assertIn("loadTemplate()", boot)
+
+    def test_picker_reads_the_template_list(self):
+        block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
+        self.assertIn("/qq_mobile/state", block)
+
+    def test_rows_are_sorted_newest_first(self):
+        block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
+        self.assertIn("(b.updated || 0) - (a.updated || 0)", block)
+
+    def test_tapping_a_row_loads_that_pipeline(self):
+        block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
+        self.assertIn("state.workflow = item.workflow", block)
+        self.assertIn("replaceState", block)
+
+    def test_empty_state_explains_how_to_prepare_one(self):
+        block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
+        self.assertIn("还没有可用的流水线", block)
+
+    def test_generate_is_disabled_while_choosing(self):
+        block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
+        self.assertIn('el("generate").disabled = true', block)
+
+    def test_switch_button_returns_to_the_picker(self):
+        block = self.html.split('el("switch").addEventListener')[1].split("});")[0]
+        self.assertIn("showPipelinePicker()", block)
+        self.assertIn('searchParams.delete("workflow")', block)
+
+    def test_switch_button_hidden_on_the_picker(self):
+        block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
+        self.assertIn('el("switch").hidden = true', block)
+
+
 class MultiSubgraphTests(unittest.TestCase):
     """One pipeline may hold several subgraph instances.
 
