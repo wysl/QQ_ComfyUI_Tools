@@ -448,6 +448,17 @@ main {
     font-size: 15px; line-height: 1; cursor: pointer;
 }
 .expand-btn:active { color: var(--text); background: var(--line); }
+/* Sits under 全屏编辑, same size and border, so the right edge stays a column. */
+.clear-btn {
+    position: absolute; bottom: 8px; right: 8px;
+    width: 32px; height: 32px;
+    display: grid; place-items: center;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface-2); color: var(--muted);
+    line-height: 1; cursor: pointer;
+}
+.clear-btn:active { color: var(--danger); background: var(--line); }
+.clear-btn[hidden] { display: none; }
 .field textarea:focus,
 .field input:focus,
 .field select:focus { border-color: var(--accent); }
@@ -1125,7 +1136,13 @@ function fieldFor(parameter) {
         return wrap;
     }
 
-    const multiline = parameter.multiline || String(value ?? "").length > 60;
+    // A prompt is a paragraph no matter how long the current value happens to
+    // be: sizing the control by the value alone turned an empty prompt into a
+    // one-line box, which then grew into a textarea only after a re-render.
+    const looksLikePrompt = /提示词|prompt|文本|text/i.test(
+        String(parameter.label || parameter.name || ""),
+    );
+    const multiline = parameter.multiline || looksLikePrompt || String(value ?? "").length > 60;
     const input = document.createElement(multiline ? "textarea" : "input");
     if (multiline) {
         input.rows = 5;
@@ -1165,10 +1182,20 @@ function randomSeed(parameter) {
     return lo + Math.floor(Math.random() * (hi - lo));
 }
 
-/** Wrap a text control so it carries a fullscreen-editor affordance. */
+/**
+ * Wrap a text control with its corner buttons.
+ *
+ * Every field gets 全屏编辑 (top right). A long prompt gets 清空 (bottom right)
+ * as well: rewriting a 200 character prompt on a phone is the one operation
+ * where deleting the whole thing at once is what you actually want, and
+ * select-all-then-delete is fiddly with the on-screen keyboard. The button
+ * only shows while the field has content, so an empty box keeps its clean
+ * single-button look.
+ */
 function textWrapWithExpand(input, parameter) {
     const wrap = document.createElement("div");
     wrap.className = "text-wrap";
+
     const expand = document.createElement("button");
     expand.type = "button";
     expand.className = "expand-btn";
@@ -1176,7 +1203,31 @@ function textWrapWithExpand(input, parameter) {
     expand.title = "全屏编辑";
     expand.setAttribute("aria-label", "全屏编辑");
     expand.addEventListener("click", () => openEditor(parameter, input));
+
     wrap.append(input, expand);
+
+    // Multi-line controls are the long ones; a one-line name is easier to
+    // retype than to hunt for a button.
+    if (input.tagName === "TEXTAREA") {
+        const clear = document.createElement("button");
+        clear.type = "button";
+        clear.className = "clear-btn";
+        clear.innerHTML = iconSvg("erase", 17);
+        clear.title = "清空";
+        clear.setAttribute("aria-label", "清空内容");
+        const sync = () => {
+            clear.hidden = !input.value;
+        };
+        clear.addEventListener("click", () => {
+            input.value = "";
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            sync();
+            input.focus();
+        });
+        input.addEventListener("input", sync);
+        sync();
+        wrap.appendChild(clear);
+    }
     return wrap;
 }
 
@@ -2224,6 +2275,8 @@ const ICON_PATHS = {
     down: '<path d="M6 9l6 6 6-6"/>',
     check: '<path d="M4 12l5 5L20 6"/>',
     download: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>',
+    // A bin, for "remove everything in this field".
+    erase: '<path d="M3 6h18"/><path d="M9 6V4h6v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>',
 };
 
 function iconSvg(name, size = 18, strokeWidth = 1.8) {

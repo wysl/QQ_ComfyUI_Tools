@@ -480,6 +480,28 @@ class ParameterLayoutTests(unittest.TestCase):
         )
 
 
+    def test_a_prompt_is_a_paragraph_even_when_empty(self):
+        block = self.html.split("const multiline = ")[1].split(";")[0]
+        self.assertIn("looksLikePrompt", block)
+        head = self.html.split("const multiline = ")[0][-600:]
+        self.assertIn("提示词|prompt|文本|text", head)
+
+    def test_a_multiline_prompt_can_be_cleared_in_one_tap(self):
+        block = self.html.split("function textWrapWithExpand(input, parameter)")[1].split("\n}")[0]
+        self.assertIn('className = "clear-btn"', block)
+        self.assertIn('iconSvg("erase", 17)', block)
+        # Only the long (multi-line) fields get it, and only while they hold text.
+        self.assertIn('input.tagName === "TEXTAREA"', block)
+        self.assertIn("clear.hidden = !input.value", block)
+
+    def test_clearing_commits_the_empty_value(self):
+        block = self.html.split("function textWrapWithExpand(input, parameter)")[1].split("\n}")[0]
+        self.assertIn('input.value = ""', block)
+        self.assertIn('new Event("input", { bubbles: true })', block)
+        self.assertIn(".clear-btn {", self.html)
+        self.assertIn("bottom: 8px; right: 8px", self.html)
+
+
 class RunHistoryTests(unittest.TestCase):
     """Results outlive the page, and a past run can be repeated."""
 
