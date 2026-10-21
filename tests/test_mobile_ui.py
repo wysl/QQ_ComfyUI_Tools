@@ -1012,6 +1012,97 @@ class TemplateStateTests(unittest.TestCase):
         self.assertIsNone(state.get("a"))
 
 
+class PhoneUiTests(unittest.TestCase):
+    """Layout and affordance fixes on the phone page."""
+
+    def setUp(self):
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    # -- picker vs form chrome ------------------------------------------
+    def test_footer_is_hidden_while_picking(self):
+        self.assertIn("footer[hidden] { display: none; }", self.html)
+        block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
+        self.assertIn("setFooterVisible(false)", block)
+
+    def test_refresh_is_unavailable_while_picking(self):
+        # Otherwise it silently opens the newest pipeline from the list.
+        block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
+        self.assertIn("setFooterVisible(false)", block)
+        helper = self.html.split("function setFooterVisible")[1].split("\n}")[0]
+        self.assertIn('el("reload").hidden = !visible', helper)
+
+    # -- touch targets ---------------------------------------------------
+    def test_header_buttons_meet_the_touch_target_size(self):
+        block = self.html.split(".icon-btn {")[1].split("}")[0]
+        self.assertIn("width: 44px", block)
+        self.assertIn("height: 44px", block)
+
+    # -- text fields -----------------------------------------------------
+    def test_textareas_do_not_offer_a_resize_grip(self):
+        block = self.html.split(".field textarea {")[1].split("}")[0]
+        self.assertIn("resize: none", block)
+        self.assertNotIn("resize: vertical", block)
+
+    def test_text_fields_have_a_tappable_expand_button(self):
+        self.assertIn("function textWrapWithExpand", self.html)
+        self.assertIn('expand.textContent = "⤢"', self.html)
+        self.assertIn("openEditor(parameter, input)", self.html)
+
+    # -- seed ------------------------------------------------------------
+    def test_seed_fields_get_a_dice_instead_of_steppers(self):
+        block = self.html.split("function isSeedParameter")[1].split("\nfunction ")[0]
+        self.assertIn("seed", block)
+        render = self.html.split("if (isSeedParameter(parameter))")[1].split("} else {")[0]
+        self.assertIn("randomSeed(parameter)", render)
+        # Steppers are dropped for seeds: ±1 is meaningless and squeezed the value.
+        self.assertNotIn("minus, input, plus", render)
+
+    def test_seed_stays_within_the_exact_integer_range(self):
+        block = self.html.split("function randomSeed")[1].split("\n}")[0]
+        self.assertIn("1125899906842624", block)
+
+    # -- reset -----------------------------------------------------------
+    def test_form_offers_reset_to_workflow_defaults(self):
+        self.assertIn("function resetToDefaults", self.html)
+        self.assertIn("已恢复默认值", self.html)
+        reset = self.html.split("function resetToDefaults")[1].split("\n}")[0]
+        self.assertIn("state.values = {}", reset)
+        self.assertIn("removeItem", reset)
+
+    # -- result reachability --------------------------------------------
+    def test_result_chip_lives_in_the_footer(self):
+        footer = self.html.split("<footer id=\"footer\">")[1].split("</footer>")[0]
+        self.assertIn('id="resultChip"', footer)
+
+    def test_result_chip_toggles_with_scroll(self):
+        self.assertIn("updateResultChip", self.html)
+        self.assertIn('el("main").addEventListener("scroll", updateResultChip', self.html)
+
+    # -- no layout shift -------------------------------------------------
+    def test_status_line_lives_in_the_footer_not_above_the_form(self):
+        footer = self.html.split("<footer id=\"footer\">")[1].split("</footer>")[0]
+        self.assertIn('id="status"', footer)
+        main = self.html.split('<main id="main">')[1].split("</main>")[0]
+        self.assertNotIn('id="status"', main)
+
+    # -- visual hierarchy ------------------------------------------------
+    def test_advanced_group_reads_as_a_section_not_a_field(self):
+        block = self.html.split("details.group {")[1].split("}")[0]
+        self.assertIn("border-top: 1px dashed", block)
+        # No filled card background: it should not look like an input.
+        self.assertNotIn("background: var(--surface)", block)
+
+    # -- picker metadata -------------------------------------------------
+    def test_picker_shows_relative_time(self):
+        self.assertIn("function relativeTime", self.html)
+        block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
+        self.assertIn("relativeTime(item.updated)", block)
+
+    def test_identical_titles_are_disambiguated(self):
+        block = self.html.split("async function showPipelinePicker")[1].split("/* ---------------- boot")[0]
+        self.assertIn("shortWorkflowId(item.workflow)", block)
+
+
 class MobilePolishTests(unittest.TestCase):
     """Small correctness details that break real phones."""
 

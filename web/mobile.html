@@ -48,8 +48,8 @@ body {
 /* ---------- header ---------- */
 header {
     position: sticky; top: 0; z-index: 20;
-    display: flex; align-items: center; gap: 10px;
-    padding: calc(10px + var(--safe-top)) 14px 10px;
+    display: flex; align-items: center; gap: 8px;
+    padding: calc(8px + var(--safe-top)) 12px 8px;
     background: rgba(18, 19, 26, .92);
     backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--line);
@@ -60,14 +60,16 @@ header h1 {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .icon-btn {
-    flex: none; width: 36px; height: 36px;
+    /* 44px is the minimum comfortable touch target; 36px was easy to miss. */
+    flex: none; width: 44px; height: 44px;
     display: grid; place-items: center;
-    border: 1px solid var(--line); border-radius: 10px;
+    border: 1px solid var(--line); border-radius: 11px;
     background: var(--surface); color: var(--text);
     cursor: pointer;
 }
 .icon-btn:active { background: var(--surface-2); }
-.icon-btn svg { width: 18px; height: 18px; }
+.icon-btn[hidden] { display: none; }
+.icon-btn svg { width: 19px; height: 19px; }
 
 /* ---------- scroll area ---------- */
 main {
@@ -75,8 +77,9 @@ main {
     min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    /* Leave room for the fixed footer so the last field stays reachable. */
-    padding: 14px 14px calc(104px + var(--safe-bottom));
+    /* Leave room for the fixed footer (status line + button) so the last
+       field stays reachable. */
+    padding: 14px 14px calc(130px + var(--safe-bottom));
 }
 
 /* ---------- per-subgraph sections ---------- */
@@ -316,7 +319,21 @@ main {
     outline: none;
     appearance: none;
 }
-.field textarea { min-height: 120px; resize: vertical; line-height: 1.55; }
+.field textarea { min-height: 120px; resize: none; line-height: 1.55; }
+/* Text fields get a tap target for the fullscreen editor, since a long press
+   is not something anyone discovers on their own. */
+.text-wrap { position: relative; display: flex; }
+.text-wrap > textarea,
+.text-wrap > input { flex: 1; padding-right: 44px; }
+.expand-btn {
+    position: absolute; top: 8px; right: 8px;
+    width: 32px; height: 32px;
+    display: grid; place-items: center;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface-2); color: var(--muted);
+    font-size: 15px; line-height: 1; cursor: pointer;
+}
+.expand-btn:active { color: var(--text); background: var(--line); }
 .field textarea:focus,
 .field input:focus,
 .field select:focus { border-color: var(--accent); }
@@ -330,7 +347,21 @@ main {
     cursor: pointer;
 }
 .stepper button:active { background: var(--surface-2); }
-.stepper input { text-align: center; }
+.stepper input { text-align: center; min-width: 0; }
+.stepper .dice-btn { font-size: 18px; color: var(--muted); }
+.stepper .dice-btn:active { color: var(--text); }
+
+/* Reset the whole form back to the values baked into the workflow. */
+.reset-btn {
+    display: block;
+    margin: 22px auto 0;
+    padding: 10px 18px;
+    font: 600 13px/1 inherit;
+    color: var(--muted); background: transparent;
+    border: 1px solid var(--line); border-radius: 999px;
+    cursor: pointer;
+}
+.reset-btn:active { color: var(--text); background: var(--surface-2); }
 
 .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .switch input { width: 50px; height: 30px; accent-color: var(--accent); }
@@ -338,31 +369,34 @@ main {
 select { background-image: none; }
 
 /* ---------- collapsible group ---------- */
+/* A collapsible section, deliberately quieter than a form field: it groups
+ * secondary settings, so it reads as a divider rather than an input box. */
 details.group {
-    margin-bottom: 16px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: var(--surface);
-    overflow: hidden;
+    margin: 20px 0 16px;
+    border-top: 1px dashed var(--line);
+    border-bottom: 1px dashed var(--line);
+    background: transparent;
 }
 details.group > summary {
     display: flex; align-items: center; gap: 8px;
-    padding: 13px 14px;
-    font-size: 14px; font-weight: 600; color: var(--text);
+    padding: 12px 2px;
+    font-size: 13px; font-weight: 600; color: var(--muted);
+    letter-spacing: .02em;
     cursor: pointer; list-style: none;
 }
 details.group > summary::-webkit-details-marker { display: none; }
 details.group > summary::after {
     content: "▾"; margin-left: auto; color: var(--muted);
+    font-size: 12px;
     transition: transform .18s ease;
 }
 details.group[open] > summary::after { transform: rotate(180deg); }
 details.group > summary .count {
-    padding: 1px 7px; border-radius: 9px;
+    padding: 1px 6px; border-radius: 8px;
     background: var(--surface-2); color: var(--muted);
-    font-size: 12px; font-weight: 500;
+    font-size: 11px; font-weight: 500;
 }
-details.group > .body { padding: 4px 14px 14px; }
+details.group > .body { padding: 4px 0 6px; }
 details.group .field:last-child { margin-bottom: 0; }
 
 /* ---------- results ---------- */
@@ -411,11 +445,17 @@ main > .section-label[hidden] { display: none; }
 /* ---------- footer ---------- */
 footer {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-    display: flex; gap: 10px;
-    padding: 12px 14px calc(12px + var(--safe-bottom));
+    /* Column so the status line can live here instead of above the form: a
+       row that appears and disappears there would shift the whole page. */
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 8px 14px calc(12px + var(--safe-bottom));
     background: linear-gradient(180deg, rgba(18,19,26,.75), var(--bg) 45%);
     backdrop-filter: blur(12px);
 }
+footer[hidden] { display: none; }
+.footer-row { display: flex; gap: 10px; }
+footer .progress { margin: 0; }
+footer .status { margin: 0; min-height: 18px; }
 footer button.primary {
     flex: 1; min-height: 50px;
     font: 600 16px/1 inherit;
@@ -434,6 +474,26 @@ footer button.ghost {
     cursor: pointer;
 }
 footer button.ghost:active { background: var(--surface-2); }
+
+/* Chip that jumps back to a finished result. It lives inside the footer so it
+   can never cover a form control. */
+.result-chip {
+    width: 100%;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    min-height: 38px;
+    font: 600 13px/1 inherit;
+    color: var(--accent);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    cursor: pointer;
+    animation: chipIn .18s ease-out;
+}
+.result-chip[hidden] { display: none; }
+@keyframes chipIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
 
 .spinner {
     width: 16px; height: 16px; flex: none;
@@ -487,19 +547,22 @@ footer button.ghost:active { background: var(--surface-2); }
 </header>
 
 <main id="main">
-    <div class="progress" id="progress" hidden><div id="progressBar"></div></div>
-    <div class="status" id="status" hidden>
-        <span class="dot" id="statusDot"></span>
-        <span class="status-text" id="statusText"></span>
-    </div>
     <form id="form" autocomplete="off"></form>
     <div class="section-label" id="resultsLabel" hidden>结果</div>
     <div class="results" id="results"></div>
 </main>
 
-<footer>
-    <button class="primary" id="generate" type="button"><span>生成</span></button>
-    <button class="ghost" id="cancel" type="button" hidden>取消</button>
+<footer id="footer">
+    <div class="progress" id="progress" hidden><div id="progressBar"></div></div>
+    <div class="status" id="status" hidden>
+        <span class="dot" id="statusDot"></span>
+        <span class="status-text" id="statusText"></span>
+    </div>
+    <button class="result-chip" id="resultChip" type="button" hidden>↓ 查看结果</button>
+    <div class="footer-row">
+        <button class="primary" id="generate" type="button"><span>生成</span></button>
+        <button class="ghost" id="cancel" type="button" hidden>取消</button>
+    </div>
 </footer>
 
 <div class="toast" id="toast"></div>
@@ -551,6 +614,15 @@ function setStatus(kind, text) {
     wrap.hidden = false;
     el("statusDot").className = `dot ${kind}`;
     el("statusText").textContent = text;
+}
+
+/** The footer holds the action button, so it only belongs on a pipeline. */
+function setFooterVisible(visible) {
+    el("footer").hidden = !visible;
+    el("reload").hidden = !visible;
+    if (!visible) {
+        el("resultChip").hidden = true;
+    }
 }
 
 function setProgress(ratio) {
@@ -691,7 +763,26 @@ function fieldFor(parameter) {
             if (Number.isFinite(parsed)) commit(coerce(parameter, parsed));
         });
 
-        stepper.append(minus, input, plus);
+        if (isSeedParameter(parameter)) {
+            // A seed is a 15 digit number: stepping it by one is meaningless,
+            // and the extra buttons squeeze the value out of the field on a
+            // narrow phone. One dice button replaces both.
+            const dice = document.createElement("button");
+            dice.type = "button";
+            dice.className = "dice-btn";
+            dice.textContent = "⚄";
+            dice.title = "随机种子";
+            dice.setAttribute("aria-label", "随机种子");
+            dice.addEventListener("click", () => {
+                const next = randomSeed(parameter);
+                input.value = next;
+                commit(next);
+            });
+            stepper.append(input, dice);
+        } else {
+            stepper.append(minus, input, plus);
+        }
+
         wrap.appendChild(stepper);
         return wrap;
     }
@@ -706,9 +797,46 @@ function fieldFor(parameter) {
     input.id = `f-${parameter.key}`;
     input.value = value ?? "";
     input.addEventListener("input", () => commit(input.value));
-    // Hold for 2s to edit this text full screen.
+    // Hold for 2s to edit this text full screen; the corner button is the
+    // discoverable way to do the same thing.
     attachLongPress(input, parameter);
-    wrap.appendChild(input);
+    wrap.appendChild(textWrapWithExpand(input, parameter));
+    return wrap;
+}
+
+/** Does this parameter hold a generation seed? */
+function isSeedParameter(parameter) {
+    const type = String(parameter.type || "").toUpperCase();
+    if (type !== "INT") return false;
+    const name = String(parameter.name || "");
+    const label = String(parameter.label || "");
+    return /^(seed|noise_seed)$/i.test(name) || /种子/.test(label);
+}
+
+/** A fresh seed, honouring the field's declared range when it has one. */
+function randomSeed(parameter) {
+    // ComfyUI declares seeds up to 2^64-1, but a JS number only stays exact up
+    // to 2^53 and its default range is 2^50. Staying in that band keeps the
+    // value exact through JSON.
+    const CEILING = 1125899906842624;
+    const lo = Number.isFinite(parameter.min) ? Math.ceil(parameter.min) : 0;
+    let hi = Number.isFinite(parameter.max) ? Math.floor(parameter.max) : CEILING;
+    hi = Math.min(hi, Math.max(lo + 1, CEILING));
+    return lo + Math.floor(Math.random() * (hi - lo));
+}
+
+/** Wrap a text control so it carries a fullscreen-editor affordance. */
+function textWrapWithExpand(input, parameter) {
+    const wrap = document.createElement("div");
+    wrap.className = "text-wrap";
+    const expand = document.createElement("button");
+    expand.type = "button";
+    expand.className = "expand-btn";
+    expand.textContent = "⤢";
+    expand.title = "全屏编辑";
+    expand.setAttribute("aria-label", "全屏编辑");
+    expand.addEventListener("click", () => openEditor(parameter, input));
+    wrap.append(input, expand);
     return wrap;
 }
 
@@ -1169,7 +1297,32 @@ function render(parameters) {
     if (!parameters.length) {
         form.innerHTML = `<div class="empty"><strong>这个工作流没有可调参数</strong>
             在 ComfyUI 里把子图的输入提升为参数后，重新点击「手机界面」。</div>`;
+        return;
     }
+
+    // Values are remembered per workflow, so offer a way back to the values
+    // the workflow itself carries.
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "reset-btn";
+    reset.textContent = "恢复默认值";
+    reset.addEventListener("click", resetToDefaults);
+    form.appendChild(reset);
+}
+
+/**
+ * Forget every stored override and re-render from the template's values.
+ *
+ * The template holds the values the workflow had when it was prepared, which
+ * is the closest thing to "defaults" the phone can see.
+ */
+function resetToDefaults() {
+    state.values = {};
+    try {
+        localStorage.removeItem(`${STORAGE_KEY}:${state.workflow}`);
+    } catch { /* storage blocked: re-render alone still resets the form */ }
+    render(state.parameters);
+    toast("已恢复默认值");
 }
 
 /** Heading for one subgraph instance's parameter section. */
@@ -1299,6 +1452,26 @@ function renderResults(media) {
             node.addEventListener("loadedmetadata", scroll, { once: true });
         });
     }
+    updateResultChip();
+}
+
+/**
+ * Offer a way back to the result once it has scrolled out of view.
+ *
+ * A finished image sits below a long parameter list, so tweaking values and
+ * returning to the picture means a lot of scrolling on a phone.
+ */
+function updateResultChip() {
+    const chip = el("resultChip");
+    const first = el("results").firstElementChild;
+    if (!first || el("footer").hidden) {
+        chip.hidden = true;
+        return;
+    }
+    const box = first.getBoundingClientRect();
+    const footerTop = el("footer").getBoundingClientRect().top;
+    // Hide it once the result is on screen, and while a job is still running.
+    chip.hidden = state.polling || (box.bottom > 0 && box.top < footerTop);
 }
 
 /* ---------------- network ---------------- */
@@ -1376,10 +1549,12 @@ async function loadTemplate() {
         // Only meaningful once a pipeline is loaded.
         el("switch").hidden = false;
         el("generate").disabled = false;
+        setFooterVisible(true);
         render(state.parameters);
         watchTemplate();
         return true;
     } catch (error) {
+        setFooterVisible(false);
         el("form").innerHTML = `<div class="empty"><strong>还没有模板</strong>
             回到 ComfyUI 打开工作流，点顶部「手机界面」按钮即可生成。<br>
             <span style="opacity:.6">${String(error.message || error)}</span></div>`;
@@ -1443,7 +1618,9 @@ async function poll() {
             setStatus("running", "已提交，等待开始…");
         } else if (data.media?.length) {
             setStatus("done", "完成");
-            setProgress(1);
+            // No progress bar once finished: a full blue bar reads as
+            // "still loading" next to a completed result.
+            setProgress(null);
             renderResults(data.media);
             stopPolling();
             return;
@@ -1489,7 +1666,27 @@ async function cancel() {
     setProgress(null);
 }
 
-/* ---------------- pipeline picker ---------------- *//**
+/* ---------------- pipeline picker ---------------- */
+/** Last few characters of a workflow key, to separate identical titles. */
+function shortWorkflowId(workflow) {
+    const text = String(workflow || "");
+    const tail = text.split(/[\\/]/).pop() || text;
+    const id = tail.replace(/^unsaved-/, "");
+    return id.slice(-4);
+}
+
+/** "刚刚" / "3 分钟前" / "2 天前", for the picker's secondary line. */
+function relativeTime(stamp) {
+    const seconds = Math.floor(Date.now() / 1000 - Number(stamp || 0));
+    if (!Number.isFinite(seconds) || seconds < 0) return "";
+    if (seconds < 60) return "刚刚";
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`;
+    if (seconds < 86400 * 30) return `${Math.floor(seconds / 86400)} 天前`;
+    return `${Math.floor(seconds / (86400 * 30))} 个月前`;
+}
+
+/**
  * List the prepared pipelines so one can be chosen on the phone.
  *
  * Shown when the page was opened without a specific workflow, or when the user
@@ -1502,6 +1699,9 @@ async function showPipelinePicker() {
     el("resultsLabel").hidden = true;
     el("generate").disabled = true;
     el("switch").hidden = true;
+    // The footer only holds actions for a loaded pipeline, and the refresh
+    // button would silently open the newest one from here.
+    setFooterVisible(false);
     el("title").textContent = "选择流水线";
     document.title = "选择流水线";
     setStatus(null);
@@ -1528,6 +1728,13 @@ async function showPipelinePicker() {
     // Newest first: the one just prepared from the editor is what the user
     // most likely wants.
     const sorted = [...templates].sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    // Two unsaved workflows are both called "Unsaved Workflow (3)", so titles
+    // that repeat get a short id suffix to tell them apart.
+    const counts = new Map();
+    for (const item of sorted) {
+        const key = item.title || item.workflow;
+        counts.set(key, (counts.get(key) || 0) + 1);
+    }
     for (const item of sorted) {
         const row = document.createElement("button");
         row.type = "button";
@@ -1537,10 +1744,13 @@ async function showPipelinePicker() {
         main.className = "pipeline-main";
         const name = document.createElement("span");
         name.className = "pipeline-name";
-        name.textContent = item.title || item.workflow;
+        const title = item.title || item.workflow;
+        name.textContent = (counts.get(title) || 0) > 1
+            ? `${title} · ${shortWorkflowId(item.workflow)}`
+            : title;
         const meta = document.createElement("span");
         meta.className = "pipeline-meta";
-        meta.textContent = `${item.parameters || 0} 个参数`;
+        meta.textContent = `${item.parameters || 0} 个参数 · ${relativeTime(item.updated)}`;
         main.append(name, meta);
 
         const arrow = document.createElement("span");
@@ -1606,6 +1816,17 @@ document.addEventListener("keydown", (event) => {
         event.preventDefault();
         closeEditor(true);
     }
+});
+
+/* Keep the "back to result" chip in step with the scroll position. */
+el("main").addEventListener("scroll", updateResultChip, { passive: true });
+el("resultChip").addEventListener("click", () => {
+    const first = el("results")?.firstElementChild;
+    if (!first) return;
+    const mainEl = el("main");
+    mainEl.scrollTo({ top: mainEl.scrollTop + first.getBoundingClientRect().top - 12,
+                      behavior: "smooth" });
+    el("resultChip").hidden = true;
 });
 
 /* Open the pipeline picker: without a workflow in the URL the page starts
