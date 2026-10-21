@@ -415,6 +415,70 @@ class ExtraDataTests(unittest.TestCase):
         self.assertIn('"graph"', handler, "template handler must forward the graph")
 
 
+class LongPressEditorTests(unittest.TestCase):
+    """Hold a text field for 2s to edit it full screen, in place.
+
+    A phone keyboard covers most of the viewport, so editing a long prompt in
+    a 120px box is impractical. Long-press promotes the field to a fullscreen
+    panel rather than navigating to another page or opening a tab.
+    """
+
+    def setUp(self):
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    def test_fullscreen_panel_exists(self):
+        self.assertIn('id="editor"', self.html)
+        self.assertIn('class="editor"', self.html)
+        self.assertIn('id="editorText"', self.html)
+
+    def test_panel_covers_the_viewport(self):
+        css = self.html.split(".editor {")[1].split("}")[0]
+        self.assertIn("position: fixed", css)
+        self.assertIn("inset: 0", css)
+
+    def test_long_press_threshold_is_two_seconds(self):
+        self.assertIn("const LONG_PRESS_MS = 2000;", self.html)
+
+    def test_movement_cancels_the_press(self):
+        # Scrolling over a text field must not pop the editor open.
+        self.assertIn("LONG_PRESS_SLOP", self.html)
+        self.assertIn("dx > LONG_PRESS_SLOP || dy > LONG_PRESS_SLOP", self.html)
+
+    def test_text_fields_are_wired_but_number_fields_are_not(self):
+        # attachLongPress is called on the generic text control only.
+        block = self.html.split("const multiline = parameter.multiline")[1].split("return wrap;")[0]
+        self.assertIn("attachLongPress(input, parameter)", block)
+
+    def test_commit_writes_back_to_the_field(self):
+        close = self.html.split("function closeEditor(")[1].split("\n}")[0]
+        self.assertIn("editor.target.value = text.value", close)
+        self.assertIn('new Event("input"', close)
+
+    def test_revert_restores_the_original(self):
+        self.assertIn("el(\"editorText\").value = editor.original;", self.html)
+
+    def test_escape_cancels_and_ctrl_enter_commits(self):
+        self.assertIn('event.key === "Escape"', self.html)
+        self.assertIn('event.key === "Enter"', self.html)
+
+
+class BackButtonTests(unittest.TestCase):
+    """The phone page needs a way back to the ComfyUI graph."""
+
+    def setUp(self):
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    def test_back_button_exists_in_the_header(self):
+        header = self.html.split("<header>")[1].split("</header>")[0]
+        self.assertIn('id="back"', header)
+        self.assertIn("返回 ComfyUI", header)
+
+    def test_back_prefers_history_then_falls_back_to_root(self):
+        block = self.html.split('el("back").addEventListener')[1].split("});")[0]
+        self.assertIn("history.back()", block)
+        self.assertIn("location.assign", block)
+
+
 class MultiSubgraphTests(unittest.TestCase):
     """One pipeline may hold several subgraph instances.
 
