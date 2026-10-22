@@ -566,6 +566,51 @@ class ModelOrderTests(unittest.TestCase):
         self.assertIn('el("title")?.textContent', block)
 
 
+class MediaPickerTests(unittest.TestCase):
+    """Choosing media that already exists on the server."""
+
+    def setUp(self):
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+        self.picker = self.html.split("function chooseFromList(")[1].split("\n}\n")[0]
+
+    def test_rows_show_a_thumbnail(self):
+        # File names alone say nothing about the picture.
+        self.assertIn("const preview = (name) => {", self.picker)
+        self.assertIn("img.src = mediaSrc(name)", self.picker)
+        self.assertIn("row.appendChild(preview(name))", self.picker)
+
+    def test_one_tap_selects_and_a_second_drops_it(self):
+        self.assertIn("} else if (selected.has(name)) {", self.picker)
+        self.assertIn("selected.delete(name)", self.picker)
+        self.assertIn("selected.add(name)", self.picker)
+        # The tick is redrawn from the set, not toggled by hand.
+        self.assertIn("element.querySelector(\".tick\").innerHTML = on ? iconSvg(\"check\", 16, 2.2) : \"\"", self.picker)
+
+    def test_several_files_can_be_held_at_once(self):
+        self.assertIn("strip.className = \"media-strip\"", self.picker)
+        self.assertIn("for (const name of selected) {", self.picker)
+        self.assertIn("确定（已选 ${selected.size}）", self.picker)
+
+    def test_nothing_is_committed_without_the_confirm_button(self):
+        # Closing the sheet must not change the field.
+        self.assertIn('cancel.textContent = "取消"', self.picker)
+        self.assertIn('cancel.addEventListener("click", () => overlay.remove())', self.picker)
+        confirm = self.picker.split("confirm.addEventListener")[1]
+        self.assertIn("onPick([...selected])", confirm)
+
+    def test_the_strip_does_not_collapse_before_the_images_decode(self):
+        strip = self.html.split(".media-sheet .media-strip {")[1].split("}")[0]
+        self.assertIn("flex: none", strip)
+        self.assertIn("align-items: flex-start", strip)
+        chip = self.html.split(".media-chip {")[1].split("}")[0]
+        self.assertIn("height: 82px", chip)
+
+    def test_a_single_choice_field_takes_one_file(self):
+        block = self.html.split("row.addEventListener(\"click\", () => {")[1].split("});")[0]
+        self.assertIn("if (!multiple) {", block)
+        self.assertIn("selected.clear()", block)
+
+
 class StepperTests(unittest.TestCase):
     """The +/- buttons must always move the value.
 
