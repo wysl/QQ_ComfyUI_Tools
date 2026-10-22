@@ -453,6 +453,50 @@ main {
 .media-sheet .picker-foot { display: flex; gap: 10px; }
 .media-sheet .picker-foot .media-btn { flex: 1; }
 
+/* input / output switch and the time-order toggle */
+.media-tabs {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--line);
+}
+.media-tab {
+    flex: none;
+    padding: 6px 14px;
+    font: 600 13px/1 inherit;
+    color: var(--muted); background: transparent;
+    border: 1px solid var(--line); border-radius: 999px;
+    cursor: pointer;
+}
+.media-tab.on {
+    color: #fff; background: var(--accent); border-color: transparent;
+}
+.media-sort {
+    margin-left: auto;
+    padding: 6px 12px;
+    font: 600 12px/1 inherit;
+    color: var(--muted); background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 999px;
+    cursor: pointer;
+}
+.media-sort:active { color: var(--text); }
+
+/* name + timestamp, with the prompt button before the tick */
+.media-row-main {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; gap: 2px;
+}
+.media-row-time { font-size: 11px; color: var(--muted); }
+.media-row-prompt {
+    flex: none;
+    width: 34px; height: 34px;
+    display: grid; place-items: center;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface-2); color: var(--muted);
+    cursor: pointer;
+}
+.media-row-prompt:active { color: var(--accent); }
+.media-row-prompt.busy { opacity: .5; }
+
 /* the field that opens it */
 .select-field {
     display: flex; align-items: center; gap: 8px;
@@ -1701,15 +1745,10 @@ function mediaField(parameter, value, commit) {
     };
 
     const pickExisting = async () => {
-        toast("读取可用媒体…");
-        try {
-            const data = await fetchJson(`/qq_mobile/media?kind=${encodeURIComponent(kind)}`);
-            const files = (data.files || []).map((entry) => entry.name);
-            if (!files.length) {
-                toast("input 目录里没有可用的" + (MEDIA_LABELS[kind] || "媒体"));
-                return;
-            }
-            chooseFromList(files, multiple, (chosen) => {
+        chooseFromList(
+            (source) => fetchJson(`/qq_mobile/media?kind=${encodeURIComponent(kind)}&source=${source}`),
+            multiple,
+            (chosen) => {
                 if (multiple) {
                     current.length = 0;
                     current.push(...chosen);
@@ -1720,10 +1759,9 @@ function mediaField(parameter, value, commit) {
                     commit(chosen[0]);
                 }
                 render(current);
-            }, { kind });
-        } catch (error) {
-            toast(`读取失败：${error.message}`);
-        }
+            },
+            { kind },
+        );
     };
 
     const upload = () => {
@@ -1781,12 +1819,20 @@ function baseName(name) {
     return index === -1 ? text : text.slice(index + 1);
 }
 
-/** URL that serves one input-directory file for preview. */
-function mediaSrc(name) {
+/**
+ * URL that serves one media file for preview.
+ *
+ * `/view` takes the folder separately: passing "pasted/image (14).png" as the
+ * filename asks for a file of that literal name in the root and 404s, which is
+ * why files inside a subfolder showed a broken thumbnail.
+ */
+function mediaSrc(name, source = "input") {
+    const text = String(name ?? "");
+    const cut = text.lastIndexOf("/");
     const params = new URLSearchParams({
-        filename: name,
-        subfolder: "",
-        type: "input",
+        filename: cut === -1 ? text : text.slice(cut + 1),
+        subfolder: cut === -1 ? "" : text.slice(0, cut),
+        type: source === "output" ? "output" : "input",
     });
     return `${basePath()}/view?${params.toString()}`;
 }
@@ -1802,20 +1848,30 @@ async function uploadMedia(file) {
 }
 
 /**
- * Pick media files that already exist on the server.
+ * Pick media that already exists on the server.
  *
- * Rows carry a thumbnail, because the file names alone ("a.png", "clip-17c0")
- * say nothing about what is in them. The first tap selects and shows the
- * preview, a second tap on the same row drops it again, several can be held at
- * once with their pictures shown side by side, and nothing is handed back until
- * 确定 is pressed — closing the sheet leaves the field untouched.
+ * Rows carry a thumbnail, because names like "clip-17c0" say nothing about the
+ * picture. The first tap selects and shows the preview, a second tap on the
+ * same row drops it, several can be held at once, and nothing is handed back
+ * until 确定 — 取消 or the backdrop leaves the field untouched.
+ *
+ * The list can switch between ComfyUI's input and output folders, sort by time
+ * either way, and (for outputs) read the prompt that produced an image with one
+ * tap. That prompt button is separate from the selection: tapping it never
+ * ticks the row.
  */
-function chooseFromList(files, multiple, onPick, options = {}) {
+function chooseFromList(loadFiles, multiple, onPick, options = {}) {
     const kind = options.kind || "image";
     const overlay = document.createElement("div");
     overlay.className = "picker";
     const sheet = document.createElement("div");
     sheet.className = "picker-sheet media-sheet";
+
+    const state = {
+        source: options.source === "output" ? "output" : "input",
+        newestFirst: true,
+        files: [],
+    };
 
     const head = document.createElement("div");
     head.className = "picker-head";
@@ -1828,7 +1884,34 @@ function chooseFromList(files, multiple, onPick, options = {}) {
     close.addEventListener("click", () => overlay.remove());
     head.append(heading, close);
 
-    // Strip that shows what is currently selected, pictures included.
+    const tabs = document.createElement("div");
+    tabs.className = "media-tabs";
+    const tabButtons = ["input", "output"].map((source) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "media-tab";
+        button.dataset.source = source;
+        button.textContent = source === "output" ? "输出" : "输入";
+        button.addEventListener("click", () => {
+            if (state.source === source) return;
+            state.source = source;
+            selected.clear();
+            syncTabs();
+            syncStrip();
+            reload();
+        });
+        tabs.appendChild(button);
+        return button;
+    });
+    const sort = document.createElement("button");
+    sort.type = "button";
+    sort.className = "media-sort";
+    sort.addEventListener("click", () => {
+        state.newestFirst = !state.newestFirst;
+        paint();
+    });
+    tabs.appendChild(sort);
+
     const strip = document.createElement("div");
     strip.className = "media-strip";
     strip.hidden = true;
@@ -1836,18 +1919,18 @@ function chooseFromList(files, multiple, onPick, options = {}) {
     const list = document.createElement("div");
     list.className = "picker-list media-grid";
     const selected = new Set();
-    const rows = new Map();
 
     const preview = (name) => {
         if (kind === "image") {
             const img = document.createElement("img");
             img.alt = name;
-            img.src = mediaSrc(name);
+            img.src = mediaSrc(name, state.source);
+            img.loading = "lazy";
             return img;
         }
         if (kind === "video") {
             const video = document.createElement("video");
-            video.src = mediaSrc(name);
+            video.src = mediaSrc(name, state.source);
             video.muted = true;
             video.playsInline = true;
             video.preload = "metadata";
@@ -1857,6 +1940,15 @@ function chooseFromList(files, multiple, onPick, options = {}) {
         audio.className = "media-audio";
         audio.textContent = "♪";
         return audio;
+    };
+
+    const syncTabs = () => {
+        for (const button of tabButtons) {
+            button.classList.toggle("on", button.dataset.source === state.source);
+        }
+        sort.textContent = state.newestFirst ? "最新" : "最早";
+        sort.title = "切换时间排序";
+        sort.setAttribute("aria-label", "切换时间排序");
     };
 
     const syncStrip = () => {
@@ -1877,47 +1969,128 @@ function chooseFromList(files, multiple, onPick, options = {}) {
         confirm.disabled = selected.size === 0;
     };
 
-    for (const name of files) {
-        const row = document.createElement("button");
-        row.type = "button";
-        row.className = "picker-row media-row";
-        row.appendChild(preview(name));
-        const caption = document.createElement("span");
-        caption.className = "media-row-name";
-        caption.textContent = baseName(name);
-        row.appendChild(caption);
-        const tick = document.createElement("span");
-        tick.className = "tick";
-        row.appendChild(tick);
-
-        row.addEventListener("click", () => {
-            if (!multiple) {
-                // Single-choice fields still confirm with 确定, so a mis-tap can
-                // be corrected before the value changes.
-                selected.clear();
-                selected.add(name);
-            } else if (selected.has(name)) {
-                selected.delete(name);
-            } else {
-                selected.add(name);
+    const readPrompt = async (name, button) => {
+        button.classList.add("busy");
+        try {
+            const query = new URLSearchParams({ filename: name, source: state.source });
+            const data = await fetchJson(`/qq_mobile/media-prompt?${query.toString()}`);
+            if (!data || !data.prompt) {
+                toast("这张图没有保存提示词");
+                return;
             }
-            for (const [path, element] of rows) {
-                const on = selected.has(path);
-                element.classList.toggle("on", on);
-                element.querySelector(".tick").innerHTML = on ? iconSvg("check", 16, 2.2) : "";
-            }
-            syncStrip();
-        });
-        rows.set(name, row);
-        list.appendChild(row);
-    }
+            await copyText(data.prompt);
+            toast("提示词已复制");
+        } catch (error) {
+            toast(`读取提示词失败：${error.message}`);
+        } finally {
+            button.classList.remove("busy");
+        }
+    };
 
-    if (!files.length) {
-        const empty = document.createElement("div");
-        empty.className = "picker-empty";
-        empty.textContent = "这里还没有可用的文件";
-        list.appendChild(empty);
-    }
+    const paint = () => {
+        syncTabs();
+        list.replaceChildren();
+        const files = [...state.files].sort((a, b) => (state.newestFirst
+            ? (b.modified || 0) - (a.modified || 0)
+            : (a.modified || 0) - (b.modified || 0)));
+        if (!files.length) {
+            const empty = document.createElement("div");
+            empty.className = "picker-empty";
+            empty.textContent = state.source === "output"
+                ? "输出目录里还没有文件"
+                : "输入目录里还没有文件";
+            list.appendChild(empty);
+            return;
+        }
+        for (const entry of files) {
+            const name = entry.name;
+            const row = document.createElement("div");
+            row.className = "media-row" + (selected.has(name) ? " on" : "");
+            row.setAttribute("role", "button");
+            row.tabIndex = 0;
+            row.dataset.name = name;
+            row.appendChild(preview(name));
+
+            const main = document.createElement("div");
+            main.className = "media-row-main";
+            const caption = document.createElement("span");
+            caption.className = "media-row-name";
+            caption.textContent = baseName(name);
+            const stamp = document.createElement("span");
+            stamp.className = "media-row-time";
+            stamp.textContent = relativeTime(entry.modified);
+            main.append(caption, stamp);
+            row.appendChild(main);
+
+            // Only saved outputs carry a prompt, and reading it is its own
+            // action: it must never tick the row.
+            if (state.source === "output") {
+                const prompt = document.createElement("button");
+                prompt.type = "button";
+                prompt.className = "media-row-prompt";
+                prompt.innerHTML = iconSvg("download", 15);
+                prompt.title = "复制这张图的提示词";
+                prompt.setAttribute("aria-label", "复制提示词");
+                prompt.addEventListener("click", (event) => {
+                    event.stopPropagation();
+                    readPrompt(name, prompt);
+                });
+                row.appendChild(prompt);
+            }
+
+            const tick = document.createElement("span");
+            tick.className = "tick";
+            tick.innerHTML = selected.has(name) ? iconSvg("check", 16, 2.2) : "";
+            row.appendChild(tick);
+
+            const toggle = () => {
+                if (!multiple) {
+                    selected.clear();
+                    selected.add(name);
+                } else if (selected.has(name)) {
+                    selected.delete(name);
+                } else {
+                    selected.add(name);
+                }
+                for (const element of list.querySelectorAll(".media-row")) {
+                    const path = element.dataset.name;
+                    const on = selected.has(path);
+                    element.classList.toggle("on", on);
+                    element.querySelector(".tick").innerHTML = on
+                        ? iconSvg("check", 16, 2.2)
+                        : "";
+                }
+                syncStrip();
+            };
+            row.addEventListener("click", toggle);
+            row.addEventListener("keydown", (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    toggle();
+                }
+            });
+            list.appendChild(row);
+        }
+    };
+
+    const reload = async () => {
+        list.replaceChildren();
+        const loading = document.createElement("div");
+        loading.className = "picker-empty";
+        loading.textContent = "读取中…";
+        list.appendChild(loading);
+        try {
+            const data = await loadFiles(state.source);
+            state.files = Array.isArray(data && data.files) ? data.files : [];
+            paint();
+        } catch (error) {
+            list.replaceChildren();
+            const failed = document.createElement("div");
+            failed.className = "picker-empty";
+            failed.textContent = `读取失败：${error.message}`;
+            list.appendChild(failed);
+        }
+    };
 
     const foot = document.createElement("div");
     foot.className = "picker-foot";
@@ -1931,19 +2104,72 @@ function chooseFromList(files, multiple, onPick, options = {}) {
     confirm.className = "media-btn primary";
     confirm.textContent = "确定";
     confirm.disabled = true;
-    confirm.addEventListener("click", () => {
-        onPick([...selected]);
-        overlay.remove();
+    confirm.addEventListener("click", async () => {
+        const chosen = [...selected];
+        if (!chosen.length) return;
+        confirm.disabled = true;
+        try {
+            const names = state.source === "output"
+                ? await importOutputs(chosen)
+                : chosen;
+            onPick(names);
+            overlay.remove();
+        } catch (error) {
+            toast(`导入失败：${error.message}`);
+            confirm.disabled = false;
+        }
     });
     foot.append(cancel, confirm);
 
-    sheet.append(head, strip, list, foot);
+    sheet.append(head, tabs, strip, list, foot);
     overlay.appendChild(sheet);
     overlay.addEventListener("click", (event) => {
         if (event.target === overlay) overlay.remove();
     });
     document.body.appendChild(overlay);
+    syncTabs();
     syncStrip();
+    reload();
+}
+
+/** Copy text, falling back to a hidden textarea (the async API needs HTTPS). */
+async function copyText(text) {
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch {
+        /* fall through to the textarea path */
+    }
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.style.cssText = "position:fixed;left:-9999px;top:0";
+    document.body.appendChild(area);
+    area.select();
+    let ok = false;
+    try {
+        ok = document.execCommand("copy");
+    } catch {
+        ok = false;
+    }
+    area.remove();
+    if (!ok) throw new Error("浏览器不允许复制");
+    return true;
+}
+
+/** Move chosen output files into the input directory so a loader can use them. */
+async function importOutputs(names) {
+    const out = [];
+    for (const name of names) {
+        const data = await fetchJson("/qq_mobile/import-media", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ filename: name }),
+        });
+        if (data && data.name) out.push(data.name);
+    }
+    return out;
 }
 
 /** Split "Qwen2.1\图生图\a.safetensors" into its folder and file name. */

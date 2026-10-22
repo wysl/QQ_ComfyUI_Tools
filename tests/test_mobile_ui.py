@@ -576,7 +576,7 @@ class MediaPickerTests(unittest.TestCase):
     def test_rows_show_a_thumbnail(self):
         # File names alone say nothing about the picture.
         self.assertIn("const preview = (name) => {", self.picker)
-        self.assertIn("img.src = mediaSrc(name)", self.picker)
+        self.assertIn("img.src = mediaSrc(name, state.source)", self.picker)
         self.assertIn("row.appendChild(preview(name))", self.picker)
 
     def test_one_tap_selects_and_a_second_drops_it(self):
@@ -584,10 +584,12 @@ class MediaPickerTests(unittest.TestCase):
         self.assertIn("selected.delete(name)", self.picker)
         self.assertIn("selected.add(name)", self.picker)
         # The tick is redrawn from the set, not toggled by hand.
-        self.assertIn("element.querySelector(\".tick\").innerHTML = on ? iconSvg(\"check\", 16, 2.2) : \"\"", self.picker)
+        toggle = self.picker.split("const toggle = () => {")[1].split("};")[0]
+        self.assertIn('element.classList.toggle("on", on)', toggle)
+        self.assertIn('iconSvg("check", 16, 2.2)', toggle)
 
     def test_several_files_can_be_held_at_once(self):
-        self.assertIn("strip.className = \"media-strip\"", self.picker)
+        self.assertIn('strip.className = "media-strip"', self.picker)
         self.assertIn("for (const name of selected) {", self.picker)
         self.assertIn("确定（已选 ${selected.size}）", self.picker)
 
@@ -596,7 +598,7 @@ class MediaPickerTests(unittest.TestCase):
         self.assertIn('cancel.textContent = "取消"', self.picker)
         self.assertIn('cancel.addEventListener("click", () => overlay.remove())', self.picker)
         confirm = self.picker.split("confirm.addEventListener")[1]
-        self.assertIn("onPick([...selected])", confirm)
+        self.assertIn("onPick(names)", confirm)
 
     def test_the_strip_does_not_collapse_before_the_images_decode(self):
         strip = self.html.split(".media-sheet .media-strip {")[1].split("}")[0]
@@ -606,9 +608,38 @@ class MediaPickerTests(unittest.TestCase):
         self.assertIn("height: 82px", chip)
 
     def test_a_single_choice_field_takes_one_file(self):
-        block = self.html.split("row.addEventListener(\"click\", () => {")[1].split("});")[0]
-        self.assertIn("if (!multiple) {", block)
-        self.assertIn("selected.clear()", block)
+        toggle = self.picker.split("const toggle = () => {")[1].split("};")[0]
+        self.assertIn("if (!multiple) {", toggle)
+        self.assertIn("selected.clear()", toggle)
+
+    # -- input / output, sorting, prompt --------------------------------
+    def test_input_and_output_can_be_listed(self):
+        self.assertIn('["input", "output"].map((source) => {', self.picker)
+        self.assertIn("source === \"output\" ? \"输出\" : \"输入\"", self.picker)
+        # Switching reloads the list instead of filtering what is on screen.
+        self.assertIn("reload();", self.picker)
+
+    def test_the_time_order_can_be_flipped(self):
+        self.assertIn("newestFirst: true", self.picker)
+        self.assertIn("state.newestFirst = !state.newestFirst", self.picker)
+        sort = self.picker.split("const files = [...state.files].sort")[1].split(";")[0]
+        self.assertIn("(b.modified || 0) - (a.modified || 0)", sort)
+
+    def test_an_output_row_can_copy_its_prompt_alone(self):
+        self.assertIn('prompt.className = "media-row-prompt"', self.picker)
+        # The prompt button must not toggle the row.
+        block = self.picker.split('prompt.addEventListener("click"')[1].split("});")[0]
+        self.assertIn("event.stopPropagation()", block)
+        self.assertIn("readPrompt(name, prompt)", block)
+
+    def test_no_prompt_is_reported_as_such(self):
+        block = self.picker.split("const readPrompt = async")[1].split("};")[0]
+        self.assertIn("这张图没有保存提示词", block)
+
+    def test_choosing_an_output_copies_it_into_input(self):
+        block = self.picker.split("confirm.addEventListener")[1]
+        self.assertIn("importOutputs(chosen)", block)
+        self.assertIn("const names = state.source === \"output\"", block)
 
 
 class StepperTests(unittest.TestCase):
