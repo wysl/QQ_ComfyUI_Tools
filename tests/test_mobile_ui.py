@@ -728,6 +728,95 @@ class MaskPromptBridgeTests(unittest.TestCase):
         self.assertEqual(self.bridge.count("app.graphToPrompt = wrapped;"), 1)
 
 
+class MaskedLoadImageSubmitTests(unittest.TestCase):
+    """The phone sees a painted layer too, through a copy made at submit time."""
+
+    def setUp(self):
+        self.ui = _load("mobile_ui_masked_submit", _MODULES_DIR / "mobile_ui.py")
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.temp.name)
+        self.input_dir = self.root / "input"
+        self.user_dir = self.root / "user"
+        self.temp_dir = self.root / "temp"
+        for directory in (self.input_dir, self.user_dir, self.temp_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+        stub = type(sys)("folder_paths")
+        stub.get_input_directory = lambda: str(self.input_dir)
+        stub.get_user_directory = lambda: str(self.user_dir)
+        stub.get_temp_directory = lambda: str(self.temp_dir)
+        self._previous = sys.modules.get("folder_paths")
+        sys.modules["folder_paths"] = stub
+        self.masks = self.ui.paint_mask
+
+    def tearDown(self):
+        if self._previous is None:
+            sys.modules.pop("folder_paths", None)
+        else:
+            sys.modules["folder_paths"] = self._previous
+        self.temp.cleanup()
+
+    def _picture(self, name="b.png"):
+        from PIL import Image
+
+        Image.new("RGB", (6, 4), (255, 0, 0)).save(self.input_dir / name)
+        return name
+
+    def _layer(self, name):
+        import io
+
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.new("L", (6, 4), 200).save(buffer, format="PNG")
+        self.assertTrue(self.masks.save_mask_png(name, buffer.getvalue()))
+
+    def _prompt(self, value, node="LoadImage"):
+        return {"7": {"class_type": node, "inputs": {"image": value}}}
+
+    def test_a_painted_picture_is_rewritten_for_the_run(self):
+        name = self._picture()
+        self._layer(name)
+        prompt = self._prompt(name)
+        self.assertEqual(self.ui.prepare_masked_load_images(prompt), 1)
+        written = prompt["7"]["inputs"]["image"]
+        self.assertTrue(written.endswith(" [temp]"), written)
+        self.assertTrue((self.temp_dir / written[: -len(" [temp]")]).is_file())
+        # Nothing landed in the library.
+        self.assertEqual(sorted(p.name for p in self.input_dir.iterdir()), [name])
+
+    def test_a_picture_without_a_layer_is_left_alone(self):
+        name = self._picture()
+        prompt = self._prompt(name)
+        self.assertEqual(self.ui.prepare_masked_load_images(prompt), 0)
+        self.assertEqual(prompt["7"]["inputs"]["image"], name)
+        self.assertEqual(list(self.temp_dir.iterdir()), [])
+
+    def test_another_nodes_image_paths_are_untouched(self):
+        name = self._picture()
+        self._layer(name)
+        prompt = self._prompt("{\"images\": [\"b.png\"]}", node="QQMediaLoader")
+        self.assertEqual(self.ui.prepare_masked_load_images(prompt), 0)
+        self.assertIn("b.png", prompt["7"]["inputs"]["image"])
+
+    def test_an_annotated_value_carries_the_layer_too(self):
+        name = self._picture()
+        self._layer(name)
+        prompt = self._prompt(f"{name} [input]")
+        self.assertEqual(self.ui.prepare_masked_load_images(prompt), 1)
+        self.assertTrue(prompt["7"]["inputs"]["image"].endswith(" [temp]"))
+
+    def test_the_route_rewrites_before_queueing(self):
+        source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+        route = source.split('@server.routes.post("/qq_mobile/prompt")')[1]
+        route = route.split('@server.routes.post("/qq_mobile/interrupt")')[0]
+        self.assertIn("prepare_masked_load_images(prompt)", route)
+        self.assertLess(
+            route.index("prepare_masked_load_images(prompt)"), route.index('/prompt"')
+        )
+        # A layer that cannot be written must not lose the whole submission.
+        self.assertIn("遮罩未生效", route)
+
+
 class MediaPickerTests(unittest.TestCase):
     """Choosing media that already exists on the server."""
 

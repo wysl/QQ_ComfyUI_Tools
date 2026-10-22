@@ -320,9 +320,10 @@ prompt、宽高、步数这类常改项直接显示；模型文件名、采样�
 普通 `LoadImage` 的 MASK 来自 PNG 的 alpha 通道、输出口又由 `RETURN_TYPES` 固定，所以它的遮罩只能通过文件传递。这份带 alpha 的副本只在**这次运行**里有用，因此既不进 `input`，也不在画遮罩时生成：
 
 - 点「保存」只写遮罩本身，不产生任何图片文件
-- 提交前（`app.graphToPrompt()` 被包了一层，`web/mask_bridge.js`）才向 `/qq_mobile/mask/prepare` 要到 `名字 [temp]`，副本写进 `temp`，并且只出现在**提交出去的 prompt** 里
+- 桌面端提交前（`web/mask_bridge.js` 包了 `app.graphToPrompt`）向 `/qq_mobile/mask/prepare` 要到 `名字 [temp]`；手机端在 `/qq_mobile/prompt` 里由 `prepare_masked_load_images()` 做同一件事
+- 副本写进 `temp`，只出现在**提交出去的那份 prompt** 里
 - 画布上的 `LoadImage` 仍显示原来的文件名，手机端的缩略图和列表也不受影响
-- `temp` 在 ComfyUI 启动时会被清空；同一次会话里每次运行都重写副本，所以不会出现「遮罩改了、副本还是旧的」
+- `temp` 在 ComfyUI 启动时会被清空；每次运行都重写副本，所以不会出现「遮罩改了、副本还是旧的」
 - 删掉遮罩时该图片的副本一并删除（`paint_mask.clear_masked_copies(filename)`），需要整体清理时不带参数调用即可
 
 ### 为什么由前端准备模板
