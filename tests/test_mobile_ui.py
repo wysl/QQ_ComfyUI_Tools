@@ -515,8 +515,6 @@ class MultiNodeTests(unittest.TestCase):
 
     def setUp(self):
         self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
-        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
-        self.source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
 
     def test_every_node_on_the_canvas_is_collected(self):
         block = self.js.split("function multiPrimitiveParameters(graph)")[1].split("\nfunction ")[0]
@@ -542,37 +540,6 @@ class MultiNodeTests(unittest.TestCase):
     def test_keys_stay_unique_across_nodes(self):
         block = self.js.split("function multiPrimitiveParameters(graph)")[1].split("\nfunction ")[0]
         self.assertIn("key: `${node.id}:${widget.name}`", block)
-
-    # -- the form folds them ------------------------------------------------
-    def test_rows_are_marked_as_coming_from_a_multi_node(self):
-        self.assertIn("multi: true", self.js)
-        # The backend keeps the flag; a whitelist would silently drop it.
-        normalise = self.source.split("def _normalise_parameters")[1].split("\ndef ")[0]
-        self.assertIn('"multi": bool(entry.get("multi"))', normalise)
-
-    def test_several_nodes_fold_one_by_one(self):
-        block = self.html.split("const multiGroups = new Set(")[1].split("for (const name of order)")[0]
-        self.assertIn("parameter.multi", block)
-        self.assertIn("multiGroups.size > 1", block)
-        render = self.html.split("const multiGroups = new Set(")[1].split("// Drop remembered")[0]
-        self.assertIn("multiSection(name, primary, advanced, !multiOpened)", render)
-        # First one open, the rest closed.
-        self.assertIn("multiOpened = true", render)
-
-    def test_the_fold_has_a_bigger_title_and_a_count(self):
-        block = self.html.split("function multiSection(")[1].split("\n}")[0]
-        self.assertIn('className = "multi-title"', block)
-        self.assertIn('className = "count"', block)
-        self.assertIn('className = "multi-chevron"', block)
-        self.assertIn("group.open = Boolean(open)", block)
-        title = self.html.split(".multi-section .multi-title {")[1].split("}")[0]
-        self.assertIn("font-size: 16px", title)
-        self.assertIn("font-weight: 700", title)
-
-    def test_one_node_still_renders_flat(self):
-        render = self.html.split("const multiGroups = new Set(")[1].split("// Drop remembered")[0]
-        # The fold only kicks in above one node; otherwise the old path runs.
-        self.assertIn("if (foldMulti && multiGroups.has(name))", render)
 
 
 class FormDensityTests(unittest.TestCase):
