@@ -852,6 +852,7 @@ const state = {
     // Every id of the current run: a batch queues several at once.
     promptIds: [],
     media: [],
+    failedError: "",
     batch: 1,
     polling: false,
     timer: null,
@@ -2440,6 +2441,7 @@ async function generate() {
     setProgress(null);
     renderResults([]);
     state.media = [];
+    state.failedError = "";
 
     const count = Math.max(1, state.batch || 1);
     const ids = [];
@@ -2481,7 +2483,9 @@ function absorb(data) {
         return true;
     }
     if (data.status === "failed") {
-        toast(String(data.execution_error || "执行失败").slice(0, 120));
+        // Remembered rather than toasted straight away: in a batch, a failed
+        // job must not read as "finished" while its siblings still run.
+        state.failedError = String(data.execution_error || "执行失败");
         return true;
     }
     return data.status === "completed"
@@ -2522,11 +2526,15 @@ async function poll() {
         state.promptIds = remaining;
         if (!remaining.length) {
             const produced = state.media.length;
+            const failed = state.failedError;
             if (produced) {
-                setStatus("done", total > 1
-                    ? `完成，共 ${produced} 个结果`
+                setStatus(failed ? "error" : "done", total > 1
+                    ? `完成，共 ${produced} 个结果${failed ? "（部分失败）" : ""}`
                     : "完成");
+                if (failed) toast(String(failed).slice(0, 120));
                 pushHistory(state.media);
+            } else if (failed) {
+                setStatus("error", `执行失败：${String(failed).slice(0, 160)}`);
             } else {
                 setStatus("error", "完成，但没有输出媒体");
             }

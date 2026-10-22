@@ -573,6 +573,21 @@ class BatchTests(unittest.TestCase):
         route = route.split("@server.routes")[0]
         self.assertIn('"delete": [prompt_id]', route)
 
+    def test_one_failed_job_does_not_hide_the_others(self):
+        """A batch whose first job fails must still show the rest.
+
+        absorb() toasted the error and reported the job as final; the loop then
+        read the empty remaining list as "run finished" while the second image
+        was still generating, so it was never shown.
+        """
+        block = self.html.split("function absorb(data)")[1].split("\n}")[0]
+        self.assertIn("state.failedError =", block)
+        self.assertNotIn("toast(", block)
+        poll = self.html.split("async function poll()")[1].split("\nasync function cancel")[0]
+        self.assertIn("const failed = state.failedError", poll)
+        self.assertIn("（部分失败）", poll)
+        self.assertIn('setStatus("error", `执行失败：', poll)
+
 
 class SwipeSwitchTests(unittest.TestCase):
     """Left/right swipe moves to the next/previous pipeline."""
