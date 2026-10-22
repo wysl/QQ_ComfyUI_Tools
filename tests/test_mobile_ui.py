@@ -547,6 +547,26 @@ class FormDensityTests(unittest.TestCase):
         self.assertIn("function trackFooterHeight()", self.html)
         self.assertIn("ResizeObserver", self.html)
 
+    def test_the_boolean_row_is_a_real_switch_on_the_same_grid(self):
+        """The native checkbox carried a UA margin and drew as a flat square.
+
+        Its right edge stopped 3px short of the inputs above it, and when the
+        value was off it was an anonymous grey block instead of a control.
+        """
+        switch = self.html.split(".switch {")[1].split("}")[0]
+        self.assertIn("margin-top: -5px", switch)  # label keeps the label rhythm
+        control = self.html.split(".switch input {")[1].split("}")[0]
+        self.assertIn("appearance: none", control)
+        self.assertIn("margin: 0", control)  # no UA margin: same right edge
+        self.assertIn("border-radius: 999px", control)
+        self.assertIn(".switch input::after", self.html)
+        self.assertIn(".switch input:checked", self.html)
+
+    def test_a_long_media_name_does_not_escape_its_tile(self):
+        block = self.html.split(".media-item span {")[1].split("}")[0]
+        self.assertIn("text-overflow: ellipsis", block)
+        self.assertIn("white-space: nowrap", block)
+
     def test_the_font_stack_covers_both_phones(self):
         body = self.html.split("body {")[1].split("}")[0]
         for face in ("PingFang SC", "HarmonyOS Sans SC", "MiSans", "Noto Sans CJK SC"):

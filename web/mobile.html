@@ -165,6 +165,10 @@ main {
     min-height: 96px;
     -webkit-overflow-scrolling: touch;
 }
+.media-item span {
+    display: block; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .media-empty {
     flex: 1; display: grid; place-items: center;
     color: var(--muted); font-size: 13px;
@@ -598,8 +602,46 @@ main {
 }
 .viewer-actions button:active { background: var(--accent-press); }
 
-.switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.switch input { width: 50px; height: 30px; accent-color: var(--accent); }
+/* Boolean row: a real switch instead of the browser's grey checkbox.
+   The native control carries a UA margin (its right edge stopped 3px short of
+   the fields above it) and renders as a flat square when off, so it is drawn
+   here as a track with a knob, aligned to the same right edge as the inputs. */
+.switch {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+    /* Pulled up by half the difference between the switch and a label line, so
+       the label still sits on the same baseline as the labels above it. */
+    margin-top: -5px;
+    margin-bottom: 12px;
+}
+.switch > label { margin: 0; flex: 1; min-width: 0; }
+.switch input {
+    appearance: none; -webkit-appearance: none;
+    margin: 0; flex: none;
+    position: relative;
+    width: 46px; height: 28px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    cursor: pointer;
+    transition: background .18s ease, border-color .18s ease;
+}
+.switch input::after {
+    content: "";
+    position: absolute; top: 3px; left: 3px;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #fff; opacity: .7;
+    transition: transform .18s ease, opacity .18s ease;
+}
+.switch input:checked {
+    background: var(--accent);
+    border-color: transparent;
+}
+.switch input:checked::after {
+    transform: translateX(18px);
+    opacity: 1;
+}
+.switch input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 select { background-image: none; }
 
