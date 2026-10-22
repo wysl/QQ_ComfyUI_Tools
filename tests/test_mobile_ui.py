@@ -510,6 +510,38 @@ class ParameterLayoutTests(unittest.TestCase):
         self.assertIn("bottom: 8px; right: 8px", self.html)
 
 
+class MultiNodeTests(unittest.TestCase):
+    """A workflow may hold more than one QQ-多值输入 node."""
+
+    def setUp(self):
+        self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
+
+    def test_every_node_on_the_canvas_is_collected(self):
+        block = self.js.split("function multiPrimitiveParameters(graph)")[1].split("\nfunction ")[0]
+        # The walk visits the whole graph, so a second node is picked up too.
+        self.assertIn("visit(graph)", block)
+        self.assertIn("multiNodes.push(node)", block)
+
+    def test_each_node_gets_its_own_heading(self):
+        block = self.js.split("function multiPrimitiveParameters(graph)")[1].split("\nfunction ")[0]
+        self.assertIn("if (multiNodes.length > 1)", block)
+        self.assertIn("parameter.group = heading", block)
+        # A single node keeps the plain section name.
+        self.assertIn("group: MULTI_PRIMITIVE_GROUP", block)
+
+    def test_the_heading_prefers_the_users_own_title(self):
+        block = self.js.split("function multiNodeTitle(node, index)")[1].split("\n}")[0]
+        self.assertIn("node?.title", block)
+        self.assertIn("多值输入 ${index + 1}", block)
+        # LiteGraph fills title with the type name; that must not be used as a
+        # heading, or every node would be called "QQ-多值输入".
+        self.assertIn("title === MULTI_PRIMITIVE_TYPE", block)
+
+    def test_keys_stay_unique_across_nodes(self):
+        block = self.js.split("function multiPrimitiveParameters(graph)")[1].split("\nfunction ")[0]
+        self.assertIn("key: `${node.id}:${widget.name}`", block)
+
+
 class FormDensityTests(unittest.TestCase):
     """The form has to fit a phone: compact controls, no clipped text."""
 

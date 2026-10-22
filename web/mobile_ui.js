@@ -172,6 +172,10 @@ function mediaParameters(graph) {
  */
 function multiPrimitiveParameters(graph) {
     const parameters = [];
+    // Every QQ-多值输入 node on the canvas, in visit order. A workflow can use
+    // several (one per stage), and their slots then need to stay apart: the
+    // same slot name in two nodes is a different thing to set.
+    const multiNodes = [];
     const visit = (container) => {
         for (const node of container?._nodes ?? []) {
             if (node?.subgraph) {
@@ -183,6 +187,7 @@ function multiPrimitiveParameters(graph) {
             }
             // A muted or bypassed node contributes no values at all.
             if (!isNodeActive(node)) continue;
+            multiNodes.push(node);
             const links = container.links instanceof Map
                 ? [...container.links.values()]
                 : Object.values(container.links ?? {});
@@ -220,13 +225,45 @@ function multiPrimitiveParameters(graph) {
                     options: comboOptions(widget),
                     targets,
                     group: MULTI_PRIMITIVE_GROUP,
+                    // Filled in below, once every node is known: the heading
+                    // needs to say which node it belongs to.
+                    _nodeId: node.id,
                     ...numberBounds(widget),
                 });
             }
         }
     };
     visit(graph);
+
+    // One heading per node when the workflow uses more than one, so two
+    // "提示词" slots are never two identical rows with no explanation. A single
+    // node keeps the plain section name — nothing to disambiguate.
+    if (multiNodes.length > 1) {
+        multiNodes.forEach((node, index) => {
+            const heading = multiNodeTitle(node, index);
+            for (const parameter of parameters) {
+                if (parameter._nodeId === node.id) parameter.group = heading;
+            }
+        });
+    }
+    for (const parameter of parameters) delete parameter._nodeId;
     return parameters;
+}
+
+/**
+ * Heading for one QQ-多值输入 node.
+ *
+ * The node's own title when the user renamed it ("主图参数"), otherwise a
+ * numbered default. LiteGraph fills `title` with the type name, which would be
+ * the same on every node — that case falls back to the number.
+ */
+function multiNodeTitle(node, index) {
+    const title = String(node?.title || "").trim();
+    const generic = !title
+        || title === MULTI_PRIMITIVE_TYPE
+        || title === MULTI_PRIMITIVE_LEGACY
+        || title === "多值输入";
+    return generic ? `多值输入 ${index + 1}` : title;
 }
 
 /** Readable name for one multi-primitive output slot. */
