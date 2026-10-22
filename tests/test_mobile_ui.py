@@ -528,7 +528,19 @@ class ModelOrderTests(unittest.TestCase):
 
     def test_nothing_matches_leaves_the_order_alone(self):
         block = self.html.split("function rankModelOptions(")[1].split("\n}")[0]
-        self.assertIn("if (!needle) return list;", block)
+        # Every bail-out returns the list with "None" still first, untouched
+        # otherwise.
+        self.assertIn("if (!needle) return keepNoneFirst(rest);", block)
+        self.assertIn("if (title.length < 3) return keepNoneFirst(rest);", block)
+
+    def test_none_is_always_the_first_row(self):
+        block = self.html.split("function rankModelOptions(")[1].split("\n}")[0]
+        self.assertIn("const none = list.filter((option) => isNoModelOption(option))", block)
+        self.assertIn("const keepNoneFirst = (ordered) => [...none, ...ordered]", block)
+        # The "no LoRA" choice is matched by name, not by its position.
+        helper = self.html.split("function isNoModelOption(option)")[1].split("\n}")[0]
+        self.assertIn("NO_MODEL_VALUES.has", helper)
+        self.assertIn('"none"', self.html)
 
     def test_matching_ignores_case(self):
         block = self.html.split("function rankModelOptions(")[1].split("\n}")[0]
@@ -544,9 +556,10 @@ class ModelOrderTests(unittest.TestCase):
 
     def test_only_the_order_changes(self):
         block = self.html.split("function rankModelOptions(")[1].split("\n}")[0]
-        self.assertIn("return [...hit, ...rest]", block)
+        self.assertIn("return keepNoneFirst([...hit, ...others]);", block)
         # A stable partition, so the server's order survives inside each group.
         self.assertIn("const hit = []", block)
+        self.assertIn("const others = []", block)
 
     def test_the_picker_uses_it_for_model_lists(self):
         block = self.html.split('const ordered = rankModelOptions(')[1].split("chooseOption(")[0]

@@ -1816,19 +1816,36 @@ function optionFolders(option) {
  * ("krea2" vs "kre"), or the three letters contain the folder ("h3v" vs "h3"),
  * which is how a short folder such as h3 still gets picked up.
  *
+ * "None" is the "no LoRA" choice and always stays the first row, whatever the
+ * rules say — it is the default and the quickest way out of the list.
+ *
  * Only the order changes: every option stays in the list, and the stable
  * partition keeps the server's order inside each group.
  */
+const NO_MODEL_VALUES = new Set(["none", "", "null", "无"]);
+
+function isNoModelOption(option) {
+    const { name } = splitOptionPath(option);
+    return NO_MODEL_VALUES.has(String(name).trim().toLowerCase());
+}
+
 function rankModelOptions(options, hint, pipelineName) {
     const list = Array.isArray(options) ? [...options] : [];
     if (list.length < 2) return list;
-    const title = String(pipelineName || "").trim();
-    if (title.length < 3) return list;
 
-    const folders = list.map((option) => optionFolders(option));
+    // None first, always, whatever happens below.
+    const none = list.filter((option) => isNoModelOption(option));
+    const rest = list.filter((option) => !isNoModelOption(option));
+    const keepNoneFirst = (ordered) => [...none, ...ordered];
+    if (rest.length < 2) return keepNoneFirst(rest);
+
+    const title = String(pipelineName || "").trim();
+    if (title.length < 3) return keepNoneFirst(rest);
+
+    const folders = rest.map((option) => optionFolders(option));
     // A list with no folders at all (or all in one folder) has nothing to rank.
     const distinct = new Set(folders.filter(Boolean));
-    if (!distinct.size) return list;
+    if (!distinct.size) return keepNoneFirst(rest);
 
     // Both sides lowercased once; the rule itself is case-insensitive.
     const needleFits = (needle) => folders.some((folder) => {
@@ -1843,18 +1860,18 @@ function rankModelOptions(options, hint, pipelineName) {
     let needle = "";
     if (needleFits(first)) needle = first;
     else if (needleFits(last)) needle = last;
-    if (!needle) return list;
+    if (!needle) return keepNoneFirst(rest);
 
     const matches = (folder) => Boolean(folder)
         && (folder.includes(needle) || (folder.length >= 2 && needle.includes(folder)));
 
     // Stable partition: hits first (original order kept), then the rest.
     const hit = [];
-    const rest = [];
-    list.forEach((option, index) => {
-        (matches(folders[index]) ? hit : rest).push(option);
+    const others = [];
+    rest.forEach((option, index) => {
+        (matches(folders[index]) ? hit : others).push(option);
     });
-    return [...hit, ...rest];
+    return keepNoneFirst([...hit, ...others]);
 }
 
 /**
