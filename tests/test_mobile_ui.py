@@ -639,6 +639,7 @@ class MaskRouteTests(unittest.TestCase):
     def test_the_routes_exist(self):
         self.assertIn('@server.routes.get("/qq_mobile/mask")', self.source)
         self.assertIn('@server.routes.post("/qq_mobile/mask")', self.source)
+        self.assertIn('@server.routes.post("/qq_mobile/mask/prepare")', self.source)
         self.assertIn('@server.routes.delete("/qq_mobile/mask")', self.source)
 
     def test_a_post_validates_and_stores(self):
@@ -646,8 +647,30 @@ class MaskRouteTests(unittest.TestCase):
         handler = handler.split("@server.routes")[0]
         self.assertIn("base64.b64decode(encoded, validate=True)", handler)
         self.assertIn("paint_mask.save_mask_png", handler)
-        # A painted layer also refreshes the alpha copy LoadImage reads.
+
+    def test_painting_writes_no_alpha_copy(self):
+        """The copy is worth nothing before a run, so painting makes none.
+
+        It used to be written here, into `input`, and stayed there long after
+        the run that needed it.
+        """
+        handler = self.source.split('@server.routes.post("/qq_mobile/mask")')[1]
+        handler = handler.split("@server.routes")[0]
+        self.assertNotIn("write_masked_copy", handler)
+
+    def test_the_copy_is_made_only_for_the_run_that_uses_it(self):
+        handler = self.source.split('@server.routes.post("/qq_mobile/mask/prepare")')[1]
+        handler = handler.split("@server.routes")[0]
+        self.assertIn("paint_mask.mask_exists", handler)
         self.assertIn("paint_mask.write_masked_copy", handler)
+        # Only pictures that actually have a layer get a file.
+        self.assertIn("if not paint_mask.mask_exists(name):", handler)
+        self.assertIn('return web.json_response({"masks": references})', handler)
+
+    def test_dropping_a_layer_drops_its_copy(self):
+        handler = self.source.split('@server.routes.delete("/qq_mobile/mask")')[1]
+        handler = handler.split("@server.routes")[0]
+        self.assertIn("paint_mask.clear_masked_copies", handler)
 
     def test_the_get_is_not_cached(self):
         handler = self.source.split('@server.routes.get("/qq_mobile/mask")')[1]
@@ -667,6 +690,42 @@ class MaskRouteTests(unittest.TestCase):
     def test_clearing_removes_the_layer(self):
         block = self.html.split("remove.addEventListener")[1].split("});")[0]
         self.assertIn('method: "DELETE"', block)
+
+
+class MaskPromptBridgeTests(unittest.TestCase):
+    """A painted layer reaches a plain LoadImage without a lasting file."""
+
+    def setUp(self):
+        self.bridge = (_MODULES_DIR.parent / "web" / "mask_bridge.js").read_text(encoding="utf-8")
+
+    def test_only_the_submitted_prompt_is_rewritten(self):
+        """The widget must keep the name the user chose."""
+        self.assertIn("entry.inputs.image = reference", self.bridge)
+        self.assertNotIn("widgets", self.bridge)
+        self.assertNotIn("graph._nodes", self.bridge)
+        self.assertNotIn("setDirtyCanvas", self.bridge)
+
+    def test_it_asks_for_copies_right_before_the_queue(self):
+        self.assertIn("const promptData = await original.apply(this, arguments);", self.bridge)
+        self.assertIn('PREPARE_ROUTE = "/qq_mobile/mask/prepare"', self.bridge)
+        self.assertIn("await annotateMaskedImages(promptData?.output)", self.bridge)
+
+    def test_a_workflow_without_layers_is_untouched(self):
+        self.assertIn("if (!wanted.size) return;", self.bridge)
+        # An already annotated value is left alone rather than annotated twice.
+        self.assertIn("if (!value || ANNOTATION.test(value)) continue;", self.bridge)
+
+    def test_a_broken_route_still_lets_the_run_through(self):
+        self.assertIn("} catch {\n        // A workflow must still run", self.bridge)
+        self.assertIn("Never block a queue", self.bridge)
+
+    def test_only_load_image_is_rewritten(self):
+        self.assertIn('const LOAD_IMAGE = "LoadImage";', self.bridge)
+        self.assertIn('if (String(entry?.class_type || "") !== LOAD_IMAGE) continue;', self.bridge)
+
+    def test_it_is_registered_as_an_extension(self):
+        self.assertIn('name: "QQ.MaskPromptBridge"', self.bridge)
+        self.assertEqual(self.bridge.count("app.graphToPrompt = wrapped;"), 1)
 
 
 class MediaPickerTests(unittest.TestCase):

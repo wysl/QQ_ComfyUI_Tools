@@ -311,6 +311,20 @@ prompt、宽高、步数这类常改项直接显示；模型文件名、采样�
 
 浏览器只在 **HTTPS 或 localhost** 下允许选择手机文件。如果点「上传」没反应，把反向代理换成 HTTPS 即可。
 
+### 遮罩
+
+`QQ-多媒体加载` 的每张图片可以单独画一层遮罩，从 `mask output` 输出（MASK 列表，与 `multi output` 一一对应）。没画过的图片输出全 1，等于「全部保留」，所以老工作流的行为不变。画布节点上点图片卡片左下角的画笔按钮；手机端在表单的图片格子上点同样的按钮，两边共用同一层。
+
+遮罩按**图片路径**存储，存在 `user/QQ_ComfyUI_Tools/masks/`（8 位灰度 PNG，白=保留）。不放在 `input` 里：它们是用户的作品而不是媒体文件，混进媒体列表会干扰挑选。
+
+普通 `LoadImage` 的 MASK 来自 PNG 的 alpha 通道、输出口又由 `RETURN_TYPES` 固定，所以它的遮罩只能通过文件传递。这份带 alpha 的副本只在**这次运行**里有用，因此既不进 `input`，也不在画遮罩时生成：
+
+- 点「保存」只写遮罩本身，不产生任何图片文件
+- 提交前（`app.graphToPrompt()` 被包了一层，`web/mask_bridge.js`）才向 `/qq_mobile/mask/prepare` 要到 `名字 [temp]`，副本写进 `temp`，并且只出现在**提交出去的 prompt** 里
+- 画布上的 `LoadImage` 仍显示原来的文件名，手机端的缩略图和列表也不受影响
+- `temp` 在 ComfyUI 启动时会被清空；同一次会话里每次运行都重写副本，所以不会出现「遮罩改了、副本还是旧的」
+- 删掉遮罩时该图片的副本一并删除（`paint_mask.clear_masked_copies(filename)`），需要整体清理时不带参数调用即可
+
 ### 为什么由前端准备模板
 
 `POST /prompt` 只接受展开后的 API JSON。这个展开要经过子图提升、Reroute 透传、Bypass 拼接和虚拟节点，都依赖节点的运行时定义。服务端纯结构化重算并不可靠：在 12 个工作流上实测仍会每个差 4-47 个值（例如 LoRA Stacker 把装饰对象序列化在 `widgets_values` 首位）。
@@ -336,6 +350,9 @@ prompt、宽高、步数这类常改项直接显示；模型文件名、采样�
 | `POST /qq_mobile/interrupt` | 取消当前任务 |
 | `GET /qq_mobile/media` | 列出 `input` 目录里可选的媒体文件 |
 | `POST /qq_mobile/upload` | 转发到 `/upload/image`，接收手机上传 |
+| `GET/POST/DELETE /qq_mobile/mask` | 读取、保存、删除某张图片的遮罩 |
+| `GET /qq_mobile/mask/state` | 一次问清多张图片有没有遮罩 |
+| `POST /qq_mobile/mask/prepare` | 提交前为有遮罩的图片在 `temp` 里写带 alpha 的副本 |
 
 提交复用官方 `/prompt`，因此校验、节点替换、队列和 WebSocket 事件的行为与桌面端一致。参数值按 `(执行ID, 输入名)` 写入，未知参数会作为 warning 返回而不是整单失败。
 
