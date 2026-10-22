@@ -510,6 +510,48 @@ class ParameterLayoutTests(unittest.TestCase):
         self.assertIn("bottom: 8px; right: 8px", self.html)
 
 
+class StepperTests(unittest.TestCase):
+    """The +/- buttons must always move the value.
+
+    Two ways they stopped moving: a FLOAT widget that happened to hold a whole
+    number was typed INT (然后步进 1 或 0.1 都可能不生效), and an INT field stepped
+    by a fraction rounded straight back to where it started.
+    """
+
+    def setUp(self):
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+        self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
+
+    def test_the_declared_type_beats_guessing_from_the_value(self):
+        block = self.js.split("function widgetTypeToSlot(widget, output)")[1].split("\n}")[0]
+        # A FLOAT slot holding 2 used to be read as INT.
+        self.assertIn('const declared = String(output?.type || "").toUpperCase()', block)
+        self.assertIn('if (declared === "INT" || declared === "FLOAT") return declared', block)
+        # The widget's own step is the next best signal.
+        self.assertIn("widget?.options?.step", block)
+
+    def test_int_steps_by_whole_numbers_float_by_a_tenth(self):
+        block = self.html.split('if (type === "INT" || type === "FLOAT") {')[1].split("const clamp")[0]
+        self.assertIn("Math.max(1, Math.round(Number(parameter.step) || 1))", block)
+        self.assertIn(": 0.1;", block)
+
+    def test_values_do_not_drift_into_float_noise(self):
+        block = self.html.split("const clean = (n) => {")[1].split("};")[0]
+        self.assertIn("toFixed(decimals)", block)
+        # 0.35 + 0.1 must read 0.45, not 0.44999999999999996.
+        self.assertIn("const decimals = type === \"INT\" ? 0 : 1", self.html)
+
+    def test_the_buttons_say_when_a_bound_is_reached(self):
+        block = self.html.split("const syncBounds = () => {")[1].split("};")[0]
+        self.assertIn("minus.disabled", block)
+        self.assertIn("plus.disabled", block)
+        self.assertIn("syncBounds();", self.html)
+
+    def test_a_step_that_cannot_change_anything_reports_it(self):
+        block = self.html.split("const bump = (delta) => {")[1].split("};")[0]
+        self.assertIn("if (next === clean(base)) return false;", block)
+
+
 class MultiNodeTests(unittest.TestCase):
     """A workflow may hold more than one QQ-多值输入 node."""
 

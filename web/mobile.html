@@ -1173,7 +1173,19 @@ function fieldFor(parameter) {
     if (type === "INT" || type === "FLOAT") {
         const stepper = document.createElement("div");
         stepper.className = "stepper";
-        const step = parameter.step ?? (type === "INT" ? 1 : 0.01);
+        // INT steps by whole numbers, FLOAT by 0.1. A fractional step on an INT
+        // field is what made the buttons do nothing: 2 + 0.1 rounded straight
+        // back to 2, so the value never moved.
+        const step = type === "INT"
+            ? Math.max(1, Math.round(Number(parameter.step) || 1))
+            : 0.1;
+        // How many decimals the value may keep, so repeated stepping cannot
+        // drift into 0.44999999999999996.
+        const decimals = type === "INT" ? 0 : 1;
+        const clean = (n) => {
+            const rounded = Number(n.toFixed(decimals));
+            return type === "INT" ? Math.round(rounded) : rounded;
+        };
         const input = document.createElement("input");
         input.type = "number";
         input.inputMode = type === "INT" ? "numeric" : "decimal";
@@ -1187,14 +1199,17 @@ function fieldFor(parameter) {
             let next = n;
             if (parameter.min != null) next = Math.max(parameter.min, next);
             if (parameter.max != null) next = Math.min(parameter.max, next);
-            return type === "INT" ? Math.round(next) : next;
+            return clean(next);
         };
+        /** Move one step; returns false when the value could not change. */
         const bump = (delta) => {
             const current = Number.parseFloat(input.value);
             const base = Number.isFinite(current) ? current : 0;
             const next = clamp(base + delta * step);
+            if (next === clean(base)) return false;
             input.value = next;
             commit(next);
+            return true;
         };
 
         const minus = document.createElement("button");
@@ -1202,18 +1217,36 @@ function fieldFor(parameter) {
         minus.innerHTML = iconSvg("minus");
         minus.title = "减";
         minus.setAttribute("aria-label", "减");
-        minus.addEventListener("click", () => bump(-1));
         const plus = document.createElement("button");
         plus.type = "button";
         plus.innerHTML = iconSvg("plus");
         plus.title = "加";
         plus.setAttribute("aria-label", "加");
-        plus.addEventListener("click", () => bump(1));
+
+        // At a bound the button greys out, so "nothing happens" reads as "this
+        // is the limit" instead of "the control is broken".
+        const syncBounds = () => {
+            const current = Number.parseFloat(input.value);
+            if (!Number.isFinite(current)) return;
+            minus.disabled = parameter.min != null && clean(current) <= Number(parameter.min);
+            plus.disabled = parameter.max != null && clean(current) >= Number(parameter.max);
+        };
+
+        minus.addEventListener("click", () => {
+            bump(-1);
+            syncBounds();
+        });
+        plus.addEventListener("click", () => {
+            bump(1);
+            syncBounds();
+        });
 
         input.addEventListener("input", () => {
             const parsed = Number.parseFloat(input.value);
             if (Number.isFinite(parsed)) commit(coerce(parameter, parsed));
+            syncBounds();
         });
+        syncBounds();
 
         if (isSeedParameter(parameter)) {
             // A seed is a 15 digit number: stepping it by one is meaningless,

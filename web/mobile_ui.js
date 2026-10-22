@@ -277,12 +277,24 @@ function inputLabel(node, slot) {
     return String(name).replace(/\s+\d+$/, "");
 }
 
-/** Widget type -> the SlotType the page's form switches on. */
+/**
+ * Widget type -> the SlotType the page's form switches on.
+ *
+ * The declared type wins over guessing from the current value: a FLOAT widget
+ * that happens to hold 2 was being read as INT ("百万像素", whose slot is
+ * declared FLOAT with a 0.1 step), which then made the phone step it by whole
+ * numbers and refuse to move at all.
+ */
 function widgetTypeToSlot(widget, output) {
     const type = String(widget?.type || "").toLowerCase();
     if (type === "combo") return "COMBO";
     if (type === "toggle" || type === "boolean") return "BOOLEAN";
     if (type === "number") {
+        const declared = String(output?.type || "").toUpperCase();
+        if (declared === "INT" || declared === "FLOAT") return declared;
+        const step = Number(widget?.options?.step);
+        if (Number.isFinite(step) && step > 0 && step < 1) return "FLOAT";
+        if (Number.isFinite(step) && step >= 1) return "INT";
         return Number.isInteger(widget?.value) ? "INT" : "FLOAT";
     }
     if (type === "text" || type === "customtext") return "STRING";
