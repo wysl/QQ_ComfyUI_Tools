@@ -1345,20 +1345,33 @@ class ExtensionRegistrationTests(unittest.TestCase):
     def setUp(self):
         self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
 
-    def test_toolbar_button_uses_a_real_material_icon(self):
-        """A made-up icon name renders as an empty <i>: the button looked blank."""
-        match = re.search(r'const ICON_CLASS = "([^"]+)"', self.js)
-        self.assertIsNotNone(match)
-        # Verified against the bundled Material font at toolbar size.
-        self.assertIn(match.group(1), {"cellphone", "cellphone-link", "monitor-cellphone"})
-        self.assertIn("icon: ICON_CLASS", self.js)
-        self.assertNotIn("mdi-qq-mobile", self.js)
+    def test_toolbar_button_draws_its_own_icon(self):
+        """The bundled Material font is a subset: a missing glyph is a box.
 
-    def test_toolbar_button_does_not_depend_on_iconElement(self):
-        # `iconElement` is a frontend internal; the glyph must not hinge on it.
-        block = self.js.split("const createButton = async () => {")[1].split("\n};")[0]
-        self.assertIn("button.iconElement ||", block)
-        self.assertIn("classList.add", block)
+        `mdi-cellphone` had a CSS rule but no glyph in the font file, so the
+        button rendered as a hollow square. The icon is an inline SVG now and
+        no longer depends on which glyphs shipped.
+        """
+        self.assertIn("const ICON_SVG = `", self.js)
+        self.assertIn("<rect x=\"7\" y=\"2.6\"", self.js)
+        self.assertIn("button.innerHTML = ICON_SVG", self.js)
+        # No webfont icon option anywhere: it becomes an <i> only a font fills.
+        block = self.js.split("const createButton = () => {")[1].split("\n};")[0]
+        self.assertNotIn("icon:", block)
+
+    def test_the_button_is_ours_not_the_frameworks(self):
+        """ComfyButton returns a wrapper whose <button> is framework-rendered.
+
+        Children added from outside were wiped on mount (icon 0×0, or appended
+        to a neighbouring button), so the button is a plain element we own that
+        borrows the toolbar's classes.
+        """
+        block = self.js.split("const createButton = () => {")[1].split("\n};")[0]
+        self.assertIn('createElement("button")', block)
+        self.assertIn("comfyui-button", block)
+        self.assertIn("background: \"transparent\"", block)
+        self.assertNotIn("ComfyButton", block)
+        self.assertNotIn("MutationObserver", self.js)
 
     def test_shortcut_does_not_collide_with_the_builtin_minimap_toggle(self):
         self.assertNotIn('key: "m", alt: true, shift: true', self.js)

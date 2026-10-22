@@ -30,17 +30,6 @@ const getBasePath = () => {
 const mobileUrl = (path) => `${getBasePath()}${path}`;
 
 /**
- * Toolbar glyph.
- *
- * A bare Material icon name: the button builds `<i class="mdi mdi-…">`, so the
- * toolbar's own icon font draws it at exactly the same size and weight as the
- * neighbouring buttons. An icon name the font does not know (the old
- * "qq-mobile") renders as nothing, and hand-rolled SVGs only appeared when the
- * frontend exposed `iconElement` — both left the button looking blank.
- */
-const ICON_CLASS = "cellphone";
-
-/**
  * Media loading nodes the phone page turns into pickers.
  *
  * Each entry names the node type and the widget that holds the chosen file.
@@ -1111,26 +1100,54 @@ const openMobile = async (event) => {
     window.location.assign(url);
 };
 
-const createButton = async () => {
-    const { ComfyButton } = await import("../../../scripts/ui/components/button.js");
-    const button = new ComfyButton({
-        icon: ICON_CLASS,
-        tooltip: BUTTON_TOOLTIP,
-        app,
-        enabled: true,
-        classList: "comfyui-button comfyui-menu-mobile-collapse primary",
+/**
+ * Toolbar glyph, drawn inline.
+ *
+ * The toolbar's icons come from a Material webfont that ComfyUI ships as a
+ * subset: `mdi-cellphone` exists in the stylesheet but not always in the
+ * font file, and a missing glyph renders as a hollow box. An SVG has no such
+ * dependency and keeps the toolbar's stroked look at the same 13×15 size.
+ */
+const ICON_SVG = `
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <rect x="7" y="2.6" width="10" height="18.8" rx="2.4"></rect>
+  <path d="M10.8 5.4h2.4"></path>
+  <path d="M11 18.6h2"></path>
+</svg>`;
+
+/**
+ * Build the toolbar button ourselves.
+ *
+ * `ComfyButton` is a frontend-internal component: it returns a wrapper whose
+ * inner <button> is rendered by the framework, so children added from outside
+ * are wiped on mount (the icon ended up 0×0, or on a neighbouring button).
+ * A plain <button> carrying the toolbar's own classes gets the same styling
+ * without that problem, and the SVG inside is ours.
+ */
+const createButton = () => {
+    const button = document.createElement("button");
+    button.type = "button";
+    // The class set the toolbar's icon buttons use in this frontend version.
+    button.className = "comfyui-button comfyui-menu-mobile-collapse qq-mobile-toolbar";
+    button.title = BUTTON_TOOLTIP;
+    button.setAttribute("aria-label", BUTTON_TOOLTIP);
+    button.innerHTML = ICON_SVG;
+    // The other toolbar glyphs (star, vacuum, share) sit directly on the bar:
+    // no chip behind them, and the ink is whatever the bar uses.
+    Object.assign(button.style, {
+        background: "transparent",
+        border: "0",
+        color: "inherit",
+        boxShadow: "none",
     });
-    button.element.setAttribute("aria-label", BUTTON_TOOLTIP);
-    button.element.title = BUTTON_TOOLTIP;
-    // The glyph comes from the `icon` option above. Belt and braces: a
-    // frontend that ignored it leaves the <i> without the mdi classes, so fix
-    // the class list in place — still no markup of our own, so the icon keeps
-    // the toolbar's size, weight and colour.
-    const glyph = button.iconElement || button.element.querySelector("i");
-    if (glyph) {
-        glyph.classList.add("mdi", `mdi-${ICON_CLASS}`);
+    const svg = button.querySelector("svg");
+    if (svg) {
+        svg.style.width = "17px";
+        svg.style.height = "17px";
+        svg.style.display = "block";
     }
-    button.element.addEventListener("click", openMobile);
+    button.addEventListener("click", openMobile);
     return button;
 };
 
@@ -1142,11 +1159,10 @@ const attachButton = async (attempt = 0) => {
         requestAnimationFrame(() => attachButton(attempt + 1));
         return;
     }
-    const button = await createButton();
-    const { ComfyButtonGroup } = await import("../../../scripts/ui/components/buttonGroup.js");
-    const group = new ComfyButtonGroup(button);
-    group.element.classList.add(BUTTON_GROUP_CLASS);
-    settingsGroup.element.before(group.element);
+    const button = createButton();
+    // The group class doubles as the "already attached" marker.
+    button.classList.add(BUTTON_GROUP_CLASS);
+    settingsGroup.element.before(button);
 };
 
 // Expose the entry points before registering, so the phone page and tests keep
@@ -1201,7 +1217,9 @@ const core = {
     ],
     actionBarButtons: [
         {
-            icon: `mdi mdi-${ICON_CLASS} size-4`,
+            // Same glyph as the toolbar button, and likewise an SVG: the icon
+            // classes this API expects resolve to the same subsetted webfont.
+            icon: "qq-mobile-icon",
             tooltip: BUTTON_TOOLTIP,
             onClick: () => openMobile({}),
         },
