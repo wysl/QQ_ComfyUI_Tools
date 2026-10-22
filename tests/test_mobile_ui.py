@@ -566,6 +566,69 @@ class ModelOrderTests(unittest.TestCase):
         self.assertIn('el("title")?.textContent', block)
 
 
+class ThumbnailTests(unittest.TestCase):
+    """Thumbnails are rendered once, then served from an immutable cache."""
+
+    def setUp(self):
+        self.ui = _load("mobile_ui_thumbs", _MODULES_DIR / "mobile_ui.py")
+        self.source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+
+    def test_the_cache_key_follows_mtime_and_size(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "a.png").write_bytes(b"x")
+            self.ui._media_directory = lambda source: str(root)
+            self.ui._thumb_dir = lambda: str(root)
+            first = self.ui._thumb_path("input", "a.png", 100, 10)
+            second = self.ui._thumb_path("input", "a.png", 200, 10)
+            third = self.ui._thumb_path("input", "a.png", 200, 99)
+            self.assertNotEqual(first, second)
+            self.assertNotEqual(second, third)
+            self.assertTrue(first.endswith(".webp"))
+
+    def test_it_renders_a_small_webp(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            source = root / "big.png"
+            Image.new("RGB", (1600, 1200), (10, 20, 30)).save(source)
+            target = root / "thumb.webp"
+            self.assertTrue(self.ui._render_thumb(str(source), str(target)))
+            with Image.open(target) as made:
+                self.assertEqual(made.format, "WEBP")
+                self.assertLessEqual(max(made.size), self.ui.THUMB_MAX_EDGE)
+            # Much smaller than the original, which is the point.
+            self.assertLess(target.stat().st_size, source.stat().st_size)
+
+    def test_an_unreadable_file_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = pathlib.Path(tmp) / "broken.png"
+            bad.write_bytes(b"not an image")
+            self.assertFalse(
+                self.ui._render_thumb(str(bad), str(pathlib.Path(tmp) / "t.webp"))
+            )
+
+    def test_the_cache_is_capped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            original = self.ui.THUMB_CACHE_LIMIT
+            self.ui.THUMB_CACHE_LIMIT = 10
+            try:
+                for index in range(14):
+                    (root / f"{index}.webp").write_bytes(b"x")
+                self.ui._prune_thumbs(str(root))
+                left = [p for p in root.iterdir() if p.suffix == ".webp"]
+                self.assertLess(len(left), 14)
+            finally:
+                self.ui.THUMB_CACHE_LIMIT = original
+
+    def test_the_route_is_cached_immutably(self):
+        self.assertIn('@server.routes.get("/qq_mobile/thumb")', self.source)
+        self.assertIn("immutable", self.source)
+        self.assertIn("max-age=31536000", self.source)
+
+
 class MediaPickerTests(unittest.TestCase):
     """Choosing media that already exists on the server."""
 
@@ -575,9 +638,25 @@ class MediaPickerTests(unittest.TestCase):
 
     def test_rows_show_a_thumbnail(self):
         # File names alone say nothing about the picture.
-        self.assertIn("const preview = (name) => {", self.picker)
-        self.assertIn("img.src = mediaSrc(name, state.source)", self.picker)
-        self.assertIn("row.appendChild(preview(name))", self.picker)
+        self.assertIn("const preview = (name, version = 0) => {", self.picker)
+        self.assertIn("img.dataset.src = thumbUrl(name, state.source, version)", self.picker)
+        self.assertIn("row.appendChild(watchPreview(preview(name, entry.modified)))", self.picker)
+
+    def test_only_rows_near_the_viewport_get_a_src(self):
+        """`loading=\"lazy\"` still fetched ~50 full-size originals on open."""
+        block = self.picker.split("const viewer = new IntersectionObserver(")[1]
+        block = block.split("}, { root: list")[0]
+        self.assertIn("rootMargin:", self.picker)
+        self.assertIn("node.src = src", block)
+        self.assertIn("viewer.unobserve(node)", block)
+
+    def test_a_resort_does_not_rebuild_the_rows(self):
+        paint = self.picker.split("const paint = () => {")[1].split("const buildRow")[0]
+        self.assertIn("rowCache.get(name)", paint)
+        self.assertIn("list.appendChild(row)", paint)
+        # The list is only cleared for the empty state; the rows themselves are
+        # moved, so their decoded pictures survive a re-sort.
+        self.assertNotIn("list.replaceChildren()", paint.split("if (!files.length)")[0])
 
     def test_one_tap_selects_and_a_second_drops_it(self):
         self.assertIn("} else if (selected.has(name)) {", self.picker)

@@ -445,6 +445,17 @@ main {
     border-radius: 50%;
     color: var(--muted);
 }
+/* A file that cannot be previewed: a flat tile, not a broken-image icon. */
+.media-row img:not([src]),
+.media-row img.broken,
+.media-item img:not([src]),
+.media-item img.broken,
+.history-item img.broken,
+.media-chip img:not([src]),
+.media-chip img.broken {
+    background: var(--surface-2);
+    object-fit: cover;
+}
 .media-row.on {
     background: rgba(77, 124, 254, .14);
 }
@@ -1603,11 +1614,13 @@ function renderHistory() {
         const img = document.createElement("img");
         img.loading = "lazy";
         img.alt = entry.f;
-        img.src = viewUrl({
-            filename: entry.f,
-            subfolder: entry.s,
-            type: entry.t,
-        });
+        // A strip of 76px tiles: the full-size original would be pure waste.
+        img.src = thumbUrl(
+            entry.s ? `${entry.s}/${entry.f}` : entry.f,
+            entry.t === "output" ? "output" : "input",
+            entry.at || 0,
+        );
+        img.addEventListener("error", () => img.classList.add("broken"));
         const stamp = document.createElement("span");
         stamp.className = "stamp";
         stamp.textContent = relativeTime(Math.round((entry.at || 0) / 1000));
@@ -1705,9 +1718,12 @@ function mediaField(parameter, value, commit) {
             item.className = "media-item";
             if (kind === "image") {
                 const img = document.createElement("img");
-                img.src = mediaSrc(name);
+                // The chosen value is a name in the input directory, so its
+                // thumb is keyed there too.
+                img.src = thumbUrl(name, "input");
                 img.loading = "lazy";
                 img.alt = name;
+                img.addEventListener("error", () => img.classList.add("broken"));
                 item.appendChild(img);
             } else if (kind === "video") {
                 const video = document.createElement("video");
@@ -1837,6 +1853,25 @@ function mediaSrc(name, source = "input") {
     return `${basePath()}/view?${params.toString()}`;
 }
 
+/**
+ * URL of the small preview for one media file.
+ *
+ * `/qq_mobile/thumb` renders a 320px webp once and then answers with an
+ * immutable cache header, keyed by the file's mtime — so a list of hundreds of
+ * pictures costs a handful of tiny requests, and reopening it costs nothing.
+ */
+function thumbUrl(name, source = "input", version = 0) {
+    const text = String(name ?? "");
+    const cut = text.lastIndexOf("/");
+    const params = new URLSearchParams({
+        filename: cut === -1 ? text : text.slice(cut + 1),
+        subfolder: cut === -1 ? "" : text.slice(0, cut),
+        source: source === "output" ? "output" : "input",
+    });
+    if (version) params.set("v", String(version));
+    return `${basePath()}/qq_mobile/thumb?${params.toString()}`;
+}
+
 /** Upload one file; resolves to the name ComfyUI stored it under. */
 async function uploadMedia(file) {
     const form = new FormData();
@@ -1919,27 +1954,57 @@ function chooseFromList(loadFiles, multiple, onPick, options = {}) {
     const list = document.createElement("div");
     list.className = "picker-list media-grid";
     const selected = new Set();
+    // Rows survive a re-sort, so their pictures are decoded only once.
+    const rowCache = new Map();
 
-    const preview = (name) => {
+    // Rows are built for the whole folder but only the ones near the viewport
+    // ever get a src. `loading="lazy"` was not enough: it still fetched ~50
+    // full-size originals on open, and every re-render fetched them again.
+    const viewer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const node = entry.target;
+            viewer.unobserve(node);
+            const src = node.dataset.src;
+            if (src) {
+                node.src = src;
+                delete node.dataset.src;
+            }
+        }
+    }, { root: list, rootMargin: "250px 0px" });
+
+    const preview = (name, version = 0) => {
         if (kind === "image") {
             const img = document.createElement("img");
             img.alt = name;
-            img.src = mediaSrc(name, state.source);
-            img.loading = "lazy";
+            img.dataset.src = thumbUrl(name, state.source, version);
+            img.addEventListener("error", () => {
+                // A missing or unreadable file: a neutral tile beats a broken
+                // image icon.
+                img.classList.add("broken");
+                img.removeAttribute("src");
+            });
             return img;
         }
         if (kind === "video") {
             const video = document.createElement("video");
-            video.src = mediaSrc(name, state.source);
+            video.dataset.src = mediaSrc(name, state.source);
             video.muted = true;
             video.playsInline = true;
-            video.preload = "metadata";
+            video.preload = "none";
             return video;
         }
         const audio = document.createElement("div");
         audio.className = "media-audio";
         audio.textContent = "♪";
         return audio;
+    };
+
+    /** Put a freshly built preview on screen and let the observer fill it in. */
+    const watchPreview = (node) => {
+        if (!node.dataset || !node.dataset.src) return node;
+        viewer.observe(node);
+        return node;
     };
 
     const syncTabs = () => {
@@ -1957,7 +2022,13 @@ function chooseFromList(loadFiles, multiple, onPick, options = {}) {
         for (const name of selected) {
             const chip = document.createElement("div");
             chip.className = "media-chip";
-            chip.appendChild(preview(name));
+            // The strip is on screen by definition, so its pictures load at once.
+            const node = preview(name);
+            if (node.dataset && node.dataset.src) {
+                node.src = node.dataset.src;
+                delete node.dataset.src;
+            }
+            chip.appendChild(node);
             const caption = document.createElement("span");
             caption.textContent = baseName(name);
             chip.appendChild(caption);
@@ -1989,11 +2060,11 @@ function chooseFromList(loadFiles, multiple, onPick, options = {}) {
 
     const paint = () => {
         syncTabs();
-        list.replaceChildren();
         const files = [...state.files].sort((a, b) => (state.newestFirst
             ? (b.modified || 0) - (a.modified || 0)
             : (a.modified || 0) - (b.modified || 0)));
         if (!files.length) {
+            list.replaceChildren();
             const empty = document.createElement("div");
             empty.className = "picker-empty";
             empty.textContent = state.source === "output"
@@ -2002,79 +2073,101 @@ function chooseFromList(loadFiles, multiple, onPick, options = {}) {
             list.appendChild(empty);
             return;
         }
+        // Rows are reused and moved instead of rebuilt: recreating them on a
+        // sort threw away every decoded thumbnail and fetched them all again.
+        const keep = new Set(files.map((entry) => entry.name));
+        for (const [name, row] of rowCache) {
+            if (keep.has(name)) continue;
+            viewer.unobserve(row.querySelector("img, video") || row);
+            row.remove();
+            rowCache.delete(name);
+        }
         for (const entry of files) {
             const name = entry.name;
-            const row = document.createElement("div");
-            row.className = "media-row" + (selected.has(name) ? " on" : "");
-            row.setAttribute("role", "button");
-            row.tabIndex = 0;
-            row.dataset.name = name;
-            row.appendChild(preview(name));
-
-            const main = document.createElement("div");
-            main.className = "media-row-main";
-            const caption = document.createElement("span");
-            caption.className = "media-row-name";
-            caption.textContent = baseName(name);
-            const stamp = document.createElement("span");
-            stamp.className = "media-row-time";
-            stamp.textContent = relativeTime(entry.modified);
-            main.append(caption, stamp);
-            row.appendChild(main);
-
-            // Only saved outputs carry a prompt, and reading it is its own
-            // action: it must never tick the row.
-            if (state.source === "output") {
-                const prompt = document.createElement("button");
-                prompt.type = "button";
-                prompt.className = "media-row-prompt";
-                prompt.innerHTML = iconSvg("download", 15);
-                prompt.title = "复制这张图的提示词";
-                prompt.setAttribute("aria-label", "复制提示词");
-                prompt.addEventListener("click", (event) => {
-                    event.stopPropagation();
-                    readPrompt(name, prompt);
-                });
-                row.appendChild(prompt);
+            let row = rowCache.get(name);
+            if (!row) {
+                row = buildRow(entry);
+                rowCache.set(name, row);
             }
-
-            const tick = document.createElement("span");
-            tick.className = "tick";
-            tick.innerHTML = selected.has(name) ? iconSvg("check", 16, 2.2) : "";
-            row.appendChild(tick);
-
-            const toggle = () => {
-                if (!multiple) {
-                    selected.clear();
-                    selected.add(name);
-                } else if (selected.has(name)) {
-                    selected.delete(name);
-                } else {
-                    selected.add(name);
-                }
-                for (const element of list.querySelectorAll(".media-row")) {
-                    const path = element.dataset.name;
-                    const on = selected.has(path);
-                    element.classList.toggle("on", on);
-                    element.querySelector(".tick").innerHTML = on
-                        ? iconSvg("check", 16, 2.2)
-                        : "";
-                }
-                syncStrip();
-            };
-            row.addEventListener("click", toggle);
-            row.addEventListener("keydown", (event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    toggle();
-                }
-            });
+            // appendChild moves an existing node to the end, which is exactly
+            // the reorder we want and keeps its loaded picture.
             list.appendChild(row);
         }
     };
 
+    const buildRow = (entry) => {
+        const name = entry.name;
+        const row = document.createElement("div");
+        row.className = "media-row" + (selected.has(name) ? " on" : "");
+        row.setAttribute("role", "button");
+        row.tabIndex = 0;
+        row.dataset.name = name;
+        row.appendChild(watchPreview(preview(name, entry.modified)));
+
+        const main = document.createElement("div");
+        main.className = "media-row-main";
+        const caption = document.createElement("span");
+        caption.className = "media-row-name";
+        caption.textContent = baseName(name);
+        const stamp = document.createElement("span");
+        stamp.className = "media-row-time";
+        stamp.textContent = relativeTime(entry.modified);
+        main.append(caption, stamp);
+        row.appendChild(main);
+
+        // Only saved outputs carry a prompt, and reading it is its own
+        // action: it must never tick the row.
+        if (state.source === "output") {
+            const prompt = document.createElement("button");
+            prompt.type = "button";
+            prompt.className = "media-row-prompt";
+            prompt.innerHTML = iconSvg("download", 15);
+            prompt.title = "复制这张图的提示词";
+            prompt.setAttribute("aria-label", "复制提示词");
+            prompt.addEventListener("click", (event) => {
+                event.stopPropagation();
+                readPrompt(name, prompt);
+            });
+            row.appendChild(prompt);
+        }
+
+        const tick = document.createElement("span");
+        tick.className = "tick";
+        tick.innerHTML = selected.has(name) ? iconSvg("check", 16, 2.2) : "";
+        row.appendChild(tick);
+
+        const toggle = () => {
+            if (!multiple) {
+                selected.clear();
+                selected.add(name);
+            } else if (selected.has(name)) {
+                selected.delete(name);
+            } else {
+                selected.add(name);
+            }
+            for (const element of list.querySelectorAll(".media-row")) {
+                const path = element.dataset.name;
+                const on = selected.has(path);
+                element.classList.toggle("on", on);
+                element.querySelector(".tick").innerHTML = on
+                    ? iconSvg("check", 16, 2.2)
+                    : "";
+            }
+            syncStrip();
+        };
+        row.addEventListener("click", toggle);
+        row.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                toggle();
+            }
+        });
+        return row;
+    };
+
     const reload = async () => {
         list.replaceChildren();
+        rowCache.clear();
         const loading = document.createElement("div");
         loading.className = "picker-empty";
         loading.textContent = "读取中…";
@@ -2085,6 +2178,7 @@ function chooseFromList(loadFiles, multiple, onPick, options = {}) {
             paint();
         } catch (error) {
             list.replaceChildren();
+            rowCache.clear();
             const failed = document.createElement("div");
             failed.className = "picker-empty";
             failed.textContent = `读取失败：${error.message}`;
