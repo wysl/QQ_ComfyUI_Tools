@@ -1,5 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import { openMaskEditor, maskExists } from "./mask_editor.js";
 
 const NODE_TYPE = "QQMediaLoader";
 const STATE_WIDGET = "media_state";
@@ -775,8 +776,28 @@ function reorder(node, group, from, target, before) {
     render(node);
 }
 
-function createSelectedCard(node, group, path, index) {
-    const card = document.createElement("div");
+/** Show or hide the painted-layer badge on one media card. */
+function markMaskBadge(card) {
+    const path = card?.dataset?.path;
+    if (!path) return;
+    maskExists(path).then((has) => {
+        let badge = card.querySelector(".wysl-media-mask-badge");
+        if (!has) {
+            badge?.remove();
+            card.classList.remove("has-mask");
+            return;
+        }
+        if (!badge) {
+            badge = document.createElement("span");
+            badge.className = "wysl-media-mask-badge";
+            badge.textContent = "遮";
+            card.append(badge);
+        }
+        card.classList.add("has-mask");
+    });
+}
+
+function createSelectedCard(node, group, path, index) {    const card = document.createElement("div");
     card.className = `wysl-media-card is-${group.type}`;
     card.draggable = true;
     card.dataset.path = path;
@@ -802,6 +823,26 @@ function createSelectedCard(node, group, path, index) {
     remove.title = "移除";
     remove.setAttribute("aria-label", `移除 ${cardTitle(path)}`);
     card.append(remove);
+
+    // A painted layer per picture: the mask output of this node follows the
+    // same order, so the badge also tells which images already have one.
+    if (group.type === "image") {
+        const paint = makeButton("✎", "wysl-media-mask", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openMaskEditor({
+                filename: path,
+                imageUrl: mediaUrl(path),
+                title: `遮罩：${cardTitle(path)}`,
+                onSaved: () => { markMaskBadge(card); render(node); },
+                onCleared: () => { markMaskBadge(card); render(node); },
+            }).then(() => markMaskBadge(card));
+        });
+        paint.title = "画遮罩";
+        paint.setAttribute("aria-label", `给 ${cardTitle(path)} 画遮罩`);
+        card.append(paint);
+        markMaskBadge(card);
+    }
 
     card.addEventListener("dragstart", (event) => {
         node.__wyslMediaLoaderDrag = { group, card };
@@ -1657,6 +1698,11 @@ const CSS_TEXT = `
 .wysl-media-remove{position:absolute!important;right:3px;top:3px;z-index:4;width:17px;height:17px;padding:0!important;border:1px solid rgba(0,0,0,.4)!important;border-radius:50%!important;background:rgba(62,72,80,.88)!important;color:#fff!important;display:grid;place-items:center;font-size:14px!important;line-height:1;opacity:.6;transition:opacity .12s,transform .12s}
 .wysl-media-card:hover .wysl-media-remove,.wysl-media-card:focus-within .wysl-media-remove,.wysl-media-remove:focus-visible{opacity:1}
 .wysl-media-remove:hover{background:#9b4d4d!important}
+.wysl-media-mask{position:absolute!important;left:3px;bottom:3px;z-index:4;width:17px;height:17px;padding:0!important;border:1px solid rgba(0,0,0,.4)!important;border-radius:50%!important;background:rgba(62,72,80,.88)!important;color:#fff!important;display:grid;place-items:center;font-size:11px!important;line-height:1;opacity:.55;transition:opacity .12s}
+.wysl-media-card:hover .wysl-media-mask,.wysl-media-card:focus-within .wysl-media-mask,.wysl-media-mask:focus-visible{opacity:1}
+.wysl-media-mask:hover{background:#4d7cfe!important}
+.wysl-media-card.has-mask .wysl-media-mask{background:#4d7cfe!important;opacity:1}
+.wysl-media-mask-badge{position:absolute!important;right:3px;bottom:3px;z-index:4;min-width:15px;height:15px;padding:0 3px;display:grid;place-items:center;font:700 9px/1 system-ui,sans-serif;color:#fff;background:#4d7cfe;border-radius:999px;pointer-events:none}
 .wysl-media-status{flex:0 0 auto;padding:4px 5px;border:1px dashed var(--border-color,rgba(142,171,194,.32));border-radius:4px;color:var(--content-fg,#94a6b3);font-size:10px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wysl-media-status.is-error{border-color:var(--error-color,#9b4d4d);color:var(--error-color,#d7afb0)}
 .wysl-media-loader-panel.is-empty .wysl-media-status{border-color:var(--border-color,rgba(255,255,255,.12));opacity:.8}

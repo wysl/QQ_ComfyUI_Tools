@@ -1171,9 +1171,15 @@ class RegistrationTests(unittest.TestCase):
 
     def test_media_loader_contract_and_three_separate_outputs(self):
         loader = self.package.NODE_CLASS_MAPPINGS["QQMediaLoader"]
-        self.assertEqual(loader.RETURN_TYPES, ("IMAGE", "AUDIO", "VIDEO", "MINIMAX_H3_MEDIA_BUNDLE"))
-        self.assertEqual(loader.RETURN_NAMES, ("multi output", "audio output", "video output", "media_bundle"))
-        self.assertEqual(loader.OUTPUT_IS_LIST, (True, True, True, False))
+        self.assertEqual(
+            loader.RETURN_TYPES,
+            ("IMAGE", "MASK", "AUDIO", "VIDEO", "MINIMAX_H3_MEDIA_BUNDLE"),
+        )
+        self.assertEqual(
+            loader.RETURN_NAMES,
+            ("multi output", "mask output", "audio output", "video output", "media_bundle"),
+        )
+        self.assertEqual(loader.OUTPUT_IS_LIST, (True, True, True, True, False))
         empty_result = loader.load("")
         self.assertEqual(set(empty_result), {"ui", "result"})
         self.assertEqual(
@@ -1181,10 +1187,12 @@ class RegistrationTests(unittest.TestCase):
             {"count": 0, "positions": []},
         )
         empty_outputs = empty_result["result"]
-        self.assertEqual(empty_outputs[:3], ([], [], []))
-        self.assertEqual(empty_outputs[3].items, ())
+        # images, masks, audios, videos
+        self.assertEqual(empty_outputs[:2], ([], []))
+        self.assertEqual(empty_outputs[2:4], ([], []))
+        self.assertEqual(empty_outputs[4].items, ())
         splitter = self.package.NODE_CLASS_MAPPINGS["QQMediaAutoSplitter"]
-        self.assertEqual(splitter.INPUT_TYPES()["optional"]["media_bundle"][0], loader.RETURN_TYPES[3])
+        self.assertEqual(splitter.INPUT_TYPES()["optional"]["media_bundle"][0], loader.RETURN_TYPES[4])
         media = importlib.import_module("QQ_ComfyUI_Tools.node_modules.media")
         self.assertEqual(media._media_loader_kind("folder/a.png"), "image")
         self.assertEqual(media._media_loader_kind("folder/a.mp3"), "audio")

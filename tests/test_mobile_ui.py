@@ -629,6 +629,46 @@ class ThumbnailTests(unittest.TestCase):
         self.assertIn("max-age=31536000", self.source)
 
 
+class MaskRouteTests(unittest.TestCase):
+    """The phone's mask endpoints, shared with the desktop editor."""
+
+    def setUp(self):
+        self.source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    def test_the_routes_exist(self):
+        self.assertIn('@server.routes.get("/qq_mobile/mask")', self.source)
+        self.assertIn('@server.routes.post("/qq_mobile/mask")', self.source)
+        self.assertIn('@server.routes.delete("/qq_mobile/mask")', self.source)
+
+    def test_a_post_validates_and_stores(self):
+        handler = self.source.split('@server.routes.post("/qq_mobile/mask")')[1]
+        handler = handler.split("@server.routes")[0]
+        self.assertIn("base64.b64decode(encoded, validate=True)", handler)
+        self.assertIn("paint_mask.save_mask_png", handler)
+        # A painted layer also refreshes the alpha copy LoadImage reads.
+        self.assertIn("paint_mask.write_masked_copy", handler)
+
+    def test_the_get_is_not_cached(self):
+        handler = self.source.split('@server.routes.get("/qq_mobile/mask")')[1]
+        handler = handler.split("@server.routes")[0]
+        self.assertIn('"no-store"', handler)
+
+    def test_the_phone_offers_a_paint_button_per_image(self):
+        self.assertIn("function openMaskEditor(name, onDone)", self.html)
+        self.assertIn('paint.className = "media-mask"', self.html)
+        self.assertIn("maskExists(name)", self.html)
+
+    def test_the_phone_editor_saves_greyscale_where_white_keeps(self):
+        block = self.html.split("save.addEventListener")[1].split("});")[0]
+        self.assertIn("const value = 255 - alpha;", block)
+        self.assertIn('fetchJson("/qq_mobile/mask"', block)
+
+    def test_clearing_removes_the_layer(self):
+        block = self.html.split("remove.addEventListener")[1].split("});")[0]
+        self.assertIn('method: "DELETE"', block)
+
+
 class MediaPickerTests(unittest.TestCase):
     """Choosing media that already exists on the server."""
 

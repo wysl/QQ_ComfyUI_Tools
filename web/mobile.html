@@ -375,6 +375,81 @@ main {
 .picker-search input:focus { outline: 0; border-color: var(--accent); }
 .picker-empty { padding: 22px 16px; text-align: center; color: var(--muted); font-size: 14px; }
 
+/* ---------- paint mask editor ---------- */
+.media-item { position: relative; }
+.media-item.has-mask { outline: 2px solid var(--accent); outline-offset: -2px; }
+.media-mask {
+    position: absolute; left: 3px; bottom: 20px;
+    width: 22px; height: 22px; padding: 0;
+    display: grid; place-items: center;
+    font: 700 11px/1 inherit;
+    color: #fff; background: rgba(62, 72, 80, .9);
+    border: 1px solid rgba(0, 0, 0, .35); border-radius: 50%;
+    cursor: pointer;
+}
+.media-item.has-mask .media-mask { background: var(--accent); border-color: transparent; }
+
+.mask-overlay {
+    position: fixed; inset: 0; z-index: 130;
+    display: flex; align-items: center; justify-content: center;
+    padding: 14px;
+    background: rgba(0, 0, 0, .7);
+}
+.mask-panel {
+    display: flex; flex-direction: column;
+    width: 100%; max-width: 560px; max-height: 100%;
+    background: var(--surface);
+    border: 1px solid var(--line); border-radius: 14px;
+    overflow: hidden;
+}
+.mask-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    font-weight: 600;
+}
+.mask-head span {
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mask-stage {
+    position: relative; align-self: center;
+    margin: 12px;
+    line-height: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    background: repeating-conic-gradient(#23252f 0% 25%, #1b1d26 0% 50%) 0 0 / 16px 16px;
+}
+.mask-picture, .mask-paint { display: block; }
+.mask-paint { position: absolute; inset: 0; cursor: crosshair; touch-action: none; }
+.mask-tools {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    padding: 0 14px 12px;
+}
+.mask-tools button {
+    padding: 7px 12px;
+    font: 600 13px/1 inherit;
+    color: var(--text); background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 8px;
+    cursor: pointer;
+}
+.mask-tools button.on { color: #fff; background: var(--accent); border-color: transparent; }
+.mask-brush { flex: 1; min-width: 90px; }
+.mask-foot {
+    display: flex; gap: 10px;
+    padding: 12px 14px calc(12px + var(--safe-bottom));
+    border-top: 1px solid var(--line);
+}
+.mask-foot button {
+    flex: 1; min-height: 44px;
+    font: 600 14px/1 inherit;
+    color: var(--text); background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 10px;
+    cursor: pointer;
+}
+.mask-foot button.primary { color: #fff; background: var(--accent); border-color: transparent; }
+.mask-foot button:disabled { opacity: .6; }
+
 /* ---------- media picker sheet ---------- */
 .media-sheet .media-strip {
     display: flex; gap: 8px;
@@ -1673,6 +1748,282 @@ function reuseEntry() {
     generate();
 }
 
+/* ---------------- paint masks ---------------- */
+/** Does this picture already have a painted layer? */
+async function maskExists(name) {
+    try {
+        const response = await fetch(
+            `${basePath()}/qq_mobile/mask?filename=${encodeURIComponent(name)}`,
+        );
+        return response.ok;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Paint a mask for one image, on the phone.
+ *
+ * Same store as the desktop editor (`input/__qq_masks__`), so a layer painted
+ * here is what `QQ-多媒体加载` outputs and what a LoadImage copy carries. The
+ * canvas is laid out to fit the screen; strokes are converted back to the
+ * picture's own pixels on save.
+ */
+function openMaskEditor(name, onDone) {
+    const overlay = document.createElement("div");
+    overlay.className = "mask-overlay";
+    const panel = document.createElement("div");
+    panel.className = "mask-panel";
+
+    const head = document.createElement("div");
+    head.className = "mask-head";
+    const title = document.createElement("span");
+    title.textContent = `遮罩 · ${baseName(name)}`;
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "icon-btn";
+    close.innerHTML = iconSvg("close", 18);
+    close.setAttribute("aria-label", "关闭");
+    head.append(title, close);
+
+    const stage = document.createElement("div");
+    stage.className = "mask-stage";
+    const picture = document.createElement("canvas");
+    picture.className = "mask-picture";
+    const paint = document.createElement("canvas");
+    paint.className = "mask-paint";
+    stage.append(picture, paint);
+
+    const tools = document.createElement("div");
+    tools.className = "mask-tools";
+    const brush = document.createElement("button");
+    brush.type = "button";
+    brush.textContent = "画笔";
+    const erase = document.createElement("button");
+    erase.type = "button";
+    erase.textContent = "橡皮";
+    const undo = document.createElement("button");
+    undo.type = "button";
+    undo.textContent = "撤销";
+    const wipe = document.createElement("button");
+    wipe.type = "button";
+    wipe.textContent = "清除";
+    const size = document.createElement("input");
+    size.type = "range";
+    size.min = "6";
+    size.max = "140";
+    size.value = "34";
+    size.className = "mask-brush";
+    size.setAttribute("aria-label", "笔刷大小");
+    tools.append(brush, erase, undo, wipe, size);
+
+    const foot = document.createElement("div");
+    foot.className = "mask-foot";
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "删除遮罩";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "取消";
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "primary";
+    save.textContent = "保存";
+    foot.append(remove, cancel, save);
+
+    panel.append(head, stage, tools, foot);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    const pictureCtx = picture.getContext("2d");
+    const paintCtx = paint.getContext("2d", { willReadFrequently: true });
+    const state = {
+        image: null,
+        mask: null,
+        width: 0,
+        height: 0,
+        drawing: false,
+        erasing: false,
+        last: null,
+        history: [],
+    };
+
+    const setMode = (erasing) => {
+        state.erasing = erasing;
+        brush.classList.toggle("on", !erasing);
+        erase.classList.toggle("on", erasing);
+    };
+
+    const pushHistory = () => {
+        try {
+            state.history.push(paintCtx.getImageData(0, 0, paint.width, paint.height));
+            if (state.history.length > 15) state.history.shift();
+        } catch {
+            /* ignore */
+        }
+    };
+
+    const layout = () => {
+        const maxWidth = Math.max(200, window.innerWidth - 28);
+        const maxHeight = Math.max(200, window.innerHeight - 300);
+        const scale = Math.min(maxWidth / state.width, maxHeight / state.height, 1);
+        const width = Math.max(1, Math.round(state.width * scale));
+        const height = Math.max(1, Math.round(state.height * scale));
+        for (const canvas of [picture, paint]) {
+            canvas.width = width;
+            canvas.height = height;
+            canvas.style.width = `${width}px`;
+            canvas.style.height = `${height}px`;
+        }
+        pictureCtx.drawImage(state.image, 0, 0, width, height);
+        paintCtx.clearRect(0, 0, width, height);
+        if (state.mask) paintCtx.drawImage(state.mask, 0, 0, width, height);
+        state.history.length = 0;
+    };
+
+    const pointOf = (event) => {
+        const rect = paint.getBoundingClientRect();
+        const touch = event.touches?.[0] || event.changedTouches?.[0] || event;
+        return {
+            x: (touch.clientX - rect.left) * (paint.width / rect.width),
+            y: (touch.clientY - rect.top) * (paint.height / rect.height),
+        };
+    };
+
+    const strokeTo = (point) => {
+        paintCtx.globalCompositeOperation = state.erasing ? "destination-out" : "source-over";
+        paintCtx.strokeStyle = "rgba(77, 124, 254, .6)";
+        paintCtx.fillStyle = "rgba(77, 124, 254, .6)";
+        paintCtx.lineWidth = Number(size.value);
+        paintCtx.lineCap = "round";
+        paintCtx.lineJoin = "round";
+        if (state.last) {
+            paintCtx.beginPath();
+            paintCtx.moveTo(state.last.x, state.last.y);
+            paintCtx.lineTo(point.x, point.y);
+            paintCtx.stroke();
+        }
+        paintCtx.beginPath();
+        paintCtx.arc(point.x, point.y, Number(size.value) / 2, 0, Math.PI * 2);
+        paintCtx.fill();
+        state.last = point;
+    };
+
+    paint.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        pushHistory();
+        state.drawing = true;
+        state.last = null;
+        strokeTo(pointOf(event));
+    });
+    paint.addEventListener("pointermove", (event) => {
+        if (!state.drawing) return;
+        event.preventDefault();
+        strokeTo(pointOf(event));
+    });
+    const end = () => {
+        state.drawing = false;
+        state.last = null;
+    };
+    paint.addEventListener("pointerup", end);
+    paint.addEventListener("pointerleave", end);
+    paint.addEventListener("pointercancel", end);
+    paint.style.touchAction = "none";
+
+    brush.addEventListener("click", () => setMode(false));
+    erase.addEventListener("click", () => setMode(true));
+    undo.addEventListener("click", () => {
+        const previous = state.history.pop();
+        if (previous) paintCtx.putImageData(previous, 0, 0);
+    });
+    wipe.addEventListener("click", () => {
+        pushHistory();
+        paintCtx.clearRect(0, 0, paint.width, paint.height);
+    });
+    close.addEventListener("click", () => overlay.remove());
+    cancel.addEventListener("click", () => overlay.remove());
+    overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) overlay.remove();
+    });
+
+    remove.addEventListener("click", async () => {
+        try {
+            await fetchJson(`/qq_mobile/mask?filename=${encodeURIComponent(name)}`, {
+                method: "DELETE",
+            });
+            overlay.remove();
+            onDone?.();
+            toast("遮罩已删除");
+        } catch (error) {
+            toast(`删除失败：${error.message}`);
+        }
+    });
+
+    save.addEventListener("click", async () => {
+        save.disabled = true;
+        try {
+            // White keeps, black drops: the paint layer's alpha is the keep area.
+            const out = document.createElement("canvas");
+            out.width = state.width;
+            out.height = state.height;
+            const outCtx = out.getContext("2d");
+            outCtx.fillStyle = "#fff";
+            outCtx.fillRect(0, 0, out.width, out.height);
+            const layer = paintCtx.getImageData(0, 0, paint.width, paint.height).data;
+            const image = outCtx.getImageData(0, 0, out.width, out.height);
+            for (let y = 0; y < out.height; y += 1) {
+                const sy = Math.min(paint.height - 1, Math.floor((y * paint.height) / out.height));
+                for (let x = 0; x < out.width; x += 1) {
+                    const sx = Math.min(paint.width - 1, Math.floor((x * paint.width) / out.width));
+                    const alpha = layer[(sy * paint.width + sx) * 4 + 3];
+                    const value = 255 - alpha;
+                    const index = (y * out.width + x) * 4;
+                    image.data[index] = value;
+                    image.data[index + 1] = value;
+                    image.data[index + 2] = value;
+                    image.data[index + 3] = 255;
+                }
+            }
+            outCtx.putImageData(image, 0, 0);
+            await fetchJson("/qq_mobile/mask", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ filename: name, png: out.toDataURL("image/png") }),
+            });
+            overlay.remove();
+            onDone?.();
+            toast("遮罩已保存");
+        } catch (error) {
+            toast(`保存失败：${error.message}`);
+            save.disabled = false;
+        }
+    });
+
+    setMode(false);
+
+    (async () => {
+        state.image = await new Promise((resolve) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = () => resolve(null);
+            image.src = mediaSrc(name);
+        });
+        if (!state.image) {
+            title.textContent = "图片加载失败";
+            return;
+        }
+        state.width = state.image.naturalWidth || 512;
+        state.height = state.image.naturalHeight || 512;
+        state.mask = await new Promise((resolve) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = () => resolve(null);
+            image.src = `${basePath()}/qq_mobile/mask?filename=${encodeURIComponent(name)}`;
+        });
+        layout();
+    })();
+}
+
 /* ---------------- media picker ---------------- */
 /**
  * Picker for a media input: choose from files already in ComfyUI's input
@@ -1741,6 +2092,26 @@ function mediaField(parameter, value, commit) {
             const caption = document.createElement("span");
             caption.textContent = baseName(name);
             item.appendChild(caption);
+            // Every picture can carry a painted layer; the mask output of
+            // QQ-多媒体加载 follows this order, and LoadImage gets it through
+            // an alpha copy. Both live behind the same per-image store.
+            if (kind === "image") {
+                const paint = document.createElement("button");
+                paint.type = "button";
+                paint.className = "media-mask";
+                paint.textContent = "✎";
+                paint.title = "画遮罩";
+                paint.setAttribute("aria-label", `给 ${baseName(name)} 画遮罩`);
+                paint.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openMaskEditor(name, () => render(current));
+                });
+                item.appendChild(paint);
+                maskExists(name).then((has) => {
+                    item.classList.toggle("has-mask", has);
+                });
+            }
             if (multiple) {
                 const remove = document.createElement("button");
                 remove.type = "button";
