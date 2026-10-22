@@ -1161,7 +1161,14 @@ function fieldFor(parameter) {
 
         field.append(valueBox, chev);
         field.addEventListener("click", () => {
-            chooseOption(parameter.label || parameter.name, options, state.values[parameter.key], (next) => {
+            // Model lists are long and folder-organised; the list is reordered
+            // so the folder that matches this pipeline comes first.
+            const ordered = rankModelOptions(
+                options,
+                parameter.options,
+                el("title")?.textContent || "",
+            );
+            chooseOption(parameter.label || parameter.name, ordered, state.values[parameter.key], (next) => {
                 commit(next);
                 paint(next);
             });
@@ -1786,6 +1793,68 @@ function splitOptionPath(option) {
     const cut = Math.max(text.lastIndexOf("\\"), text.lastIndexOf("/"));
     if (cut < 0) return { dir: "", name: text };
     return { dir: text.slice(0, cut), name: text.slice(cut + 1) };
+}
+
+/** The folder part of a model path, lowercased for comparison. */
+function optionFolders(option) {
+    const { dir } = splitOptionPath(option);
+    return dir.toLowerCase();
+}
+
+/**
+ * Put the folders that belong to this pipeline first.
+ *
+ * A LoRA library is organised in folders, and which folders matter depends on
+ * what is being generated: a pipeline called "Krea2_Z_二采" is usually fed by
+ * the Krea2 folder. So the picker matches the *first three* characters of the
+ * pipeline name against the folder names (case-insensitively) and moves the
+ * hits to the top; when nothing matches, it tries the *last three* characters
+ * — "图生图h3尾" ends with "h3", which finds the h3 folder. When neither
+ * matches, the original order is returned untouched.
+ *
+ * "Fuzzy" here means either direction: the folder contains the three letters
+ * ("krea2" vs "kre"), or the three letters contain the folder ("h3v" vs "h3"),
+ * which is how a short folder such as h3 still gets picked up.
+ *
+ * Only the order changes: every option stays in the list, and the stable
+ * partition keeps the server's order inside each group.
+ */
+function rankModelOptions(options, hint, pipelineName) {
+    const list = Array.isArray(options) ? [...options] : [];
+    if (list.length < 2) return list;
+    const title = String(pipelineName || "").trim();
+    if (title.length < 3) return list;
+
+    const folders = list.map((option) => optionFolders(option));
+    // A list with no folders at all (or all in one folder) has nothing to rank.
+    const distinct = new Set(folders.filter(Boolean));
+    if (!distinct.size) return list;
+
+    // Both sides lowercased once; the rule itself is case-insensitive.
+    const needleFits = (needle) => folders.some((folder) => {
+        if (!folder) return false;
+        if (folder.includes(needle)) return true;
+        // A short folder ("h3") inside the three letters ("h3v") counts too.
+        return folder.length >= 2 && needle.includes(folder);
+    });
+
+    const first = title.slice(0, 3).toLowerCase();
+    const last = title.slice(-3).toLowerCase();
+    let needle = "";
+    if (needleFits(first)) needle = first;
+    else if (needleFits(last)) needle = last;
+    if (!needle) return list;
+
+    const matches = (folder) => Boolean(folder)
+        && (folder.includes(needle) || (folder.length >= 2 && needle.includes(folder)));
+
+    // Stable partition: hits first (original order kept), then the rest.
+    const hit = [];
+    const rest = [];
+    list.forEach((option, index) => {
+        (matches(folders[index]) ? hit : rest).push(option);
+    });
+    return [...hit, ...rest];
 }
 
 /**

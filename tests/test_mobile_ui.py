@@ -510,6 +510,49 @@ class ParameterLayoutTests(unittest.TestCase):
         self.assertIn("bottom: 8px; right: 8px", self.html)
 
 
+class ModelOrderTests(unittest.TestCase):
+    """The LoRA list puts the folders that match the pipeline first."""
+
+    def setUp(self):
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    def test_the_first_three_characters_are_tried_first(self):
+        block = self.html.split("function rankModelOptions(")[1].split("\n}")[0]
+        self.assertIn("const first = title.slice(0, 3).toLowerCase()", block)
+        self.assertIn("if (needleFits(first)) needle = first", block)
+
+    def test_the_last_three_are_the_fallback(self):
+        block = self.html.split("function rankModelOptions(")[1].split("\n}")[0]
+        self.assertIn("const last = title.slice(-3).toLowerCase()", block)
+        self.assertIn("else if (needleFits(last)) needle = last", block)
+
+    def test_nothing_matches_leaves_the_order_alone(self):
+        block = self.html.split("function rankModelOptions(")[1].split("\n}")[0]
+        self.assertIn("if (!needle) return list;", block)
+
+    def test_matching_ignores_case(self):
+        block = self.html.split("function rankModelOptions(")[1].split("\n}")[0]
+        self.assertIn("title.slice(0, 3).toLowerCase()", block)
+        self.assertIn("optionFolders(option)", block)
+        folders = self.html.split("function optionFolders(option)")[1].split("\n}")[0]
+        self.assertIn("dir.toLowerCase()", folders)
+
+    def test_a_short_folder_still_matches(self):
+        # "h3video" starts with "h3v": the folder "h3" is inside those letters.
+        block = self.html.split("function rankModelOptions(")[1].split("\n}")[0]
+        self.assertIn("needle.includes(folder)", block)
+
+    def test_only_the_order_changes(self):
+        block = self.html.split("function rankModelOptions(")[1].split("\n}")[0]
+        self.assertIn("return [...hit, ...rest]", block)
+        # A stable partition, so the server's order survives inside each group.
+        self.assertIn("const hit = []", block)
+
+    def test_the_picker_uses_it_for_model_lists(self):
+        block = self.html.split('const ordered = rankModelOptions(')[1].split("chooseOption(")[0]
+        self.assertIn('el("title")?.textContent', block)
+
+
 class StepperTests(unittest.TestCase):
     """The +/- buttons must always move the value.
 
