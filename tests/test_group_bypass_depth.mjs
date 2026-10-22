@@ -10,7 +10,9 @@ const source = (await fs.readFile(new URL("../web/group_bypass_tag.js", import.m
     .replace(
         "export { applyTag, groupDepthForNode, groupForTag, membersAtDepth };",
         "globalThis.__tag = { applyTag, groupDepthForNode, groupForTag, membersAtDepth };",
-    );
+    )
+    // Named exports are ES-module only; the rest of the file runs in a vm context.
+    .replace(/^export (function|const|let) /gm, "$1 ");
 
 const ALWAYS = 0;
 const BYPASS = 4;

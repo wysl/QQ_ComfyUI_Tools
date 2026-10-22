@@ -1,5 +1,6 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
+import { setTagModeOverrides } from "./group_bypass_tag.js";
 
 /**
  * "手机界面" entry point.
@@ -656,30 +657,26 @@ function tagStates(tag) {
 /**
  * Put one group switch into a state.
  *
- * The QQ-多值输入 owns the value: it writes it into the tag's widget
- * (applySlotToGraph) and the tag then bypasses or restores its group. Setting
- * the tag's widget directly would not stick — the multi writes it back on its
- * next tick.
+ * The state is forced inside QQ-魔术贴 (``setTagModeOverrides``) instead of
+ * being written into a widget. Writing the widget — which is what this used to
+ * do — made the switch visibly flip through 绕过/启用 whenever a prompt was
+ * prepared, i.e. on every auto-sync, which read as the node changing itself.
  */
-function applyTagState(tag, value) {
-    const widget = tag.slotWidget;
-    if (!widget) return;
-    widget.value = value;
-    widget.callback?.(value, app.canvas, tag.source, app.canvas?.graph_mouse || [0, 0], {});
+function applyTagState(tags, combo) {
+    setTagModeOverrides(new Map(tags.map((tag, index) => [tag.node, combo[index]])));
 }
 
 /**
  * Build one prompt per combination of switch states.
  *
- * ``app.graphToPrompt`` re-applies the 魔术贴 state before it runs, so setting
- * the switch and asking for the prompt yields exactly the prompt that state
- * produces — the group members are restored or bypassed, and the consumers
- * are rewired accordingly.
+ * ``app.graphToPrompt`` re-applies the 魔术贴 state before it runs, so forcing a
+ * state and then asking for the prompt yields exactly the prompt that state
+ * produces — the group members are restored or bypassed, and the consumers are
+ * rewired accordingly. No widget is touched, so nothing flickers on the canvas.
  */
 async function promptVariants(graph, tags) {
     if (!tags.length) return { variants: {}, switches: [], media: [] };
 
-    const original = tags.map((tag) => tag.slotWidget?.value);
     const switches = tags.map((tag) => ({
         tag: tag.id,
         key: tag.key,
@@ -708,7 +705,7 @@ async function promptVariants(graph, tags) {
             ];
         }
         for (const combo of combos) {
-            tags.forEach((tag, index) => applyTagState(tag, combo[index]));
+            applyTagState(tags, combo);
             const { output } = await app.graphToPrompt();
             variants[variantKey(tags.map((tag, index) => [tag.id, combo[index]]))] = output;
             for (const entry of mediaParameters(graph)) {
@@ -716,8 +713,10 @@ async function promptVariants(graph, tags) {
             }
         }
     } finally {
-        // Put the canvas back the way the user left it.
-        tags.forEach((tag, index) => applyTagState(tag, original[index]));
+        // No widget was touched, so there is nothing to put back — only the
+        // forced state has to go, and the canvas has to be brought back to the
+        // state the user actually left it in.
+        setTagModeOverrides(null);
         await app.graphToPrompt();
     }
     return { variants, switches, media };
@@ -829,6 +828,7 @@ async function prepareTemplate(options = {}) {
         throw new Error(`模板保存失败: ${detail.slice(0, 200)}`);
     }
     lastPushedSignature = signature;
+    lastFailedSignature = "";
     if (notify) {
         app.extensionManager?.toast?.add?.({
             severity: unbound.length ? "warn" : "success",
@@ -877,6 +877,8 @@ function graphSignature(graph) {
 
 /** Last graph signature pushed, so the watcher skips identical states. */
 let lastPushedSignature = "";
+/** Signature that failed to prepare, so a broken workflow is not retried. */
+let lastFailedSignature = "";
 let watcherTimer = null;
 let prepareBusy = false;
 
@@ -987,8 +989,19 @@ function startTemplateWatcher() {
                 hasMediaLoader(graph);
             if (!usable) return;
             // Structural check only: cheap enough to run every tick.
-            if (graphSignature(graph) === lastPushedSignature) return;
-            await prepareTemplate({ notify: false });
+            const signature = graphSignature(graph);
+            if (signature === lastPushedSignature) return;
+            // A workflow that cannot be prepared (no writable parameters, a
+            // loader that vanished) must not be retried on every tick: each
+            // attempt expands every switch state, and a retry loop showed up as
+            // the 魔术贴 flip-flopping between 绕过 and 启用 forever.
+            if (signature === lastFailedSignature) return;
+            try {
+                await prepareTemplate({ notify: false });
+            } catch (error) {
+                lastFailedSignature = graphSignature(graph);
+                throw error;
+            }
         } catch (error) {
             console.warn("[QQ Mobile] template auto-sync skipped:", error);
         }

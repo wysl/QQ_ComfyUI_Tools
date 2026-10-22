@@ -23,6 +23,7 @@ const cut = src.indexOf("function safeApply");
 const pure = src
   .slice(0, cut)
   .replace(/^import .*$/m, "")
+  .replace(/^export /gm, "")
   .replace(/^const (NODE_TYPE|TAG|PROP_PREV_MODE|MODE_ON|MODE_BYPASS) = .*$/gm, "");
 
 const factory = new Function(`
@@ -33,7 +34,9 @@ const factory = new Function(`
   const MODE_ON = "启用";
   const MODE_BYPASS = "绕过";
   ${pure}
-  return { applyTag, setBypassed, isTagNode, tagMode, groupOf, nodesInGroup };
+  return {
+    applyTag, setBypassed, isTagNode, tagMode, groupOf, nodesInGroup, setTagModeOverrides,
+  };
 `);
 const api = factory();
 
@@ -207,6 +210,46 @@ console.log("== 9. 所有权：与绕过规则不互相撤销 ==");
   check("启用后恢复 ALWAYS", a.mode === 0);
   check("所有权标记清除", a.properties.wyslTagOwned === undefined);
   check("之后规则恢复接管", rulesApi.setBypassed(a, true) === true && a.mode === 4);
+}
+
+console.log("== 10. 强制状态：为某一次 prompt 临时绕过，不碰任何 widget ==");
+{
+  const tag = makeTag("启用");
+  const a = makeNode("Foo");
+  const group = { size: [200, 200], nodes: [tag, a] };
+  const graph = makeGraph([tag, a], [group]);
+  api.applyTag(graph);
+  check("初始为启用", a.mode === 0);
+
+  api.setTagModeOverrides(new Map([[tag, "绕过"]]));
+  api.applyTag(graph);
+  check("强制绕过生效", a.mode === 4);
+  check("widget 没有被改写", tag.widgets[0].value === "启用");
+
+  api.setTagModeOverrides(null);
+  api.applyTag(graph);
+  check("清除后回到启用", a.mode === 0);
+  check("记录被清除", a.properties.wyslPrevMode === undefined);
+}
+
+console.log("== 11. 强制状态只影响被点名的魔术贴 ==");
+{
+  const one = makeTag("启用");
+  const two = makeTag("绕过");
+  const a = makeNode("Foo");
+  const b = makeNode("Bar");
+  const groupA = { size: [200, 200], nodes: [one, a] };
+  const groupB = { size: [200, 200], nodes: [two, b] };
+  const graph = makeGraph([one, a, two, b], [groupA, groupB]);
+  api.applyTag(graph);
+  check("第二个组处于绕过", b.mode === 4);
+  api.setTagModeOverrides(new Map([[one, "启用"]]));
+  api.applyTag(graph);
+  check("被点名的组保持启用", a.mode === 0);
+  check("没被点名的组不受影响", b.mode === 4);
+  api.setTagModeOverrides(null);
+  api.applyTag(graph);
+  check("清除后第二组仍绕过", b.mode === 4);
 }
 
 console.log("");

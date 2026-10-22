@@ -1532,7 +1532,7 @@ class DynamicSyncTests(unittest.TestCase):
 
     def test_identical_state_is_not_re_pushed(self):
         block = self.js.split("function startTemplateWatcher")[1].split("\n}")[0]
-        self.assertIn("graphSignature(graph) === lastPushedSignature", block)
+        self.assertIn("signature === lastPushedSignature", block)
 
     def test_push_records_the_signature(self):
         self.assertIn("lastPushedSignature = signature", self.js)
@@ -1769,16 +1769,39 @@ class GroupSwitchTests(unittest.TestCase):
         self.assertIn("GROUP_TAG_OFF", states)
 
     def test_the_canvas_is_restored_after_building_the_prompts(self):
-        block = self.js.split("async function promptVariants(")[1].split("\nfunction ")[0]
+        block = self.js.split("async function promptVariants(")[1].split("\nasync function ")[0]
         self.assertIn("finally", block)
-        self.assertIn("applyTagState(tag, original[index])", block)
+        self.assertIn("setTagModeOverrides(null)", block)
+        self.assertIn("await app.graphToPrompt()", block)
 
-    def test_the_switch_is_driven_through_the_multi_primitive(self):
-        # The 多值输入 keeps writing its value into the tag, so the tag's own
-        # widget cannot be set directly.
+    def test_building_the_prompts_never_touches_a_widget(self):
+        """Writing the switch made it flip 绕过↔启用 on every auto-sync."""
+        block = self.js.split("async function promptVariants(")[1].split("\nasync function ")[0]
+        self.assertNotIn(".value =", block)
+        self.assertNotIn("slotWidget", block)
+        self.assertNotIn("widget.callback", block)
+
+    def test_the_switch_is_forced_inside_the_tag_extension(self):
+        # The state lives in the tag extension, not in a widget, so the 模式
+        # dropdown the user is looking at never moves.
         block = self.js.split("function applyTagState(")[1].split("\nfunction ")[0]
-        self.assertIn("tag.slotWidget", block)
-        self.assertIn("widget.callback?.(", block)
+        self.assertIn("setTagModeOverrides(", block)
+        self.assertIn("tag.node", block)
+        tag = (_MODULES_DIR.parent / "web" / "group_bypass_tag.js").read_text(encoding="utf-8")
+        self.assertIn("export function setTagModeOverrides", tag)
+        self.assertIn("forcedModeOf(node) ?? tagMode(node)", tag)
+        # Both the per-group decision and the report read the forced state.
+        self.assertIn("groupTags.some(({ mode }) => mode === MODE_BYPASS)", tag)
+
+    def test_a_failing_prepare_is_not_retried_every_tick(self):
+        """Each retry expanded every switch state, i.e. it flipped the switch."""
+        block = self.js.split("function startTemplateWatcher(")[1].split("\nfunction ")[0]
+        self.assertIn("lastFailedSignature", block)
+        self.assertIn("if (signature === lastFailedSignature) return;", block)
+        self.assertLess(
+            block.index("if (signature === lastPushedSignature) return;"),
+            block.index("await prepareTemplate({ notify: false })"),
+        )
 
     def test_a_bypassed_group_still_gets_a_picker(self):
         block = self.js.split("async function prepareTemplate(")[1].split("\nasync function ")[0]

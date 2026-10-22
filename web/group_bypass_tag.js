@@ -165,6 +165,23 @@ function tagMode(node) {
     return value === MODE_BYPASS ? MODE_BYPASS : MODE_ON;
 }
 
+// A state forced for one prompt (the phone builds one prompt per switch state).
+// It lives here, not in the widget, so the switch the user is looking at never
+// moves while a variant is being expanded.
+let forcedMode = null;
+
+function forcedModeOf(node) {
+    if (!(forcedMode instanceof Map)) return undefined;
+    const value = forcedMode.get(node);
+    if (value === undefined) return undefined;
+    return value === MODE_BYPASS ? MODE_BYPASS : MODE_ON;
+}
+
+/** Force one state per tag for every applyTag() call until cleared. */
+export function setTagModeOverrides(map) {
+    forcedMode = map instanceof Map ? map : null;
+}
+
 function tagDepth(node) {
     const widget = (node?.widgets || []).find((entry) => entry && entry.name === "忽略深度");
     const value = Number(widget?.value);
@@ -271,18 +288,22 @@ function applyTag(graph) {
         }
         const group = groupForTag(node, groups, nodes);
         if (!group) {
-            report.push(`#${node.id} ${tagMode(node)} 不在任何组内`);
+            report.push(`#${node.id} ${forcedModeOf(node) ?? tagMode(node)} 不在任何组内`);
             continue;
         }
         if (!tagsByGroup.has(group)) tagsByGroup.set(group, []);
-        tagsByGroup.get(group).push({ node, depth: tagDepth(node) });
+        tagsByGroup.get(group).push({
+            node,
+            depth: tagDepth(node),
+            mode: forcedModeOf(node) ?? tagMode(node),
+        });
     }
 
     // 本组管到的全部候选成员（忽略深度），用于把「掉出当前深度」的节点放回来
     const covered = new Set();
 
     for (const [group, groupTags] of tagsByGroup) {
-        const bypass = groupTags.some(({ node }) => tagMode(node) === MODE_BYPASS);
+        const bypass = groupTags.some(({ mode }) => mode === MODE_BYPASS);
         const depth = Math.max(...groupTags.map(({ depth: value }) => value));
         const allMembers = membersOf(group, nodes).filter((node) => !isTagNode(node));
         const members = membersAtDepth(group, nodes, groups, depth, memberSets)
