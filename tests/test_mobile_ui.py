@@ -510,6 +510,50 @@ class ParameterLayoutTests(unittest.TestCase):
         self.assertIn("bottom: 8px; right: 8px", self.html)
 
 
+class FormDensityTests(unittest.TestCase):
+    """The form has to fit a phone: compact controls, no clipped text."""
+
+    def setUp(self):
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    def test_controls_are_compact(self):
+        field = self.html.split(".field textarea,")[1].split("}")[0]
+        self.assertIn("padding: 9px 12px", field)
+        stepper = self.html.split(".stepper button {")[1].split("}")[0]
+        self.assertIn("width: 42px", stepper)
+        select = self.html.split(".select-field {")[1].split("}")[0]
+        self.assertIn("font-size: 14px", select)
+
+    def test_editable_fields_keep_the_16px_that_stops_ios_zooming(self):
+        field = self.html.split(".field textarea,")[1].split("}")[0]
+        self.assertIn("font-size: 16px", field)
+
+    def test_a_prompt_box_follows_its_text(self):
+        self.assertIn("function autoGrow(textarea)", self.html)
+        block = self.html.split("function autoGrow(textarea)")[1].split("\n}")[0]
+        self.assertIn("const MIN = 84", block)
+        self.assertIn("const MAX = 320", block)
+        self.assertIn("scrollHeight", block)
+        # Growing happens on typing and once after the first render.
+        self.assertIn("autoGrow(input)", self.html)
+
+    def test_the_corner_is_only_reserved_while_the_button_shows(self):
+        self.assertIn(".text-wrap.has-clear > textarea { padding-bottom: 40px; }", self.html)
+        self.assertIn('wrap.classList.toggle("has-clear"', self.html)
+
+    def test_the_scroll_area_clears_the_measured_footer(self):
+        main = self.html.split("main {")[1].split("}")[0]
+        self.assertIn("var(--footer-h", main)
+        self.assertIn("function trackFooterHeight()", self.html)
+        self.assertIn("ResizeObserver", self.html)
+
+    def test_the_font_stack_covers_both_phones(self):
+        body = self.html.split("body {")[1].split("}")[0]
+        for face in ("PingFang SC", "HarmonyOS Sans SC", "MiSans", "Noto Sans CJK SC"):
+            self.assertIn(face, body)
+        self.assertIn("-webkit-font-smoothing: antialiased", body)
+
+
 class RunHistoryTests(unittest.TestCase):
     """Results outlive the page, and a past run can be repeated."""
 

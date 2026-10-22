@@ -32,8 +32,18 @@
 html, body {
     margin: 0; padding: 0;
     background: var(--bg); color: var(--text);
-    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    /* A stack that resolves on both phones: iOS gets SF + PingFang, Android
+       uses HarmonyOS Sans / MiSans where the vendor ships one, then the Noto
+       family, then whatever the system calls its Chinese face. Without the
+       CJK names first, Android falls back to a serif-ish default far more
+       often than it should. */
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text",
+          "Segoe UI Variable Text", "Segoe UI",
+          "PingFang SC", "HarmonyOS Sans SC", "MiSans",
+          "Source Han Sans SC", "Noto Sans CJK SC", "Noto Sans SC",
+          "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
     overscroll-behavior-y: none;
 }
 /* Fixed viewport height so the scroll area below is bounded: with
@@ -77,16 +87,18 @@ main {
     min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    /* Leave room for the fixed footer (status line + button) so the last
-       field stays reachable. */
-    padding: 14px 14px calc(130px + var(--safe-bottom));
+    /* Room for the fixed footer (progress + status + chip + buttons), so the
+       last field always scrolls clear of it. The value is measured from the
+       footer itself: a fixed 130px was short whenever a status line or the
+       "查看结果" chip was visible, and the last field sat behind it. */
+    padding: 12px 14px calc(var(--footer-h, 130px) + var(--safe-bottom) + 8px);
 }
 
 /* ---------- per-subgraph sections ---------- */
 .section-head {
     display: flex; align-items: center; gap: 8px;
-    margin: 4px 0 12px;
-    padding-bottom: 7px;
+    margin: 2px 0 10px;
+    padding-bottom: 6px;
     border-bottom: 1px solid var(--line);
 }
 .section-head + .field { margin-top: 0; }
@@ -323,8 +335,8 @@ main {
 .select-field {
     display: flex; align-items: center; gap: 8px;
     width: 100%; box-sizing: border-box;
-    padding: 13px 14px;
-    font: inherit; font-size: 15px; text-align: left;
+    padding: 9px 12px;
+    font: inherit; font-size: 14px; text-align: left;
     color: var(--text); background: var(--surface);
     border: 1px solid var(--line); border-radius: 12px;
     cursor: pointer;
@@ -407,10 +419,10 @@ main {
 .longpressable.pressing { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ---------- fields ---------- */
-.field { margin-bottom: 16px; }
+.field { margin-bottom: 12px; }
 .field > label {
-    display: block; margin-bottom: 7px;
-    font-size: 13px; font-weight: 600; color: var(--muted);
+    display: block; margin-bottom: 5px;
+    font-size: 12.5px; font-weight: 600; color: var(--muted);
     letter-spacing: .01em;
 }
 .field textarea,
@@ -418,7 +430,7 @@ main {
 .field input[type="number"],
 .field select {
     width: 100%;
-    padding: 12px 13px;
+    padding: 9px 12px;
     /* 16px, not the inherited 15px: iOS Safari zooms the whole page when a
        focused control is smaller than that, which feels like a broken layout.
        Written as longhands because `font: 16px/1.5 inherit` is invalid CSS and
@@ -433,7 +445,14 @@ main {
     outline: none;
     appearance: none;
 }
-.field textarea { min-height: 120px; resize: none; line-height: 1.55; }
+.field textarea {
+    min-height: 84px; resize: none; line-height: 1.5;
+}
+.text-wrap > textarea { padding-bottom: 12px; }
+/* Room for the 清空 button pinned in the corner, so the last line never runs
+   underneath it. Only reserved while that button is actually shown: an empty
+   prompt box should not carry the extra 28px. */
+.text-wrap.has-clear > textarea { padding-bottom: 40px; }
 /* Text fields get a tap target for the fullscreen editor, since a long press
    is not something anyone discovers on their own. */
 .text-wrap { position: relative; display: flex; }
@@ -465,15 +484,15 @@ main {
 
 .stepper { display: flex; align-items: stretch; gap: 8px; }
 .stepper button {
-    flex: none; width: 46px;
+    flex: none; width: 42px;
     display: grid; place-items: center;
-    font-size: 20px; font-weight: 500;
+    font-size: 18px; font-weight: 500;
     color: var(--text); background: var(--surface);
     border: 1px solid var(--line); border-radius: var(--radius);
     cursor: pointer;
 }
 .stepper button:active { background: var(--surface-2); }
-.stepper input { text-align: center; min-width: 0; }
+.stepper input { text-align: center; min-width: 0; font-variant-numeric: tabular-nums; }
 .stepper .dice-btn { color: var(--muted); }
 .stepper .dice-btn:active { color: var(--text); }
 
@@ -495,8 +514,8 @@ main {
 /* Reset the whole form back to the values baked into the workflow. */
 .reset-btn {
     display: block;
-    margin: 22px auto 0;
-    padding: 10px 18px;
+    margin: 14px auto 0;
+    padding: 8px 16px;
     font: 600 13px/1 inherit;
     color: var(--muted); background: transparent;
     border: 1px solid var(--line); border-radius: 999px;
@@ -1147,7 +1166,10 @@ function fieldFor(parameter) {
     const multiline = parameter.multiline || looksLikePrompt || String(value ?? "").length > 60;
     const input = document.createElement(multiline ? "textarea" : "input");
     if (multiline) {
-        input.rows = 5;
+        // Four lines is the resting size; the box then follows the text, so a
+        // long prompt is not read through a five-line window and a short one
+        // does not leave a tall empty block on screen.
+        input.rows = 3;
     } else {
         input.type = "text";
     }
@@ -1155,12 +1177,36 @@ function fieldFor(parameter) {
     input.value = value ?? "";
     const hint = placeholderFor(parameter);
     if (hint) input.placeholder = hint;
-    input.addEventListener("input", () => commit(input.value));
+    input.addEventListener("input", () => {
+        commit(input.value);
+        if (multiline) autoGrow(input);
+    });
+    if (multiline) {
+        // Runs after the value is in place and the element has a width.
+        requestAnimationFrame(() => autoGrow(input));
+    }
     // Hold for 2s to edit this text full screen; the corner button is the
     // discoverable way to do the same thing.
     attachLongPress(input, parameter);
     wrap.appendChild(textWrapWithExpand(input, parameter));
     return wrap;
+}
+
+/**
+ * Size a textarea to its content, within limits.
+ *
+ * Fixed rows forced a long prompt to be read through a scroll window while a
+ * short one left a tall empty box. Height follows the text between the resting
+ * size and a cap, so a big prompt still scrolls instead of pushing the form
+ * off the screen.
+ */
+function autoGrow(textarea) {
+    const MIN = 84;
+    const MAX = 320;
+    textarea.style.height = "auto";
+    const next = Math.min(MAX, Math.max(MIN, textarea.scrollHeight + 2));
+    textarea.style.height = `${next}px`;
+    textarea.style.overflowY = textarea.scrollHeight > MAX ? "auto" : "hidden";
 }
 
 /** Does this parameter hold a generation seed? */
@@ -1219,6 +1265,11 @@ function textWrapWithExpand(input, parameter) {
         clear.setAttribute("aria-label", "清空内容");
         const sync = () => {
             clear.hidden = !input.value;
+            // The reserved corner only exists while the button does, so an
+            // empty box stays compact and a filled one keeps its last line
+            // clear of the button.
+            wrap.classList.toggle("has-clear", Boolean(input.value));
+            autoGrow(input);
         };
         clear.addEventListener("click", () => {
             input.value = "";
@@ -3085,6 +3136,27 @@ state.batch = loadBatch();
 renderBatch();
 renderHistory();
 attachSwipe();
+
+/**
+ * Keep the scroll area clear of the footer.
+ *
+ * The footer grows a line when a job reports status and another one when the
+ * "查看结果" chip appears; a fixed padding went stale and the last field ended
+ * up underneath it.
+ */
+function trackFooterHeight() {
+    const footer = el("footer");
+    if (!footer) return;
+    const apply = () => {
+        const height = Math.round(footer.getBoundingClientRect().height);
+        document.documentElement.style.setProperty("--footer-h", `${height}px`);
+    };
+    if (typeof ResizeObserver === "function") {
+        new ResizeObserver(apply).observe(footer);
+    }
+    apply();
+}
+trackFooterHeight();
 if (initialWorkflow) {
     state.workflow = initialWorkflow;
     loadTemplate();
