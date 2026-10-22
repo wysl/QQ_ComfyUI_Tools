@@ -650,6 +650,16 @@ class MediaPickerTests(unittest.TestCase):
         self.assertIn("node.src = src", block)
         self.assertIn("viewer.unobserve(node)", block)
 
+    def test_the_loading_placeholder_is_cleared(self):
+        """Rows are reused now, so the list is no longer cleared wholesale.
+
+        Without an explicit removal the "读取中…" node sat above the results
+        forever.
+        """
+        paint = self.picker.split("const paint = () => {")[1].split("const buildRow")[0]
+        self.assertIn('list.querySelectorAll(".picker-empty")', paint)
+        self.assertIn("node.remove()", paint)
+
     def test_a_resort_does_not_rebuild_the_rows(self):
         paint = self.picker.split("const paint = () => {")[1].split("const buildRow")[0]
         self.assertIn("rowCache.get(name)", paint)

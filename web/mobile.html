@@ -2060,6 +2060,10 @@ function chooseFromList(loadFiles, multiple, onPick, options = {}) {
 
     const paint = () => {
         syncTabs();
+        // The rows are reused, so the list is no longer cleared wholesale:
+        // whatever `reload()` put there as a placeholder has to go explicitly,
+        // or "读取中…" stays above the results forever.
+        for (const node of list.querySelectorAll(".picker-empty")) node.remove();
         const files = [...state.files].sort((a, b) => (state.newestFirst
             ? (b.modified || 0) - (a.modified || 0)
             : (a.modified || 0) - (b.modified || 0)));
