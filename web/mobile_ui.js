@@ -225,6 +225,9 @@ function multiPrimitiveParameters(graph) {
                     options: comboOptions(widget),
                     targets,
                     group: MULTI_PRIMITIVE_GROUP,
+                    // Marks the row as coming from a QQ-多值输入 node: the
+                    // phone folds those per node when there is more than one.
+                    multi: true,
                     // Filled in below, once every node is known: the heading
                     // needs to say which node it belongs to.
                     _nodeId: node.id,

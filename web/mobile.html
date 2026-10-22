@@ -94,6 +94,48 @@ main {
     padding: 12px 14px calc(var(--footer-h, 130px) + var(--safe-bottom) + 8px);
 }
 
+/* One QQ-多值输入 node: bigger title than a section head, foldable. */
+.multi-section {
+    margin: 2px 0 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    overflow: hidden;
+}
+.multi-section > summary {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 14px;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
+.multi-section > summary::-webkit-details-marker { display: none; }
+.multi-section .multi-title {
+    flex: 1; min-width: 0;
+    font-size: 16px; font-weight: 700; letter-spacing: .01em;
+    color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.multi-section .count {
+    flex: none;
+    min-width: 20px; padding: 1px 6px;
+    font-size: 11px; font-weight: 600; text-align: center;
+    color: var(--muted); background: var(--surface-2);
+    border-radius: 999px;
+}
+.multi-section .multi-chevron {
+    flex: none; display: grid; place-items: center;
+    color: var(--muted);
+    transition: transform .18s ease;
+}
+.multi-section[open] .multi-chevron { transform: rotate(180deg); }
+.multi-section .multi-body {
+    padding: 2px 14px 6px;
+    border-top: 1px solid var(--line);
+}
+.multi-section:not([open]) > .multi-body { display: none; }
+
+
 /* ---------- per-subgraph sections ---------- */
 .section-head {
     display: flex; align-items: center; gap: 8px;
@@ -2132,8 +2174,23 @@ function render(parameters) {
     const named = order.filter((name) => name).length;
     const showHeadings = order.length > 1;
 
+    // A workflow with several QQ-多值输入 nodes gets one foldable block per
+    // node: the names are bigger than a normal section title and everything
+    // but the first starts closed, so the form opens on the settings that are
+    // used most instead of two long lists of identical labels.
+    const multiGroups = new Set(
+        parameters.filter((parameter) => parameter.multi).map((parameter) => parameter.group),
+    );
+    const foldMulti = multiGroups.size > 1;
+    let multiOpened = false;
+
     for (const name of order) {
         const { primary, advanced } = sections.get(name);
+        if (foldMulti && multiGroups.has(name)) {
+            form.appendChild(multiSection(name, primary, advanced, !multiOpened));
+            multiOpened = true;
+            continue;
+        }
         if (showHeadings) form.appendChild(sectionHeading(name, named > 0));
         for (const parameter of primary) form.appendChild(fieldFor(parameter));
         if (advanced.length) {
@@ -2189,6 +2246,40 @@ function sectionHeading(name, subgraphs) {
     title.textContent = name || (subgraphs ? "未命名子图" : "参数");
     heading.appendChild(title);
     return heading;
+}
+
+/**
+ * One foldable block for a QQ-多值输入 node.
+ *
+ * With several nodes the form becomes a stack of same-named rows, so each
+ * node's settings live in their own block: a larger title than a plain section
+ * heading, a count of what is inside, and only the first block open — the rest
+ * are one tap away instead of pushing everything else off screen.
+ */
+function multiSection(name, primary, advanced, open) {
+    const group = document.createElement("details");
+    group.className = "multi-section";
+    group.open = Boolean(open);
+
+    const summary = document.createElement("summary");
+    const title = document.createElement("span");
+    title.className = "multi-title";
+    title.textContent = name || "多值输入";
+    const count = document.createElement("span");
+    count.className = "count";
+    count.textContent = String(primary.length + advanced.length);
+    const chevron = document.createElement("span");
+    chevron.className = "multi-chevron";
+    chevron.innerHTML = iconSvg("down", 16);
+    summary.append(title, count, chevron);
+
+    const body = document.createElement("div");
+    body.className = "multi-body";
+    for (const parameter of primary) body.appendChild(fieldFor(parameter));
+    if (advanced.length) body.appendChild(advancedBlock(advanced, ""));
+
+    group.append(summary, body);
+    return group;
 }
 
 /** Collapsed block of rarely-touched model and sampler settings. */
