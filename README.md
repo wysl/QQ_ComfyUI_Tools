@@ -9,7 +9,7 @@
 绝大多数节点只用 ComfyUI 现有的依赖。两个例外：
 
 - `QQ-视频补帧×2` 需要额外安装 WhiteRabbit RIFE 节点，并准备 `rife47.pth`。
-- `QQ-Qwen Image 2.1 AI提示词增强(PE or API)` 的「本地官方PE」需要把官方 safetensors 放进 `models/text_encoders`（或 `models/clip`）。
+- `QQ-Qwen2.1 提示词增强` 的「本地官方PE」需要把官方 safetensors 放进 `models/text_encoders`（或 `models/clip`）。
 
 ## 节点总览
 
@@ -23,8 +23,8 @@
 | `QQ/工具` | 保存视频 | 视频保存与抽帧 |
 | `QQ/视频` | 视频开头黑屏 · 视频补帧×2 | 视频首段与补帧 |
 | `QQ/H3` | H3分段时长 · H3提示词 · H3功能区路由 · H3 分段彩噪 | MiniMax H3 分段工作流 |
-| `QQ/Qwen` | Qwen Image 2.1 AI提示词增强(PE or API) | 提示词增强 |
-| `QQ/图像生成` | Qwen Image 2.1 一键出图 · Grok图像生成 | 直接出图 |
+| `QQ/Qwen` | Qwen2.1 提示词增强 | 提示词增强 |
+| `QQ/图像生成` | Qwen2.1 一键出图 · Grok图像生成 | 直接出图 |
 | `QQ/LR 调色` | 光线调节 · 色彩调节 · 基础增强 · 暖色调色 · 冷色调色 · 颗粒效果 | 可串联调色 |
 
 ## 多媒体

@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 35)
+        self.assertEqual(len(mappings), 36)
         self.assertIn("QQImagePackageLoader", mappings)
         self.assertIn("QQImagePackageSaver", mappings)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
@@ -104,11 +104,11 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(display["QQGetNode"], "QQ-获取点")
         self.assertEqual(
             display["QQQwenImage21PromptEnhancer"],
-            "QQ-Qwen Image 2.1 AI提示词增强(PE or API)",
+            "QQ-Qwen2.1 提示词增强",
         )
         self.assertEqual(
             display["QQQwenImage21AllInOne"],
-            "QQ-Qwen Image 2.1 一键出图(编码+K采样+VAE解码)",
+            "QQ-Qwen2.1 一键出图",
         )
         self.assertEqual(display["QQIlluminationBalance"], "QQ-照度均衡")
         self.assertEqual(display["QQDepthFusion"], "QQ-深度融合")
@@ -1119,7 +1119,10 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('function inputDisplayName(info, fallback)', source)
         self.assertIn('/^value_\\d+$/i.test(displayName)', source)
         self.assertIn('widget.label = widgetLabelFor(this, slot, info, `输入 ${slot + 1}`);', source)
-        self.assertIn('const LABEL_SOURCE_INPUT_NAMES = ["模式", "启用", "规则"];', source)
+        self.assertIn(
+            'const LABEL_SOURCE_INPUT_NAMES = ["模式", "启用", "规则", "开关", "文本", "选择", "text"];',
+            source,
+        )
         self.assertIn("function widgetLabelFor(node, slot, info, fallback)", source)
         self.assertIn("function customOutputName(node, slot)", source)
         self.assertIn("function syncWidgetLabels(graph)", source)
