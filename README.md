@@ -326,6 +326,22 @@ prompt、宽高、步数这类常改项直接显示；模型文件名、采样�
 - `temp` 在 ComfyUI 启动时会被清空；每次运行都重写副本，所以不会出现「遮罩改了、副本还是旧的」
 - 删掉遮罩时该图片的副本一并删除（`paint_mask.clear_masked_copies(filename)`），需要整体清理时不带参数调用即可
 
+### 生成过程与结果
+
+生成中手机会连 ComfyUI 的 `/ws`（与提交同 `client_id`）拿到两样东西：`progress_state` 的步数（进度条变真实百分比，状态行显示「第 x/m 步 · 已用 n 秒 · 约剩 k 秒」）和采样器的 latent 预览帧（显示在进度条上方）。这两样只是**信号**：完成/失败仍由 `/qq_mobile/jobs` 轮询判定，反代没配 WebSocket 时退回原来的无限滚动条，不影响出图。WS 首条消息必须是 `feature_flags` 握手，否则服务端不发预览帧。剩余时间按已走步数线性外推，第一步（含加载开销）不参与估算。
+
+上传时 iPhone 的 HEIC 会在浏览器里先转成 JPEG（`createImageBitmap` → canvas，长边限 4096，EXIF 方向一并修正）再走 `/qq_mobile/upload`；浏览器解不开的格式原样上传并提示，不会静默丢图。
+
+看图页的动作条有五个：
+
+| 按钮 | 行为 |
+| --- | --- |
+| 用这组参数再跑 | 填回表单并立即生成 |
+| 原图 | 新标签打开 `/view` 原文件 |
+| 保存/分享 | 系统分享面板（iOS 存相册/发微信），不支持时退化为下载 |
+| 用作输入 | 经 `/qq_mobile/import-media` 拷进 `input` 再写入表单的媒体参数；有多个参数时先问写哪个 |
+| 删除 | 删服务器上的文件（先确认），并从「最近生成」和本次结果里移除 |
+
 ### 为什么由前端准备模板
 
 `POST /prompt` 只接受展开后的 API JSON。这个展开要经过子图提升、Reroute 透传、Bypass 拼接和虚拟节点，都依赖节点的运行时定义。服务端纯结构化重算并不可靠：在 12 个工作流上实测仍会每个差 4-47 个值（例如 LoRA Stacker 把装饰对象序列化在 `widgets_values` 首位）。
@@ -350,6 +366,7 @@ prompt、宽高、步数这类常改项直接显示；模型文件名、采样�
 | `GET /qq_mobile/jobs` | 查询进度与产出媒体 |
 | `POST /qq_mobile/interrupt` | 取消当前任务 |
 | `GET /qq_mobile/media` | 列出 `input` 目录里可选的媒体文件 |
+| `DELETE /qq_mobile/media` | 删掉看图页里用户确认删除的单个文件（同目录守卫） |
 | `POST /qq_mobile/upload` | 转发到 `/upload/image`，接收手机上传 |
 | `GET/POST/DELETE /qq_mobile/mask` | 读取、保存、删除某张图片的遮罩 |
 | `GET /qq_mobile/mask/state` | 一次问清多张图片有没有遮罩 |

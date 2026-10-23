@@ -831,12 +831,12 @@ main {
 }
 .viewer-stage img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .viewer-actions {
-    display: flex; gap: 10px;
+    display: flex; gap: 10px; flex-wrap: wrap;
     padding: 12px 14px calc(14px + var(--safe-bottom));
 }
 .viewer-actions button,
 .viewer-actions a {
-    flex: 1;
+    flex: 1 1 28%;
     display: grid; place-items: center;
     min-height: 46px;
     font: 600 14px/1 inherit;
@@ -849,6 +849,11 @@ main {
     color: #fff; background: var(--accent); border-color: transparent;
 }
 .viewer-actions button:active { background: var(--accent-press); }
+/* Deleting a server file is final: say so with the colour. */
+.viewer-actions button.danger {
+    background: var(--surface); border-color: var(--line); color: var(--danger);
+}
+.viewer-actions button.danger:active { background: #3a2229; }
 
 /* Boolean row: a real switch instead of the browser's grey checkbox.
    The native control carries a UA margin (its right edge stopped 3px short of
@@ -977,6 +982,17 @@ main > .section-label[hidden] { display: none; }
     100% { transform: translateX(295%); }
 }
 
+/* Latent preview while the sampler steps, shown above the progress bar.
+   Small on purpose: it is a "something is happening" signal, the finished
+   result arrives below as usual. */
+.live-preview {
+    width: 100%; height: 110px;
+    object-fit: contain;
+    border-radius: var(--radius);
+    background: var(--surface-2);
+}
+.live-preview[hidden] { display: none; }
+
 /* ---------- footer ---------- */
 footer {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
@@ -1103,10 +1119,14 @@ footer button.ghost:active { background: var(--surface-2); }
     <div class="viewer-actions">
         <button id="viewerReuse" type="button">用这组参数再跑</button>
         <a id="viewerOpen" target="_blank" rel="noopener">原图</a>
+        <button id="viewerShare" type="button">保存/分享</button>
+        <button id="viewerAsInput" type="button">用作输入</button>
+        <button id="viewerDelete" type="button" class="danger">删除</button>
     </div>
 </div>
 
 <footer id="footer">
+    <img class="live-preview" id="livePreview" alt="" hidden>
     <div class="progress" id="progress" hidden><div id="progressBar"></div></div>
     <div class="status" id="status" hidden>
         <span class="dot" id="statusDot"></span>
@@ -1215,6 +1235,189 @@ function setProgress(ratio) {
     }
     bar.classList.remove("indeterminate");
     fill.style.width = `${Math.max(0, Math.min(1, ratio)) * 100}%`;
+}
+
+/* ---------------- live progress over WebSocket ----------------
+ *
+ * The jobs poll answers "done yet?"; it cannot say "step 7 of 20" or show the
+ * picture forming. ComfyUI already streams both over /ws, so the page opens
+ * that socket with the same client_id the prompts were submitted with and
+ * reads:
+ *
+ *   text   progress_state  {prompt_id, nodes: {id: {value, max, state}}}
+ *   binary [>I event][…]   1 = preview image, 4 = [>I meta_len][json][image]
+ *
+ * Everything here is a signal only: when the socket dies (no WebSocket in a
+ * proxy, an idle timeout) the page falls back to the indeterminate sweep and
+ * the poll still finishes the job. The first message must be the
+ * `feature_flags` handshake, or the server sends no preview at all.
+ */
+const PREVIEW_EVENT = 1;
+const PREVIEW_WITH_META = 4;
+
+let socket = null;
+let socketTries = 0;
+let socketTimer = null;
+let livePreviewUrl = null;
+
+/** One id per page load; the server keys its events by it. */
+function socketClientId() {
+    if (!state.clientId) {
+        state.clientId = (globalThis.crypto?.randomUUID?.()
+            || `qq-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
+    }
+    return state.clientId;
+}
+
+function clearLivePreview() {
+    const img = el("livePreview");
+    img.hidden = true;
+    img.removeAttribute("src");
+    if (livePreviewUrl) {
+        URL.revokeObjectURL(livePreviewUrl);
+        livePreviewUrl = null;
+    }
+}
+
+function showLivePreview(bytes) {
+    const img = el("livePreview");
+    const url = URL.createObjectURL(new Blob([bytes]));
+    if (livePreviewUrl) URL.revokeObjectURL(livePreviewUrl);
+    livePreviewUrl = url;
+    img.src = url;
+    img.hidden = false;
+}
+
+/** True while steps are still arriving from the socket. */
+function liveProgressFresh() {
+    return Boolean(state.liveProgress && Date.now() - state.liveProgress.at < 5000);
+}
+
+/** Bar ratio for one node's steps, clamped and safe for a zero max. */
+function progressRatio(value, max) {
+    if (!(max > 0)) return 0;
+    return Math.max(0, Math.min(1, value / max));
+}
+
+/**
+ * The step line under the bar: where it is, how long it took, how long is
+ * left. ``started`` is when this node began stepping (its first report resets
+ * the clock). The estimate needs two steps: the first one carries the model
+ * load and would make the remaining time look twice as long.
+ */
+function stepStatusText(value, max, started, now) {
+    const elapsed = Math.max(1, Math.round((now - started) / 1000));
+    const step = `第 ${Math.round(value)}/${Math.round(max)} 步`;
+    const perStep = value > 1 ? (now - started) / value : 0;
+    const left = Math.round((max - value) * perStep / 1000);
+    return `${step} · 已用 ${elapsed} 秒${left > 1 ? ` · 约剩 ${left} 秒` : ""}`;
+}
+
+function handleBinaryFrame(buffer) {
+    if (buffer.byteLength < 4) return;
+    const event = new DataView(buffer).getUint32(0, false);
+    if (event === PREVIEW_EVENT) {
+        showLivePreview(buffer.slice(4));
+    } else if (event === PREVIEW_WITH_META) {
+        const metaLength = new DataView(buffer).getUint32(4, false);
+        const start = 8 + metaLength;
+        if (buffer.byteLength > start) showLivePreview(buffer.slice(start));
+    }
+}
+
+/** Pick the running node with the most steps: that is the sampler. */
+function handleProgressState(data) {
+    const ids = state.promptIds?.length ? state.promptIds : [state.promptId];
+    if (!ids.includes(data?.prompt_id)) return;
+    let best = null;
+    for (const node of Object.values(data.nodes || {})) {
+        if (node.state !== "running") continue;
+        const max = Number(node.max) || 0;
+        if (max <= 1) continue;
+        if (!best || max > best.max) {
+            best = { value: Math.max(0, Number(node.value) || 0), max };
+        }
+    }
+    if (!best) return;
+    // A restarted sampler or a second node of a batch starts a new clock.
+    if (!state.liveProgress || state.liveProgress.max !== best.max || best.value < state.liveProgress.value) {
+        state.liveProgress = { started: Date.now(), value: 0, max: best.max, at: Date.now() };
+    }
+    state.liveProgress.value = best.value;
+    state.liveProgress.at = Date.now();
+    setProgress(progressRatio(best.value, best.max));
+    setStatus("running", stepStatusText(
+        best.value,
+        best.max,
+        state.liveProgress.started,
+        Date.now(),
+    ));
+}
+
+function openSocket() {
+    if (socket && (socket.readyState === 0 || socket.readyState === 1)) return;
+    const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+    try {
+        socket = new WebSocket(`${scheme}//${location.host}/ws?clientId=${encodeURIComponent(socketClientId())}`);
+    } catch {
+        socket = null;
+        return;
+    }
+    socket.binaryType = "arraybuffer";
+    socket.onopen = () => {
+        socketTries = 0;
+        // Handshake first: without it the server sends no preview frames.
+        socket.send(JSON.stringify({
+            type: "feature_flags",
+            data: { supports_preview_metadata: true },
+        }));
+    };
+    socket.onmessage = (event) => {
+        if (typeof event.data === "string") {
+            let message;
+            try {
+                message = JSON.parse(event.data);
+            } catch {
+                return;
+            }
+            if (message?.type === "progress_state") handleProgressState(message.data);
+            return;
+        }
+        if (event.data instanceof ArrayBuffer) handleBinaryFrame(event.data);
+    };
+    // Handlers are assigned (not added) so closeSocket can detach them before
+    // a deliberate close and skip the reconnect.
+    socket.onclose = () => {
+        socket = null;
+        // Only worth retrying while something is actually running.
+        if (state.polling) scheduleReconnect();
+    };
+    socket.onerror = () => {
+        try {
+            socket?.close();
+        } catch { /* already closing */ }
+    };
+}
+
+function scheduleReconnect() {
+    clearTimeout(socketTimer);
+    socketTries += 1;
+    socketTimer = setTimeout(openSocket, Math.min(10000, 1000 * 2 ** Math.min(socketTries - 1, 4)));
+}
+
+function closeSocket() {
+    clearTimeout(socketTimer);
+    socketTimer = null;
+    state.liveProgress = null;
+    clearLivePreview();
+    if (socket) {
+        // Drop the close handler's retry: this close is on purpose.
+        socket.onclose = null;
+        try {
+            socket.close();
+        } catch { /* nothing to do */ }
+        socket = null;
+    }
 }
 
 /* ---------------- value persistence ---------------- */
@@ -1748,6 +1951,137 @@ function reuseEntry() {
     generate();
 }
 
+/* ---------------- result actions ---------------- */
+/** Media kind of a file name, matching the backend's extension tables. */
+function mediaKindOf(name) {
+    const text = String(name || "");
+    if (/\.(mp4|webm|mov|mkv|avi|m4v)$/i.test(text)) return "video";
+    if (/\.(mp3|wav|flac|ogg|m4a|aac|opus)$/i.test(text)) return "audio";
+    return "image";
+}
+
+/**
+ * Save or share one past result through the phone's own share sheet.
+ *
+ * The share sheet is the only reliable way to get a file into Photos or
+ * another app on iOS; where it is missing, a plain download link does the
+ * job.
+ */
+async function shareEntry() {
+    if (!viewerEntry) return;
+    const url = el("viewerImage").src;
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("读取文件失败");
+        const blob = await response.blob();
+        const file = new File([blob], viewerEntry.f || "result", {
+            type: blob.type || "image/png",
+        });
+        if (navigator.canShare?.({ files: [file] })) {
+            await navigator.share({ files: [file] });
+            return;
+        }
+    } catch (error) {
+        // The user closing the share sheet is not an error.
+        if (error?.name === "AbortError") return;
+    }
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = viewerEntry.f || "result";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    toast("已开始保存");
+}
+
+/**
+ * Copy one past result into `input` and hand it to a media field.
+ *
+ * LoadImage and friends only read the input directory, so the import step is
+ * the backend's existing `/qq_mobile/import-media`. Several fields can take a
+ * picture: then the user picks which one.
+ */
+async function useAsInput() {
+    if (!viewerEntry) return;
+    const kind = mediaKindOf(viewerEntry.f);
+    let imported;
+    try {
+        imported = await fetchJson("/qq_mobile/import-media", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                filename: viewerEntry.s ? `${viewerEntry.s}/${viewerEntry.f}` : viewerEntry.f,
+            }),
+        });
+    } catch (error) {
+        toast(`用作输入失败：${error.message}`);
+        return;
+    }
+    const name = imported?.name;
+    if (!name) {
+        toast("服务器没有返回文件名");
+        return;
+    }
+    const targets = (state.parameters || []).filter((parameter) => parameter.media === kind);
+    if (!targets.length) {
+        toast(`这个流程没有${MEDIA_LABELS[kind] || "媒体"}参数`);
+        return;
+    }
+    const write = (parameter) => {
+        if (parameter.multiple) {
+            const list = Array.isArray(state.values[parameter.key])
+                ? [...state.values[parameter.key]] : [];
+            if (!list.includes(name)) list.push(name);
+            state.values[parameter.key] = list;
+        } else {
+            state.values[parameter.key] = name;
+        }
+        storeValues();
+        render(state.parameters);
+        closeViewer();
+        toast(`已写入「${parameter.label || parameter.name}」`);
+    };
+    if (targets.length === 1) {
+        write(targets[0]);
+        return;
+    }
+    chooseOption(
+        "用作哪个参数",
+        targets.map((parameter) => parameter.label || parameter.name),
+        null,
+        (picked) => {
+            const parameter = targets.find((entry) => (entry.label || entry.name) === picked);
+            if (parameter) write(parameter);
+        },
+    );
+}
+
+/** Delete one generated file from the server, and drop it from the history. */
+async function deleteEntry() {
+    if (!viewerEntry) return;
+    const name = viewerEntry.s ? `${viewerEntry.s}/${viewerEntry.f}` : viewerEntry.f;
+    if (!globalThis.confirm?.(`删除服务器上的「${viewerEntry.f}」？无法恢复`)) return;
+    try {
+        const params = new URLSearchParams({
+            source: viewerEntry.t || "output",
+            name,
+        });
+        await fetchJson(`/qq_mobile/media?${params.toString()}`, { method: "DELETE" });
+    } catch (error) {
+        toast(`删除失败：${error.message}`);
+        return;
+    }
+    const key = `${viewerEntry.s || ""}/${viewerEntry.f}`;
+    saveHistory(loadHistory().filter((entry) => `${entry.s || ""}/${entry.f}` !== key));
+    renderHistory();
+    if (state.media?.length) {
+        state.media = state.media.filter((item) => `${item.subfolder || ""}/${item.filename}` !== key);
+        renderResults(state.media);
+    }
+    closeViewer();
+    toast("已删除");
+}
+
 /* ---------------- paint masks ---------------- */
 /** Does this picture already have a painted layer? */
 async function maskExists(name) {
@@ -1764,10 +2098,10 @@ async function maskExists(name) {
 /**
  * Paint a mask for one image, on the phone.
  *
- * Same store as the desktop editor (`input/__qq_masks__`), so a layer painted
- * here is what `QQ-多媒体加载` outputs and what a LoadImage copy carries. The
- * canvas is laid out to fit the screen; strokes are converted back to the
- * picture's own pixels on save.
+ * Same store as the desktop editor (`user/QQ_ComfyUI_Tools/masks/`), so a
+ * layer painted here is what `QQ-多媒体加载` outputs and what a LoadImage copy
+ * carries. The canvas is laid out to fit the screen; strokes are converted
+ * back to the picture's own pixels on save.
  */
 function openMaskEditor(name, onDone) {
     const overlay = document.createElement("div");
@@ -2244,9 +2578,74 @@ function thumbUrl(name, source = "input", version = 0) {
 }
 
 /** Upload one file; resolves to the name ComfyUI stored it under. */
+/**
+ * Decode-before-upload for pictures a browser can read but ComfyUI cannot.
+ *
+ * iPhone cameras produce HEIC: Pillow cannot open it, so the workflow got a
+ * file it cannot load. Safari decodes HEIC natively, so the phone can paint
+ * the pixels into a canvas and upload a JPEG instead. Anything the browser
+ * cannot decode is uploaded unchanged — never worse than before.
+ */
+function isHeic(file) {
+    return /\.hei[cf]$/i.test(file.name) || /^image\/hei[cf]$/i.test(file.type);
+}
+
+function decodeImageViaElement(file) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            resolve(img);
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(url);
+            reject(new Error("无法解码这张图片"));
+        };
+        img.src = url;
+    });
+}
+
+async function decodeForUpload(file) {
+    if (typeof createImageBitmap === "function") {
+        try {
+            // from-image honours the EXIF rotation of phone photos.
+            return await createImageBitmap(file, { imageOrientation: "from-image" });
+        } catch {
+            /* fall through to the <img> decoder */
+        }
+    }
+    return decodeImageViaElement(file);
+}
+
+async function prepareUpload(file) {
+    if (!isHeic(file)) return file;
+    try {
+        const decoded = await decodeForUpload(file);
+        // Cap the long edge: a 48MP HEIC becomes a 48MP canvas otherwise.
+        const scale = Math.min(1, 4096 / Math.max(decoded.width, decoded.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(decoded.width * scale));
+        canvas.height = Math.max(1, Math.round(decoded.height * scale));
+        canvas.getContext("2d").drawImage(decoded, 0, 0, canvas.width, canvas.height);
+        decoded.close?.();
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+        if (!blob) throw new Error("转码失败");
+        const name = file.name.replace(/\.hei[cf]$/i, "") || "image";
+        return new File([blob], `${name}.jpg`, {
+            type: "image/jpeg",
+            lastModified: file.lastModified,
+        });
+    } catch {
+        toast("这台设备解不开 HEIC，已按原文件上传");
+        return file;
+    }
+}
+
 async function uploadMedia(file) {
+    const ready = await prepareUpload(file);
     const form = new FormData();
-    form.append("image", file, file.name);
+    form.append("image", ready, ready.name);
     form.append("overwrite", "true");
     const data = await fetchJson("/qq_mobile/upload", { method: "POST", body: form });
     if (!data?.name) throw new Error("服务器没有返回文件名");
@@ -3608,7 +4007,8 @@ async function generate() {
             const data = await fetchJson("/qq_mobile/prompt", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ workflow: state.workflow, values }),
+                // The same client_id gets the WebSocket events for these jobs.
+                body: JSON.stringify({ workflow: state.workflow, values, client_id: socketClientId() }),
             });
             if (data.prompt_id) ids.push(data.prompt_id);
             if (data.warnings?.length) toast(data.warnings.join("；"));
@@ -3616,17 +4016,21 @@ async function generate() {
         if (!ids.length) throw new Error("没有返回任务号");
         state.promptId = ids[ids.length - 1];
         state.promptIds = ids;
+        state.liveProgress = null;
+        openSocket();
         poll();
     } catch (error) {
         setBusy(false, "重试");
         setStatus("error", `提交失败：${error.message}`);
         setProgress(undefined);
+        closeSocket();
     }
 }
 
 function stopPolling() {
     state.polling = false;
     clearTimeout(state.timer);
+    closeSocket();
     setBusy(false, "再生成一张");
 }
 
@@ -3667,10 +4071,14 @@ async function poll() {
                 continue;
             }
             if (data.status === "in_progress") {
-                setStatus("running", total > 1
-                    ? `正在生成 ${index + 1}/${total}…`
-                    : "正在生成…");
-                setProgress(null);
+                // The socket owns the status line and the bar while steps are
+                // arriving; the poll only fills in when it cannot.
+                if (!liveProgressFresh()) {
+                    setStatus("running", total > 1
+                        ? `正在生成 ${index + 1}/${total}…`
+                        : "正在生成…");
+                    setProgress(null);
+                }
                 remaining.push(id);
                 continue;
             }
@@ -4191,6 +4599,9 @@ el("switch").addEventListener("click", () => {
 /* Fullscreen viewer for past results. */
 el("viewerClose").addEventListener("click", closeViewer);
 el("viewerReuse").addEventListener("click", reuseEntry);
+el("viewerShare").addEventListener("click", shareEntry);
+el("viewerAsInput").addEventListener("click", useAsInput);
+el("viewerDelete").addEventListener("click", deleteEntry);
 el("viewer").addEventListener("click", (event) => {
     if (event.target === el("viewer") || event.target.closest(".viewer-stage")) closeViewer();
 });

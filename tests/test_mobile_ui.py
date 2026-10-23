@@ -1809,6 +1809,124 @@ class GroupSwitchTests(unittest.TestCase):
         self.assertIn("mediaParameters(graph)", block)
 
 
+class ResultActionTests(unittest.TestCase):
+    """The results page can save, delete and reuse one past output."""
+
+    def setUp(self):
+        self.ui = _load("mobile_ui_result_actions", _MODULES_DIR / "mobile_ui.py")
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.temp.name)
+        self.input_dir = self.root / "input"
+        self.output_dir = self.root / "output"
+        self.input_dir.mkdir()
+        self.output_dir.mkdir()
+        stub = type(sys)("folder_paths")
+        stub.get_input_directory = lambda: str(self.input_dir)
+        stub.get_output_directory = lambda: str(self.output_dir)
+        self.ui.folder_paths = stub
+        self.source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_a_generated_file_can_be_deleted(self):
+        target = self.output_dir / "a.png"
+        target.write_bytes(b"png")
+        self.assertTrue(self.ui.delete_media("output", "a.png"))
+        self.assertFalse(target.exists())
+
+    def test_the_input_folder_can_be_cleaned_too(self):
+        target = self.input_dir / "b.jpg"
+        target.write_bytes(b"jpg")
+        self.assertTrue(self.ui.delete_media("input", "b.jpg"))
+        self.assertFalse(target.exists())
+
+    def test_a_subfolder_file_stays_inside_its_folder(self):
+        (self.output_dir / "sub").mkdir()
+        target = self.output_dir / "sub" / "c.webp"
+        target.write_bytes(b"webp")
+        self.assertTrue(self.ui.delete_media("output", "sub/c.webp"))
+        self.assertFalse(target.exists())
+
+    def test_a_missing_file_reports_nothing_to_do(self):
+        self.assertFalse(self.ui.delete_media("output", "nope.png"))
+
+    def test_deletion_refuses_to_leave_the_media_folder(self):
+        outside = self.root / "keep.txt"
+        outside.write_text("keep", encoding="utf-8")
+        self.assertFalse(self.ui.delete_media("output", "../keep.txt"))
+        self.assertFalse(self.ui.delete_media("output", ""))
+        self.assertFalse(self.ui.delete_media("output", "/"))
+        self.assertTrue(outside.exists())
+
+    def test_the_route_shields_the_path_like_every_other_media_route(self):
+        self.assertIn('@server.routes.delete("/qq_mobile/media")', self.source)
+        handler = self.source.split('@server.routes.delete("/qq_mobile/media")')[1]
+        handler = handler.split("@server.routes")[0]
+        self.assertIn("delete_media, source, name", handler)
+        self.assertIn('"找不到这个文件"', handler)
+
+    def test_the_viewer_offers_save_share_and_delete(self):
+        for element in ("viewerShare", "viewerAsInput", "viewerDelete"):
+            self.assertIn(f'id="{element}"', self.html)
+            self.assertIn(f'el("{element}").addEventListener', self.html)
+
+    def test_deleting_drops_the_entry_from_the_history_strip(self):
+        block = self.html.split("async function deleteEntry(")[1].split("/* ---------------- paint masks")[0]
+        self.assertIn("saveHistory(loadHistory().filter(", block)
+        self.assertIn("renderResults(state.media)", block)
+        # It is a server file that cannot come back: ask first.
+        self.assertIn("globalThis.confirm", block)
+
+    def test_using_a_result_as_input_goes_through_import_media(self):
+        block = self.html.split("async function useAsInput(")[1].split("async function deleteEntry(")[0]
+        self.assertIn('"/qq_mobile/import-media"', block)
+        self.assertIn("parameter.multiple", block)
+        self.assertIn("render(state.parameters)", block)
+        # Several media fields can take it, then the user picks which.
+        self.assertIn("chooseOption(", block)
+
+    def test_sharing_falls_back_to_a_download(self):
+        block = self.html.split("async function shareEntry(")[1].split("async function useAsInput(")[0]
+        self.assertIn("navigator.share", block)
+        self.assertIn("navigator.canShare", block)
+        self.assertIn("link.download", block)
+
+
+class LiveProgressTests(unittest.TestCase):
+    """The WebSocket is a signal; the jobs poll still decides what finished."""
+
+    def setUp(self):
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
+
+    def test_the_prompt_carries_the_socket_client_id(self):
+        self.assertIn("client_id: socketClientId()", self.html)
+
+    def test_the_handshake_is_the_first_message(self):
+        block = self.html.split("function openSocket(")[1].split("function scheduleReconnect(")[0]
+        self.assertIn('type: "feature_flags"', block)
+        self.assertIn("supports_preview_metadata", block)
+        self.assertIn("/ws?clientId=", block)
+
+    def test_only_the_running_sampler_drives_the_bar(self):
+        block = self.html.split("function handleProgressState(")[1].split("function openSocket(")[0]
+        self.assertIn('node.state !== "running"', block)
+        self.assertIn("ids.includes(data?.prompt_id)", block)
+
+    def test_the_poll_keeps_deciding_when_a_job_ends(self):
+        poll = self.html.split("async function poll(")[1].split("async function cancel(")[0]
+        self.assertIn("/qq_mobile/jobs?prompt_id=", poll)
+        self.assertIn("setTimeout(poll, POLL_MS)", poll)
+        # ...while the socket owns the bar only while steps arrive.
+        self.assertIn("liveProgressFresh()", poll)
+
+    def test_no_preview_is_left_behind(self):
+        block = self.html.split("function closeSocket(")[1].split("\n}\n")[0]
+        self.assertIn("clearLivePreview()", block)
+        self.assertIn("revokeObjectURL", self.html)
+
+
 class MediaInputTests(unittest.TestCase):
     """Image-to-image needs media, not just numbers.
 
