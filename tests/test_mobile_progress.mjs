@@ -80,6 +80,8 @@ assert.ok(src.includes("body: JSON.stringify({ workflow: state.workflow, values,
     "提交必须带上 client_id，否则事件对不上");
 assert.ok(src.includes('type: "feature_flags"'),
     "握手不发就收不到预览帧");
+assert.ok(src.includes('else if (message?.type === "progress") handleProgressMessage(message.data);'),
+    "老协议的 progress 消息也要接，只有 progress_state 不够稳");
 assert.ok(src.includes("const ready = await prepareUpload(file);"),
     "上传必须经过 prepareUpload");
 assert.ok(src.includes('canvas.toBlob(resolve, "image/jpeg", 0.92)'),

@@ -1913,6 +1913,9 @@ class LiveProgressTests(unittest.TestCase):
         block = self.html.split("function handleProgressState(")[1].split("function openSocket(")[0]
         self.assertIn('node.state !== "running"', block)
         self.assertIn("ids.includes(data?.prompt_id)", block)
+        # The classic per-step message drives the same line as a fallback.
+        self.assertIn("function handleProgressMessage(", block)
+        self.assertIn('message?.type === "progress"', self.html)
 
     def test_the_poll_keeps_deciding_when_a_job_ends(self):
         poll = self.html.split("async function poll(")[1].split("async function cancel(")[0]

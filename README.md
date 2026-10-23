@@ -328,7 +328,9 @@ prompt、宽高、步数这类常改项直接显示；模型文件名、采样�
 
 ### 生成过程与结果
 
-生成中手机会连 ComfyUI 的 `/ws`（与提交同 `client_id`）拿到两样东西：`progress_state` 的步数（进度条变真实百分比，状态行显示「第 x/m 步 · 已用 n 秒 · 约剩 k 秒」）和采样器的 latent 预览帧（显示在进度条上方）。这两样只是**信号**：完成/失败仍由 `/qq_mobile/jobs` 轮询判定，反代没配 WebSocket 时退回原来的无限滚动条，不影响出图。WS 首条消息必须是 `feature_flags` 握手，否则服务端不发预览帧。剩余时间按已走步数线性外推，第一步（含加载开销）不参与估算。
+生成中手机会连 ComfyUI 的 `/ws`（与提交同 `client_id`）拿到两样东西：`progress_state` 的步数（进度条变真实百分比，状态行显示「第 x/m 步 · 已用 n 秒 · 约剩 k 秒」）和采样器的 latent 预览帧（显示在进度条上方）。这两样只是**信号**：完成/失败仍由 `/qq_mobile/jobs` 轮询判定，反代没配 WebSocket 时退回原来的无限滚动条，不影响出图。WS 首条消息必须是 `feature_flags` 握手，否则服务端不发预览帧；老协议的 `progress` 消息也一并消费，两代服务端都能显示进度。剩余时间按已走步数线性外推，第一步（含加载开销）不参与估算。
+
+**预览帧跟随服务端设置**：ComfyUI 默认 `--preview-method none`（采样过程中不产生预览图），这时只有进度没有图。要看到出图过程，在启动参数里加 `--preview-method latent2rgb`（不加载模型，便宜）或 `taesd`（更准但要加载小模型）。
 
 上传时 iPhone 的 HEIC 会在浏览器里先转成 JPEG（`createImageBitmap` → canvas，长边限 4096，EXIF 方向一并修正）再走 `/qq_mobile/upload`；浏览器解不开的格式原样上传并提示，不会静默丢图。
 

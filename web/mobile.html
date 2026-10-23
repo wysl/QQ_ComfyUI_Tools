@@ -1300,6 +1300,21 @@ function progressRatio(value, max) {
 }
 
 /**
+ * One step of the running node: bar, clock and the step line. The clock
+ * restarts when a different node (or a restarted sampler) starts stepping, so
+ * the estimate never mixes two runs.
+ */
+function applyStep(value, max) {
+    if (!state.liveProgress || state.liveProgress.max !== max || value < state.liveProgress.value) {
+        state.liveProgress = { started: Date.now(), value: 0, max, at: Date.now() };
+    }
+    state.liveProgress.value = value;
+    state.liveProgress.at = Date.now();
+    setProgress(progressRatio(value, max));
+    setStatus("running", stepStatusText(value, max, state.liveProgress.started, Date.now()));
+}
+
+/**
  * The step line under the bar: where it is, how long it took, how long is
  * left. ``started`` is when this node began stepping (its first report resets
  * the clock). The estimate needs two steps: the first one carries the model
@@ -1339,19 +1354,21 @@ function handleProgressState(data) {
         }
     }
     if (!best) return;
-    // A restarted sampler or a second node of a batch starts a new clock.
-    if (!state.liveProgress || state.liveProgress.max !== best.max || best.value < state.liveProgress.value) {
-        state.liveProgress = { started: Date.now(), value: 0, max: best.max, at: Date.now() };
-    }
-    state.liveProgress.value = best.value;
-    state.liveProgress.at = Date.now();
-    setProgress(progressRatio(best.value, best.max));
-    setStatus("running", stepStatusText(
-        best.value,
-        best.max,
-        state.liveProgress.started,
-        Date.now(),
-    ));
+    applyStep(best.value, best.max);
+}
+
+/**
+ * The classic per-step message, kept alongside `progress_state`.
+ *
+ * Older servers only send this one, and even current builds send both, so the
+ * bar works either way.
+ */
+function handleProgressMessage(data) {
+    const ids = state.promptIds?.length ? state.promptIds : [state.promptId];
+    if (!ids.includes(data?.prompt_id)) return;
+    const max = Number(data.max) || 0;
+    if (max <= 1) return;
+    applyStep(Math.max(0, Number(data.value) || 0), max);
 }
 
 function openSocket() {
@@ -1381,6 +1398,7 @@ function openSocket() {
                 return;
             }
             if (message?.type === "progress_state") handleProgressState(message.data);
+            else if (message?.type === "progress") handleProgressMessage(message.data);
             return;
         }
         if (event.data instanceof ArrayBuffer) handleBinaryFrame(event.data);
