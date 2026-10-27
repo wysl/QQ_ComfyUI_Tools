@@ -34,6 +34,15 @@ def install_execution_stub():
     sys.modules["comfy_execution.graph"] = graph_module
 
 
+def _blocker_class():
+    """当前实际生效的 ExecutionBlocker 类。
+
+    两个测试文件都可能先装桩，模块共享 sys.modules，所以不能直接引用本文件里的
+    FakeBlocker，否则跨文件跑全量时类对象会对不上。
+    """
+    return sys.modules["comfy_execution.graph"].ExecutionBlocker
+
+
 def load_module():
     install_execution_stub()
     spec = importlib.util.spec_from_file_location("wysl_route_dispatch_test", MODULE_PATH)
@@ -92,7 +101,8 @@ class RouteDispatchContractTests(unittest.TestCase):
         # 轮询由前端每次排队前改写 select 驱动，后端仍只有一个口带值
         outputs = self.node.dispatch("输出2", value="t", 轮询输出=True)
         self.assertEqual(outputs[1], "t")
-        self.assertEqual(sum(1 for item in outputs if item is not outputs[1] and not isinstance(item, FakeBlocker)), 0)
+        self.assertEqual(sum(1 for item in outputs if item is not outputs[1]
+                             and not isinstance(item, _blocker_class())), 0)
 
     def test_registered(self):
         self.assertIn("QQRouteDispatch", self.module.NODE_CLASS_MAPPINGS)
@@ -106,11 +116,11 @@ class RouteDispatchContractTests(unittest.TestCase):
         self.assertEqual(outputs[1], "hello")
         for index, item in enumerate(outputs):
             if index != 1:
-                self.assertIsInstance(item, FakeBlocker, msg=f"输出{index + 1} 应被阻塞")
+                self.assertIsInstance(item, _blocker_class(), msg=f"输出{index + 1} 应被阻塞")
 
     def test_blockers_are_silent(self):
         outputs = self.node.dispatch("输出1", value="x")
-        silent = [item for item in outputs[1:] if isinstance(item, FakeBlocker)]
+        silent = [item for item in outputs[1:] if isinstance(item, _blocker_class())]
         self.assertTrue(silent)
         self.assertTrue(all(item.message is None for item in silent))
 
@@ -139,13 +149,13 @@ class RouteDispatchContractTests(unittest.TestCase):
     def test_unconnected_input_blocks_every_port(self):
         outputs = self.node.dispatch("输出1")
         self.assertEqual(len(outputs), self.module.MAX_OUTPUTS)
-        self.assertTrue(all(isinstance(item, FakeBlocker) for item in outputs))
+        self.assertTrue(all(isinstance(item, _blocker_class()) for item in outputs))
 
     def test_explicit_none_value_still_routes(self):
         # 接了线但值是 None 属于合法取值，不该被当成「没接线」
         outputs = self.node.dispatch("输出2", value=None)
         self.assertIsNone(outputs[1])
-        self.assertIsInstance(outputs[0], FakeBlocker)
+        self.assertIsInstance(outputs[0], _blocker_class())
 
     def test_resolver_tolerates_missing_workflow_info(self):
         self.assertEqual(self.module.resolve_output_index("输出1", None, None), 0)
