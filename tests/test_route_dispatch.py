@@ -220,11 +220,13 @@ class RouteDispatchFrontendTests(unittest.TestCase):
         self.assertIn("function pollingFinished(node)", self.source)
         self.assertIn("function setPollingIndex(node, index)", self.source)
 
-    def test_polling_queues_next_run_after_success(self):
-        self.assertIn('api.addEventListener("execution_success"', self.source)
-        self.assertIn("app.queuePrompt(0, 1)", self.source)
-        # 中止条件要覆盖报错与取消
-        self.assertIn('"execution_interrupted", "execution_error"', self.source)
+    def test_polling_queues_every_port_in_one_click(self):
+        # 一次点击就把所有口排进队列，不再依赖 execution_success 的续排回环
+        self.assertIn("async function runPollingRound", self.source)
+        self.assertIn("api.queuePrompt(number, built)", self.source)
+        self.assertIn("graphToPrompt", self.source)
+        # 必须阻止自身递归展开
+        self.assertIn("queueGuard", self.source)
 
 
 if __name__ == "__main__":

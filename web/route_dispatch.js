@@ -146,6 +146,15 @@ export function setPollingIndex(node, index) {
     return true;
 }
 
+// 入队循环里用这个：只写值不触发回调，避免每轮都惊动下游节点
+function writeSelectValue(node, index) {
+    const widget = selectWidget(node);
+    const names = outputNames(node);
+    if (!widget || index < 0 || index >= names.length) return false;
+    widget.value = names[index];
+    return true;
+}
+
 export function syncSelectWidget(node, previousNames = []) {
     const widget = selectWidget(node);
     if (!widget) return [];
@@ -297,158 +306,90 @@ function install(nodeType) {
     };
 }
 
-// ── 轮询自动排队 ───────────────────────────────────────────────
-// 开了轮询后：点一次运行，前端按「已连接的口」顺序连续排队，每次排队前把
-// select 改成下一个口；跑到最后一个就停。中途报错、取消、换图、手动改选择都停。
-
-const queuedRuns = new Map();
-let continuationTimer = null;
-let continuationGeneration = 0;
+// ── 轮询：一次点击，按端口顺序把所有已连接的口都排进队列 ───────────
+// 早先试过「跑完一个再排下一个」，依赖 execution_success 与队列状态的重入，
+// 在真机上反复失效（只跑第一个口 / 每点一次只前进一个口）。
+// 现在改成一次点击就把 N 个口全部提交：ComfyUI 自带队列按提交顺序串行执行。
+//
+// 实现要点：app.queuePrompt 的序列化发生在它自己的 queueItems 循环里，
+// 连写多次“改值 + 调用”会和它重序列化的时机赛跑。所以这里先用
+// graphToPrompt() 把每一轮的 prompt 自己算好，再直接走 api.queuePrompt 提交，
+// 不碰任何会重读节点状态的路径。
 
 function routeNodes() {
     return (app?.graph?._nodes || []).filter((node) => node?.type === NODE_TYPE);
 }
 
-function cancelContinuation() {
-    continuationGeneration += 1;
-    globalThis.clearTimeout(continuationTimer);
-    continuationTimer = null;
-}
-
-function routeSnapshot(node) {
-    return JSON.stringify({
-        value: selectWidget(node)?.value,
-        polling: isPolling(node),
-        outputs: (node.outputs || []).map((output) => output?.links?.length || 0),
-    });
-}
-
-function currentNode(record, nodeId) {
-    const node = app.graph?.getNodeById?.(nodeId);
-    const snapshot = record?.nodes?.get(String(nodeId));
-    if (record?.graph !== app.graph || !snapshot || !node || node.__qqRouteRemoved) return null;
-    if (Number(node.mode || 0) !== 0 || routeSnapshot(node) !== snapshot) return null;
-    return node;
-}
+let queueGuard = false;
 
 function installPollingQueue() {
     if (globalThis.__qqRoutePollingQueue) return;
     globalThis.__qqRoutePollingQueue = true;
 
-    // 关键：必须在 app.queuePrompt 这一层改选择框的值。
-    // app.queuePrompt 会先 graphToPrompt() 把 select 序列化进 prompt，再调
-    // api.queuePrompt；在后者里改已经晚了，本轮提交的仍是旧值
-    // （表现为「输出1 没做直接从 2 开始」「再次执行从最后一个口开始」）。
     const originalAppQueue = app.queuePrompt;
     app.queuePrompt = async function qqRouteAppQueue(number, batchCount, options) {
-        preparePollingForQueue();
-        const result = await originalAppQueue.call(this, number, batchCount, options);
-        // app.queuePrompt 只返回布尔，拿不到 prompt_id。
-        // 所以这一轮的快照先存为「待配对」，由随后的 execution_success 认领。
-        if (!result) {
-            globalThis.__qqRoutePendingSnapshot = null;
+        if (queueGuard) {
+            return originalAppQueue.call(this, number, batchCount, options);
         }
-        return result;
+        const polling = routeNodes().filter((node) => isPolling(node));
+        if (!polling.length) {
+            return originalAppQueue.call(this, number, batchCount, options);
+        }
+        return runPollingRound(this, number, batchCount, options, originalAppQueue);
     };
 
     /**
-     * 在序列化之前把选择框拨到本轮该走的口。
-     * 手动运行 → 回到第一个已连接口；自动续排 → 保持当前口继续往后。
+     * 点一次运行 = 每个已连接的口各提交一次，顺序就是端口顺序。
+     * 每轮都重新序列化，因此每份 prompt 里带着该轮自己的 select 值。
      */
-    function preparePollingForQueue() {
-        cancelContinuation();
-        const generation = continuationGeneration;
-        const nodes = new Map();
-        for (const node of routeNodes()) {
-            if (!isPolling(node)) continue;
-            const linked = connectedIndexes(node);
-            if (!node.__qqRouteAutoAdvance && linked.length) {
-                setPollingIndex(node, linked[0]);
-            }
-            node.__qqRouteAutoAdvance = false;
-            nodes.set(String(node.id), routeSnapshot(node));
+    async function runPollingRound(appInstance, number, batchCount, options, originalQueue) {
+        const plan = routeNodes()
+            .filter((node) => isPolling(node))
+            .map((node) => ({
+                node,
+                indexes: connectedIndexes(node),
+                original: selectWidget(node)?.value,
+            }))
+            .filter((entry) => entry.indexes.length);
+        if (!plan.length) {
+            return originalQueue.call(appInstance, number, batchCount, options);
         }
-        globalThis.__qqRoutePendingSnapshot = nodes.size
-            ? { graph: app.graph, nodes, generation }
-            : null;
-    }
 
-    // execution_success 带的 prompt_id 才是可靠的身份：用它来认领待配对的那一轮
-    function claimPendingSnapshot(promptId) {
-        const record = globalThis.__qqRoutePendingSnapshot;
-        globalThis.__qqRoutePendingSnapshot = null;
-        if (!record || !promptId) return null;
-        // 中间可能排过别的任务，代次变了就丢弃
-        if (record.generation !== continuationGeneration) return null;
-        return record;
-    }
-
-    api.addEventListener("execution_success", (event) => {
-        const promptId = String(event?.detail?.prompt_id || "");
-        const record = claimPendingSnapshot(promptId);
-        if (record && promptId) queuedRuns.set(promptId, record);
-        advancePolling(promptId);
-    });
-
-    for (const name of ["execution_interrupted", "execution_error"]) {
-        api.addEventListener(name, (event) => {
-            const promptId = String(event?.detail?.prompt_id || "");
-            cancelContinuation();
-            queuedRuns.delete(promptId);
-        });
-    }
-
-    api.addEventListener("graphCleared", () => {
-        cancelContinuation();
-        queuedRuns.clear();
-    });
-
-    function advancePolling(promptId) {
-        const record = queuedRuns.get(promptId);
-        queuedRuns.delete(promptId);
-        if (!record || record.generation !== continuationGeneration) return;
-
-        const active = [];
-        for (const [nodeId] of record.nodes) {
-            const node = currentNode(record, nodeId);
-            if (!node || !isPolling(node)) continue;
-            // 已经跑到最后一个已连接的口：这一轮结束，不再排队
-            if (pollingFinished(node)) continue;
-            active.push(node);
-        }
-        if (!active.length) return;
-        const generation = continuationGeneration;
-        continuationTimer = globalThis.setTimeout(async () => {
-            continuationTimer = null;
-            try {
-                // 有别的任务在排队/运行就不插队，免得用户的批处理被打乱
-                const response = await api.fetchApi("/queue");
-                if (!response.ok) throw new Error("无法读取队列状态");
-                const queue = await response.json();
-                if (generation !== continuationGeneration) return;
-                const running = (queue.queue_running || []).filter(
-                    (item) => String(item[1]) !== promptId,
-                );
-                if ((queue.queue_pending || []).length || running.length) {
-                    cancelContinuation();
-                    return;
+        const rounds = Math.max(...plan.map((entry) => entry.indexes.length));
+        let allQueued = true;
+        queueGuard = true;
+        try {
+            for (let round = 0; round < rounds; round += 1) {
+                // 把选择拨到本轮该走的口（只写值，不触发回调）
+                for (const entry of plan) {
+                    writeSelectValue(entry.node, entry.indexes[Math.min(round, entry.indexes.length - 1)]);
                 }
-                for (const node of active) {
-                    const target = resolveTargetIndex(node);
-                    if (!setPollingIndex(node, target)) {
-                        cancelContinuation();
-                        return;
-                    }
-                    // 标记成自动续排：下一次 queuePrompt 不再把选择重置回第一个口
-                    node.__qqRouteAutoAdvance = true;
+                // 自己序列化：此时节点状态就是本轮的值，无需依赖外部时机
+                let built;
+                try {
+                    built = await appInstance.graphToPrompt(appInstance.rootGraph);
+                } catch (error) {
+                    console.warn("[QQ-条件分发] 轮询构建 prompt 失败", error);
+                    allQueued = false;
+                    break;
                 }
-                const queued = await app.queuePrompt(0, 1);
-                if (queued === false) cancelContinuation();
-            } catch (error) {
-                console.warn("[QQ-条件分发] 轮询自动排队失败", error);
-                cancelContinuation();
+                try {
+                    await api.queuePrompt(number, built);
+                } catch (error) {
+                    console.warn("[QQ-条件分发] 轮询提交失败", error);
+                    allQueued = false;
+                    break;
+                }
             }
-        }, 180);
+        } finally {
+            queueGuard = false;
+            // 还原成用户原来看的那个口
+            for (const entry of plan) {
+                writeSelectValue(entry.node, entry.indexes[0]);
+            }
+            appInstance.graph?.setDirtyCanvas?.(true, true);
+        }
+        return allQueued;
     }
 }
 
