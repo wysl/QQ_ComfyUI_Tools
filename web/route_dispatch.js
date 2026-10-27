@@ -302,7 +302,6 @@ function install(nodeType) {
 // select 改成下一个口；跑到最后一个就停。中途报错、取消、换图、手动改选择都停。
 
 const queuedRuns = new Map();
-const pendingRuns = new Set();
 let continuationTimer = null;
 let continuationGeneration = 0;
 
@@ -336,40 +335,48 @@ function installPollingQueue() {
     if (globalThis.__qqRoutePollingQueue) return;
     globalThis.__qqRoutePollingQueue = true;
 
-    const originalQueue = api.queuePrompt;
-    api.queuePrompt = async function qqRouteQueue(number, prompt, ...rest) {
-        // 每次手动/自动排队都从「干净状态」开始
+    // 关键：必须在 app.queuePrompt 这一层改选择框的值。
+    // app.queuePrompt 会先 graphToPrompt() 把 select 序列化进 prompt，再调
+    // api.queuePrompt；在后者里改已经晚了，本轮提交的仍是旧值
+    // （表现为「输出1 没做直接从 2 开始」「再次执行从最后一个口开始」）。
+    const originalAppQueue = app.queuePrompt;
+    app.queuePrompt = async function qqRouteAppQueue(number, batchCount, options) {
+        preparePollingForQueue();
+        const result = await originalAppQueue.call(this, number, batchCount, options);
+        // 记录这一轮实际提交的快照，供 execution_success 时判断要不要续排
+        if (globalThis.__qqRoutePendingSnapshot) {
+            const record = globalThis.__qqRoutePendingSnapshot;
+            globalThis.__qqRoutePendingSnapshot = null;
+            const promptId = String(result?.prompt_id || result?.promptId || "");
+            if (record && promptId) {
+                queuedRuns.set(promptId, record);
+                while (queuedRuns.size > 50) queuedRuns.delete(queuedRuns.keys().next().value);
+            }
+        }
+        return result;
+    };
+
+    /**
+     * 在序列化之前把选择框拨到本轮该走的口。
+     * 手动运行 → 回到第一个已连接口；自动续排 → 保持当前口继续往后。
+     */
+    function preparePollingForQueue() {
         cancelContinuation();
-        const graph = app.graph;
         const generation = continuationGeneration;
         const nodes = new Map();
         for (const node of routeNodes()) {
             if (!isPolling(node)) continue;
-            if (prompt?.output?.[String(node.id)]?.class_type !== NODE_TYPE) continue;
             const linked = connectedIndexes(node);
-            // 新一轮的起点：只有「用户手动点运行」才回到第一个口。
-            // 自动续排时 node.__qqRouteAutoAdvance 为 true，保持当前口继续往下走，
-            // 否则每轮都会被拉回第一个口，永远跑不到头。
             if (!node.__qqRouteAutoAdvance && linked.length) {
                 setPollingIndex(node, linked[0]);
             }
             node.__qqRouteAutoAdvance = false;
             nodes.set(String(node.id), routeSnapshot(node));
         }
-        const submission = { graph, nodes, generation };
-        if (nodes.size) pendingRuns.add(submission);
-        try {
-            const response = await originalQueue.call(this, number, prompt, ...rest);
-            const promptId = String(response?.prompt_id || "");
-            if (nodes.size && generation === continuationGeneration && promptId) {
-                queuedRuns.set(promptId, submission);
-                while (queuedRuns.size > 50) queuedRuns.delete(queuedRuns.keys().next().value);
-            }
-            return response;
-        } finally {
-            pendingRuns.delete(submission);
-        }
-    };
+        globalThis.__qqRoutePendingSnapshot = nodes.size
+            ? { graph: app.graph, nodes, generation }
+            : null;
+    }
 
     api.addEventListener("execution_success", (event) => {
         advancePolling(String(event?.detail?.prompt_id || ""));
@@ -386,7 +393,6 @@ function installPollingQueue() {
     api.addEventListener("graphCleared", () => {
         cancelContinuation();
         queuedRuns.clear();
-        pendingRuns.clear();
     });
 
     function advancePolling(promptId) {
@@ -403,7 +409,6 @@ function installPollingQueue() {
             active.push(node);
         }
         if (!active.length) return;
-
         const generation = continuationGeneration;
         continuationTimer = globalThis.setTimeout(async () => {
             continuationTimer = null;
