@@ -78,13 +78,15 @@ class RouteCollectContractTests(unittest.TestCase):
         self.assertEqual(self.node.RETURN_TYPES, ("*",))
         self.assertEqual(self.node.RETURN_NAMES, ("value",))
 
-    def test_select_defaults_to_first_input(self):
+    def test_select_is_optional_and_defaults_to_following_dispatch(self):
         spec = self.node.INPUT_TYPES()["required"]["select"]
-        self.assertEqual(spec[0], ["输入1"])
-        self.assertEqual(spec[1]["default"], "输入1")
+        # 是一段自由文本，留空即自动跟随上游分发节点
+        self.assertEqual(spec[0], "STRING")
+        self.assertEqual(spec[1]["default"], "")
 
-    def test_validate_inputs_accepts_renamed_ports(self):
+    def test_validate_inputs_accepts_anything(self):
         self.assertIs(self.node.VALIDATE_INPUTS("我的增强器B"), True)
+        self.assertIs(self.node.VALIDATE_INPUTS(""), True)
 
     def test_registered(self):
         self.assertIn("QQRouteCollect", self.module.NODE_CLASS_MAPPINGS)
@@ -139,6 +141,73 @@ class RouteCollectContractTests(unittest.TestCase):
     def test_empty_string_is_still_a_value(self):
         # 空串是合法内容，不能当成「没接」
         self.assertEqual(self.node.collect("输入1", value1=""), ("",))
+
+    # ---------- 留空自动跟随上游分发 ----------
+
+    def _follow_workflow(self, dispatch_select: str):
+        """构造：分发(id=1) → 增强器(id=2/3/4) → 收集(id=5)"""
+        return {
+            "workflow": {
+                "nodes": [
+                    {
+                        "id": 1,
+                        "type": "QQRouteDispatch",
+                        "widgets_values": [False, dispatch_select],
+                        "outputs": [
+                            {"name": "输出1", "label": "输出1", "links": []},
+                            {"name": "输出2", "label": "输出2", "links": []},
+                            {"name": "输出3", "label": "输出3", "links": []},
+                        ],
+                    },
+                    {"id": 2, "type": "MyEnhancer", "inputs": [{"name": "text", "link": 1}]},
+                    {"id": 3, "type": "MyEnhancer", "inputs": [{"name": "text", "link": 2}]},
+                    {"id": 4, "type": "MyEnhancer", "inputs": [{"name": "text", "link": 3}]},
+                    {
+                        "id": 5,
+                        "type": "QQRouteCollect",
+                        "inputs": [
+                            {"name": "select", "widget": {"name": "select"}},
+                            {"name": "value1", "label": "输入1", "link": 11},
+                            {"name": "value2", "label": "输入2", "link": 12},
+                            {"name": "value3", "label": "输入3", "link": 13},
+                        ],
+                    },
+                ],
+                "links": [
+                    [1, 1, 0, 2, 0, "STRING"],
+                    [2, 1, 1, 3, 0, "STRING"],
+                    [3, 1, 2, 4, 0, "STRING"],
+                    [11, 2, 0, 5, 1, "STRING"],
+                    [12, 3, 0, 5, 2, "STRING"],
+                    [13, 4, 0, 5, 3, "STRING"],
+                ],            }
+        }
+
+    def test_blank_select_follows_the_dispatch_node(self):
+        for number, expected in ((1, 0), (2, 1), (3, 2)):
+            workflow = self._follow_workflow(f"输出{number}")
+            self.assertEqual(
+                self.module.resolve_pick_index("", 5, workflow), expected,
+                msg=f"分发选 输出{number} 时应取第 {expected + 1} 路",
+            )
+            self.assertEqual(
+                self.node.check_lazy_status("", unique_id=5, extra_pnginfo=workflow),
+                [f"value{expected + 1}"],
+            )
+
+    def test_explicit_select_overrides_the_dispatch(self):
+        workflow = self._follow_workflow("输出3")
+        # 手填了就用填的，不被上游覆盖
+        self.assertEqual(self.module.resolve_pick_index("输入1", 5, workflow), 0)
+
+    def test_blank_select_without_dispatch_falls_back_to_first(self):
+        self.assertEqual(self.module.resolve_pick_index("", 5, {}), 0)
+        self.assertEqual(self.module.resolve_pick_index("", None, None), 0)
+
+    def test_followed_value_reads_the_dispatch_widget_position(self):
+        # QQ-条件分发 的控件顺序是 [轮询输出, select]
+        workflow = self._follow_workflow("输出2")
+        self.assertEqual(self.module._upstream_dispatch_select(5, workflow), "输出2")
 
 
 class RouteCollectFrontendTests(unittest.TestCase):

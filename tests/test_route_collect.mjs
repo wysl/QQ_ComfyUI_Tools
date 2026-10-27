@@ -35,7 +35,7 @@ const factory = new Function(`
   return {
     defaultInputName, inputNames, targetInputCount, ensureInputs, pruneInputs,
     selectedIndex, remapValue, selectWidget, syncSelectWidget, linkedDispatch,
-    syncFromDispatch, syncToDispatch,
+    syncFromDispatch, syncToDispatch, applySelectVisibility, isSelectShown,
   };
 `);
 const api = factory();
@@ -153,12 +153,21 @@ console.log("== 4. 与分发节点对齐 ==");
   node.graph = graph;
   node.inputs[0].link = 7;
   check("能找到上游分发节点", api.linkedDispatch(node) === dispatch);
-  check("收集对齐到分发的选择", api.syncFromDispatch(node) === true);
-  check("收集的值变成 输入2", node.widgets[0].value === "输入2");
-  // 反向
+
+  // 默认是自动跟随：值留空，由后端沿连线回溯分发节点
+  check("默认不带手动选择", api.isSelectShown(node) === false);
+  check("自动跟随时清空值", api.syncFromDispatch(node) === true);
+  check("值变成空串", node.widgets[0].value === "");
+  check("自动跟随时不反向推送", api.syncToDispatch(node) === false);
+
+  // 打开手动选择后才有双向同步
+  node.properties = { qq_collect_show_select: true };
   node.widgets[0].value = "输入1";
-  check("收集变化推回分发", api.syncToDispatch(node) === true);
-  check("分发的值变成 输出1", dispatch.widgets[0].value === "输出1");
+  check("手动模式：对齐到分发", api.syncFromDispatch(node) === true);
+  check("手动模式：值变成 输入2", node.widgets[0].value === "输入2");
+  node.widgets[0].value = "输入1";
+  check("手动模式：推回分发", api.syncToDispatch(node) === true);
+  check("手动模式：分发的值变成 输出1", dispatch.widgets[0].value === "输出1");
 }
 {
   const node = makeNode([makeInput("输入1", "输入1")], "输入1");

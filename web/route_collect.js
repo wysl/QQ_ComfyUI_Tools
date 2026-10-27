@@ -91,6 +91,35 @@ export function selectWidget(node) {
     return node?.widgets?.find((widget) => widget?.name === SELECT_WIDGET) || null;
 }
 
+// 选择框留空即自动跟随分发节点，正常用不到手动改；默认隐藏它，节点更干净。
+// 需要手动指定时可在右键菜单「显示手动选择」里打开。
+export function applySelectVisibility(node, show) {
+    const widget = selectWidget(node);
+    if (!widget) return;
+    const wanted = Boolean(show);
+    if (widget.__qqCollectShown === wanted) return;
+    widget.__qqCollectShown = wanted;
+    if (!Object.prototype.hasOwnProperty.call(widget, "__qqCollectOrigType")) {
+        widget.__qqCollectOrigType = widget.type;
+        widget.__qqCollectOrigComputeSize = widget.computeSize;
+    }
+    widget.hidden = !wanted;
+    widget.type = wanted ? widget.__qqCollectOrigType : "hidden";
+    widget.options ||= {};
+    widget.options.hidden = !wanted;
+    if (wanted) {
+        if (widget.__qqCollectOrigComputeSize) widget.computeSize = widget.__qqCollectOrigComputeSize;
+        else delete widget.computeSize;
+    } else {
+        widget.computeSize = () => [0, -4];
+    }
+    node.setDirtyCanvas?.(true, true);
+}
+
+export function isSelectShown(node) {
+    return Boolean(node?.properties?.qq_collect_show_select);
+}
+
 export function syncSelectWidget(node, previousNames = []) {
     const widget = selectWidget(node);
     if (!widget) return [];
@@ -138,6 +167,17 @@ function setWidgetValue(node, value) {
 export function syncFromDispatch(node) {
     const dispatch = linkedDispatch(node);
     if (!dispatch || node[SYNC_GUARD]) return false;
+    // 自动跟随：值留空，由后端沿连线回溯分发节点
+    if (!isSelectShown(node)) {
+        const widget = selectWidget(node);
+        if (!widget || widget.value === "") return false;
+        node[SYNC_GUARD] = true;
+        try {
+            return setWidgetValue(node, "");
+        } finally {
+            node[SYNC_GUARD] = false;
+        }
+    }
     const index = slotIndexText(selectWidget(dispatch)?.value, "输出");
     const names = inputNames(node);
     const wanted = names.find((name, position) => String(position + 1) === index);
@@ -153,6 +193,8 @@ export function syncFromDispatch(node) {
 export function syncToDispatch(node) {
     const dispatch = linkedDispatch(node);
     if (!dispatch || node[SYNC_GUARD]) return false;
+    // 自动跟随模式下手动改值无意义，不反向推送
+    if (!isSelectShown(node)) return false;
     const index = selectedIndex(selectWidget(node)?.value, inputNames(node));
     if (index < 0) return false;
     const names = (dispatch.outputs || []).map((output, position) => (
@@ -186,7 +228,17 @@ export function syncNode(node) {
     const target = targetInputCount(node);
     ensureInputs(node, target);
     pruneInputs(node, target);
-    node.__qqCollectNames = syncSelectWidget(node, previous);
+    // 选择框隐藏（自动跟随）时，不写值：后端会自己去读上游分发节点
+    if (isSelectShown(node)) {
+        node.__qqCollectNames = syncSelectWidget(node, previous);
+    } else {
+        const widget = selectWidget(node);
+        if (widget) {
+            widget.options ||= {};
+            if (typeof widget.options.values !== "function") widget.options.values = inputNames(node);
+        }
+        node.__qqCollectNames = inputNames(node);
+    }
     refreshDispatchConsumers(node);
     node.setDirtyCanvas?.(true, true);
 }
@@ -194,6 +246,8 @@ export function syncNode(node) {
 function initializeNode(node) {
     if (!node) return;
     ensureInputs(node, Math.max(MIN_INPUTS, node.inputs?.length || 0));
+    // 默认隐藏 select：留空即自动跟随分发节点，多数人不需要手动改
+    applySelectVisibility(node, isSelectShown(node));
     node.__qqCollectNames = inputNames(node);
     syncSelectWidget(node, node.__qqCollectNames);
     if (!node.__qqRouteCollectTimer) {
@@ -295,6 +349,23 @@ function install(nodeType) {
         options.push({
             content: "把选择推给分发节点",
             callback: () => syncToDispatch(this),
+        });
+        options.push(null, {
+            content: isSelectShown(this) ? "隐藏手动选择（改回自动跟随）" : "显示手动选择",
+            callback: () => {
+                this.properties ||= {};
+                this.properties.qq_collect_show_select = !isSelectShown(this);
+                applySelectVisibility(this, isSelectShown(this));
+                if (!isSelectShown(this)) {
+                    // 隐藏时清空，回到自动跟随分发节点
+                    const widget = selectWidget(this);
+                    if (widget) {
+                        widget.value = "";
+                        widget.callback?.("");
+                    }
+                }
+                syncNode(this);
+            },
         });
         return options;
     };
