@@ -64,7 +64,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 36)
+        self.assertEqual(len(mappings), 37)
         self.assertIn("QQImagePackageLoader", mappings)
         self.assertIn("QQImagePackageSaver", mappings)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
@@ -112,6 +112,7 @@ class RegistrationTests(unittest.TestCase):
         )
         self.assertEqual(display["QQIlluminationBalance"], "QQ-照度均衡")
         self.assertEqual(display["QQDepthFusion"], "QQ-深度融合")
+        self.assertEqual(display["QQRouteDispatch"], "QQ-条件分发")
 
     def test_ignore_rules_controller_is_frontend_only_and_keeps_stable_bindings(self):
         controller = self.package.NODE_CLASS_MAPPINGS["QQIgnoreRulesController"]
