@@ -338,7 +338,7 @@ function installPollingQueue() {
 
     const originalQueue = api.queuePrompt;
     api.queuePrompt = async function qqRouteQueue(number, prompt, ...rest) {
-        // 每次手动/自动排队都从「干净状态」开始：手动运行要能重置这一轮
+        // 每次手动/自动排队都从「干净状态」开始
         cancelContinuation();
         const graph = app.graph;
         const generation = continuationGeneration;
@@ -346,10 +346,14 @@ function installPollingQueue() {
         for (const node of routeNodes()) {
             if (!isPolling(node)) continue;
             if (prompt?.output?.[String(node.id)]?.class_type !== NODE_TYPE) continue;
-            // 上一轮已经跑完所有已连接的口：这次从第一个已连接的口重新起跑。
-            // 只跑了一半（比如中途取消）则沿用当前选择，接着往下走。
             const linked = connectedIndexes(node);
-            if (linked.length && pollingFinished(node)) setPollingIndex(node, linked[0]);
+            // 新一轮的起点：只有「用户手动点运行」才回到第一个口。
+            // 自动续排时 node.__qqRouteAutoAdvance 为 true，保持当前口继续往下走，
+            // 否则每轮都会被拉回第一个口，永远跑不到头。
+            if (!node.__qqRouteAutoAdvance && linked.length) {
+                setPollingIndex(node, linked[0]);
+            }
+            node.__qqRouteAutoAdvance = false;
             nodes.set(String(node.id), routeSnapshot(node));
         }
         const submission = { graph, nodes, generation };
@@ -422,6 +426,8 @@ function installPollingQueue() {
                         cancelContinuation();
                         return;
                     }
+                    // 标记成自动续排：下一次 queuePrompt 不再把选择重置回第一个口
+                    node.__qqRouteAutoAdvance = true;
                 }
                 const queued = await app.queuePrompt(0, 1);
                 if (queued === false) cancelContinuation();
