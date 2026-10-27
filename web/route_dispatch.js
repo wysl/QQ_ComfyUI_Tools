@@ -343,15 +343,10 @@ function installPollingQueue() {
     app.queuePrompt = async function qqRouteAppQueue(number, batchCount, options) {
         preparePollingForQueue();
         const result = await originalAppQueue.call(this, number, batchCount, options);
-        // 记录这一轮实际提交的快照，供 execution_success 时判断要不要续排
-        if (globalThis.__qqRoutePendingSnapshot) {
-            const record = globalThis.__qqRoutePendingSnapshot;
+        // app.queuePrompt 只返回布尔，拿不到 prompt_id。
+        // 所以这一轮的快照先存为「待配对」，由随后的 execution_success 认领。
+        if (!result) {
             globalThis.__qqRoutePendingSnapshot = null;
-            const promptId = String(result?.prompt_id || result?.promptId || "");
-            if (record && promptId) {
-                queuedRuns.set(promptId, record);
-                while (queuedRuns.size > 50) queuedRuns.delete(queuedRuns.keys().next().value);
-            }
         }
         return result;
     };
@@ -378,8 +373,21 @@ function installPollingQueue() {
             : null;
     }
 
+    // execution_success 带的 prompt_id 才是可靠的身份：用它来认领待配对的那一轮
+    function claimPendingSnapshot(promptId) {
+        const record = globalThis.__qqRoutePendingSnapshot;
+        globalThis.__qqRoutePendingSnapshot = null;
+        if (!record || !promptId) return null;
+        // 中间可能排过别的任务，代次变了就丢弃
+        if (record.generation !== continuationGeneration) return null;
+        return record;
+    }
+
     api.addEventListener("execution_success", (event) => {
-        advancePolling(String(event?.detail?.prompt_id || ""));
+        const promptId = String(event?.detail?.prompt_id || "");
+        const record = claimPendingSnapshot(promptId);
+        if (record && promptId) queuedRuns.set(promptId, record);
+        advancePolling(promptId);
     });
 
     for (const name of ["execution_interrupted", "execution_error"]) {
