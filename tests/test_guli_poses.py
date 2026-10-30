@@ -1,4 +1,4 @@
-"""QQ-白模参考：用户目录约束、目录即索引、三类取图与导入删除。"""
+"""QQ-预制图像参考：用户目录约束、目录即索引、多选拼批次与导入删除。"""
 
 from __future__ import annotations
 
@@ -45,7 +45,6 @@ class _Sandbox(unittest.TestCase):
         self.root = Path(self._tmp.name) / "GuliPoses"
         self._old = os.environ.get("QQ_GULI_POSES_DIR")
         os.environ["QQ_GULI_POSES_DIR"] = str(self.root)
-        # 每个用例都清缓存，避免上一个用例的目录签名命中
         for lib in db.LIB_KEYS:
             db.invalidate(lib)
 
@@ -59,6 +58,9 @@ class _Sandbox(unittest.TestCase):
 
 
 class UserDirectoryTests(_Sandbox):
+    def test_three_libraries_are_pose_face_cloth(self):
+        self.assertEqual(db.LIB_KEYS, ("pose", "face", "cloth"))
+
     def test_root_follows_the_env_override(self):
         self.assertEqual(db.root(), self.root)
 
@@ -84,17 +86,16 @@ class UserDirectoryTests(_Sandbox):
 class ScanTests(_Sandbox):
     def test_empty_library_is_not_fatal(self):
         self.assertEqual(db.scan("pose")["items"], [])
-        self.assertEqual(db.labels("pose"), [db.UNUSED])
 
     def test_images_are_listed(self):
         _write_png(db.img_dir("pose") / "站立.png")
-        self.assertEqual(db.labels("pose"), [db.UNUSED, "站立"])
+        self.assertEqual([item["label"] for item in db.scan("pose")["items"]], ["站立"])
 
     def test_scan_picks_up_new_files_without_restart(self):
-        _write_png(db.img_dir("garment") / "外套.png")
-        self.assertEqual(len(db.scan("garment")["items"]), 1)
-        _write_png(db.img_dir("garment") / "裤子.png", colour=(20, 90, 200))
-        self.assertEqual(len(db.scan("garment")["items"]), 2)
+        _write_png(db.img_dir("cloth") / "外套.png")
+        self.assertEqual(len(db.scan("cloth")["items"]), 1)
+        _write_png(db.img_dir("cloth") / "裤子.png", colour=(20, 90, 200))
+        self.assertEqual(len(db.scan("cloth")["items"]), 2)
 
     def test_angle_suffix_groups_into_one_item(self):
         _write_png(db.img_dir("pose") / "姿势A_front.png")
@@ -104,14 +105,13 @@ class ScanTests(_Sandbox):
         self.assertEqual(set(items[0]["angles"]), {"front", "side"})
 
     def test_single_angle_library_keeps_whole_name(self):
-        # 脸模只有正面，文件名里的 _side 不该被当成角度吃掉
         _write_png(db.img_dir("face") / "face_side.png")
-        self.assertEqual(db.labels("face"), [db.UNUSED, "face_side"])
+        self.assertEqual([item["label"] for item in db.scan("face")["items"]], ["face_side"])
 
     def test_duplicate_names_get_a_suffix(self):
         _write_png(db.img_dir("face") / "同名_front.png")
         _write_png(db.img_dir("face") / "同名_正面.png")
-        self.assertEqual(len(db.labels("face")), 3)
+        self.assertEqual(len(db.scan("face")["items"]), 2)
 
     def test_non_image_files_are_ignored(self):
         db.img_dir("pose").mkdir(parents=True, exist_ok=True)
@@ -119,8 +119,35 @@ class ScanTests(_Sandbox):
         self.assertEqual(db.scan("pose")["items"], [])
 
 
+class RenameTests(_Sandbox):
+    """garment/ 这个旧库名要能并进 cloth/。"""
+
+    def test_old_garment_directory_is_merged_into_cloth(self):
+        legacy = self.root / "garment" / "img"
+        legacy.mkdir(parents=True)
+        (legacy / "外套.png").write_bytes(b"x")
+
+        labels = [item["label"] for item in db.scan("cloth")["items"]]
+
+        self.assertEqual(labels, ["外套"])
+        self.assertTrue((db.img_dir("cloth") / "外套.png").is_file())
+        self.assertFalse((self.root / "garment").exists())
+
+    def test_merge_does_not_overwrite(self):
+        (db.img_dir("cloth") / "同名.png").parent.mkdir(parents=True)
+        (db.img_dir("cloth") / "同名.png").write_bytes(b"new")
+        legacy = self.root / "garment" / "img"
+        legacy.mkdir(parents=True)
+        (legacy / "同名.png").write_bytes(b"old")
+
+        db.scan("cloth")
+
+        self.assertEqual((db.img_dir("cloth") / "同名.png").read_bytes(), b"new")
+        self.assertTrue((db.img_dir("cloth") / "同名 (2).png").is_file())
+
+
 class MigrationTests(_Sandbox):
-    """旧版的 custom/ 与 png/ 要能自动并入 img/，升级不能让用户的图消失。"""
+    """旧版 custom/ 与 png/ 也要能并入 img/。"""
 
     def test_legacy_custom_is_moved_into_img(self):
         legacy = db.lib_dir("pose") / "custom"
@@ -128,70 +155,66 @@ class MigrationTests(_Sandbox):
         (legacy / "旧姿态.png").write_bytes(b"x")
         (legacy / "thumbs").mkdir()
         (legacy / "thumbs" / "旧姿态.jpg").write_bytes(b"y")
-        (legacy / "meta.json").write_text("{}", encoding="utf-8")
 
         db.scan("pose")
 
         self.assertTrue((db.img_dir("pose") / "旧姿态.png").is_file())
-        self.assertFalse(legacy.exists())  # 遗留目录连缩略图一起清掉
-
-    def test_legacy_png_is_moved_into_img(self):
-        legacy = db.lib_dir("face") / "png"
-        legacy.mkdir(parents=True)
-        (legacy / "老脸.png").write_bytes(b"x")
-
-        db.scan("face")
-
-        self.assertTrue((db.img_dir("face") / "老脸.png").is_file())
         self.assertFalse(legacy.exists())
-
-    def test_migration_never_overwrites_existing_images(self):
-        (db.img_dir("garment") / "同名.png").parent.mkdir(parents=True)
-        (db.img_dir("garment") / "同名.png").write_bytes(b"new")
-        legacy = db.lib_dir("garment") / "custom"
-        legacy.mkdir(parents=True)
-        (legacy / "同名.png").write_bytes(b"old")
-
-        db.scan("garment")
-
-        self.assertEqual((db.img_dir("garment") / "同名.png").read_bytes(), b"new")
-        self.assertTrue((db.img_dir("garment") / "同名 (2).png").is_file())
 
 
 class PickTests(_Sandbox):
     def _is_blocked(self, value) -> bool:
         return value is None or type(value).__name__ == "ExecutionBlocker"
 
-    def test_unused_outputs_a_blocker(self):
-        out = poses.QQGuliPosePicker().pick("未使用", "未使用", "未使用")
-        self.assertEqual(len(out), 3)
-        for value in out:
-            self.assertTrue(self._is_blocked(value))
-
-    def test_selected_library_returns_an_image(self):
-        _write_png(db.img_dir("pose") / "站立.png")
-        out = poses.QQGuliPosePicker().pick("站立", "未使用", "未使用")
-        self.assertEqual(out[0].shape, (1, 48, 32, 3))
-
-    def test_three_types_are_independent(self):
-        _write_png(db.img_dir("pose") / "p.png", size=(16, 16))
-        _write_png(db.img_dir("face") / "f.png", size=(24, 24))
-        _write_png(db.img_dir("garment") / "g.png", size=(32, 32))
-        out = poses.QQGuliPosePicker().pick("p", "f", "g")
-        self.assertEqual([value.shape[1] for value in out], [16, 24, 32])
-
-    def test_stale_label_from_an_old_workflow_blocks_that_lane(self):
-        _write_png(db.img_dir("pose") / "站立.png")
-        out = poses.QQGuliPosePicker().pick("已经删掉的条目", "未使用", "未使用")
+    def test_empty_selection_blocks_the_single_output(self):
+        out = poses.QQGuliPosePicker().pick("", "", "")
+        self.assertEqual(len(out), 1)
         self.assertTrue(self._is_blocked(out[0]))
 
-    def test_contract(self):
+    def test_one_type_returns_a_batch_of_one(self):
+        _write_png(db.img_dir("pose") / "站立.png")
+        out = poses.QQGuliPosePicker().pick("站立", "", "")
+        self.assertEqual(tuple(out[0].shape), (1, 48, 32, 3))
+
+    def test_multiple_selections_are_stacked_in_click_order(self):
+        _write_png(db.img_dir("pose") / "甲.png", size=(16, 16))
+        _write_png(db.img_dir("pose") / "乙.png", size=(16, 16))
+        out = poses.QQGuliPosePicker().pick("乙|甲", "", "")
+        self.assertEqual(tuple(out[0].shape), (2, 16, 16, 3))
+
+    def test_lane_order_is_pose_face_cloth(self):
+        _write_png(db.img_dir("pose") / "p.png", colour=(255, 0, 0), size=(8, 8))
+        _write_png(db.img_dir("face") / "f.png", colour=(0, 255, 0), size=(8, 8))
+        _write_png(db.img_dir("cloth") / "c.png", colour=(0, 0, 255), size=(8, 8))
+        batch = poses.QQGuliPosePicker().pick("p", "f", "c")[0]
+        self.assertEqual(tuple(batch.shape), (3, 8, 8, 3))
+        reds = [float(batch[index, 0, 0, 0]) for index in range(3)]
+        self.assertAlmostEqual(reds[0], 1.0, places=2)
+        self.assertAlmostEqual(reds[1], 0.0, places=2)
+        self.assertAlmostEqual(reds[2], 0.0, places=2)
+
+    def test_mismatched_sizes_are_scaled_to_the_first_image(self):
+        _write_png(db.img_dir("pose") / "大.png", size=(40, 20))
+        _write_png(db.img_dir("pose") / "小.png", size=(10, 10))
+        batch = poses.QQGuliPosePicker().pick("大|小", "", "")
+        self.assertEqual(tuple(batch[0].shape), (2, 20, 40, 3))
+
+    def test_stale_label_is_skipped_without_killing_the_batch(self):
+        _write_png(db.img_dir("pose") / "站立.png")
+        batch = poses.QQGuliPosePicker().pick("已经删掉的条目|站立", "", "")
+        self.assertEqual(tuple(batch[0].shape), (1, 48, 32, 3))
+
+    def test_duplicates_in_the_value_collapse(self):
+        _write_png(db.img_dir("pose") / "站立.png")
+        batch = poses.QQGuliPosePicker().pick("站立|站立", "", "")
+        self.assertEqual(tuple(batch[0].shape), (1, 48, 32, 3))
+
+    def test_contract_is_a_single_image_output(self):
         node = poses.QQGuliPosePicker
-        self.assertEqual(node.RETURN_NAMES, ("姿态图", "脸模图", "服装图"))
+        self.assertEqual(node.RETURN_TYPES, ("IMAGE",))
+        self.assertEqual(node.RETURN_NAMES, ("参考图",))
         self.assertEqual(node.CATEGORY, "QQ/图库")
-        inputs = node.INPUT_TYPES()["required"]
-        self.assertEqual(list(inputs), ["姿态", "脸模", "服装"])
-        self.assertEqual(inputs["姿态"][0][0], "未使用")
+        self.assertEqual(list(node.INPUT_TYPES()["required"]), ["姿态", "脸模", "服装"])
 
 
 class ImportTests(_Sandbox):
@@ -211,12 +234,12 @@ class ImportTests(_Sandbox):
     def test_delete_removes_image_and_thumb(self):
         from PIL import Image
 
-        name = db.save_upload("garment", "coat.png", b"x")
-        path = db.img_dir("garment") / name
+        name = db.save_upload("cloth", "coat.png", b"x")
+        path = db.img_dir("cloth") / name
         Image.new("RGB", (8, 8), (1, 2, 3)).save(path, "PNG")
-        thumb = db.ensure_thumb("garment", name)
+        thumb = db.ensure_thumb("cloth", name)
         self.assertIsNotNone(thumb)
-        self.assertTrue(db.delete("garment", name))
+        self.assertTrue(db.delete("cloth", name))
         self.assertFalse(path.exists())
         self.assertFalse(thumb.exists())
 
@@ -228,7 +251,9 @@ class ImportTests(_Sandbox):
 class RegistrationTests(unittest.TestCase):
     def test_node_is_registered_under_the_qq_namespace(self):
         self.assertIn("QQGuliPosePicker", poses.NODE_CLASS_MAPPINGS)
-        self.assertEqual(poses.NODE_DISPLAY_NAME_MAPPINGS["QQGuliPosePicker"], "QQ-白模参考")
+        self.assertEqual(
+            poses.NODE_DISPLAY_NAME_MAPPINGS["QQGuliPosePicker"], "QQ-预制图像参考"
+        )
 
     def test_routes_cover_every_library(self):
         routes = _load("guli_api_reg", "guli_api.py")

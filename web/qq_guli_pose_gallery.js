@@ -1,25 +1,25 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-// QQ-白模参考 的前端：三段折叠图库（姿态 / 脸模 / 服装）。
+// QQ-预制图像参考 的前端：三段折叠图库（姿态 / 脸模 / 服装），每段可多选。
 //
-// 默认三行都收起，只显示「类型 + 当前选中项的缩略图 + 名字」；
-// 点某一行才展开该类型的缩略图网格，点缩略图即选中并自动收起。
-// 缩略图统一按固定格子缩放（object-fit: cover），不会像旧版那样堆叠。
-//
-// 数据全部来自 /qq_gulipose/<lib>/index.json，图片落在用户目录，插件目录不存图。
+// 三个隐藏控件里存的是「名1|名2|名3」，后端正按这个顺序拼批次。
+// 默认三行都收起，只显示「类型 + 已选张数 + 第一张的缩略图」；
+// 点某一行才展开该类型的缩略图网格，点缩略图是**切换选中**（可多选）。
+// 缩略图统一固定格子 + object-fit: cover，不会像旧版那样堆叠。
 
 const NODE_NAME = "QQGuliPosePicker";
 const PREFIX = "/qq_gulipose";
+const SEP = "|";
+const UNUSED = "未使用";
 
 const LIBS = [
 	{ key: "pose", label: "姿态", widget: "姿态" },
 	{ key: "face", label: "脸模", widget: "脸模" },
-	{ key: "garment", label: "服装", widget: "服装" },
+	{ key: "cloth", label: "服装", widget: "服装" },
 ];
 
-const UNUSED = "未使用";
-const CELL = 72; // 缩略图格子边长，自动缩放用
+const CELL = 72; // 缩略图格子边长
 const MIN_BODY_H = 190;
 const HEADER_H = 40;
 
@@ -37,11 +37,12 @@ const CSS = `
 .qq-gp-cap{flex:0 0 auto;font-weight:600}
 .qq-gp-mini{flex:0 0 auto;width:28px;height:28px;border-radius:4px;object-fit:cover;
   background:#0b0d12;border:1px solid var(--border-color,#39404d)}
-.qq-gp-sec[data-open="1"] .qq-gp-mini{width:64px;height:64px}
+.qq-gp-sec[data-open="1"] .qq-gp-mini{width:56px;height:56px}
 .qq-gp-cur{flex:1 1 auto;min-width:0;color:var(--descrip-text,#96a0b0);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.qq-gp-badge{flex:0 0 auto;padding:0 5px;border-radius:8px;font-size:10px;
+.qq-gp-pick{flex:0 0 auto;padding:0 5px;border-radius:8px;font-size:10px;
   background:rgba(79,140,255,.16);color:var(--qq-gp-ac,#4f8cff)}
+.qq-gp-pick[data-zero="1"]{background:rgba(255,255,255,.06);color:var(--descrip-text,#96a0b0)}
 .qq-gp-caret{flex:0 0 auto;color:var(--descrip-text,#96a0b0);transition:transform .12s}
 .qq-gp-sec[data-open="1"] .qq-gp-caret{transform:rotate(90deg)}
 .qq-gp-body{display:none;flex:1 1 auto;min-height:0;flex-direction:column;gap:5px;padding:0 5px 5px}
@@ -64,6 +65,9 @@ const CSS = `
 .qq-gp-cell:hover{border-color:var(--qq-gp-ac,#4f8cff)}
 .qq-gp-cell[data-on="1"]{border-color:var(--qq-gp-ac,#4f8cff);
   box-shadow:0 0 0 1px var(--qq-gp-ac,#4f8cff) inset}
+.qq-gp-cell[data-on="1"]::after{content:"✓";position:absolute;right:3px;top:1px;
+  font-size:12px;font-weight:700;color:var(--qq-gp-ac,#4f8cff);
+  text-shadow:0 0 3px #000,0 0 3px #000}
 .qq-gp-cell .qq-gp-tag{position:absolute;left:0;right:0;bottom:0;padding:1px 3px;font-size:9px;
   background:rgba(10,12,16,.74);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qq-gp-empty{grid-column:1/-1;padding:12px 6px;text-align:center;line-height:1.6;
@@ -83,10 +87,6 @@ function injectCSS() {
 	document.head.append(el);
 }
 
-function imgURL(lib, name) {
-	return api.apiURL(`${PREFIX}/${lib}/img/${encodeURIComponent(name)}`);
-}
-
 function thumbURL(lib, name) {
 	return api.apiURL(`${PREFIX}/${lib}/thumb/${encodeURIComponent(name)}`);
 }
@@ -97,39 +97,32 @@ function firstImage(item) {
 	return entry?.img ?? "";
 }
 
-const dbCache = new Map();
+const libData = new Map();
 
 async function loadLib(lib, force = false) {
-	if (!force && dbCache.has(lib)) return dbCache.get(lib);
+	if (!force && libData.has(lib)) return libData.get(lib);
 	const res = await api.fetchApi(`${PREFIX}/${lib}/index.json`);
 	if (!res.ok) throw new Error(`HTTP ${res.status}`);
 	const data = await res.json();
-	dataCacheSet(lib, data);
+	libData.set(lib, data);
 	return data;
-}
-
-function dataCacheSet(lib, data) {
-	dbCache.set(lib, data);
-}
-
-function setWidget(node, widget, value) {
-	if (!widget || widget.value === value) return false;
-	widget.value = value;
-	widget.callback?.(value, app.canvas, node, null, null);
-	node.graph?.setDirtyCanvas(true, true);
-	return true;
 }
 
 function hideWidget(widget) {
 	if (!widget || widget.__qqGpHidden) return;
 	widget.__qqGpHidden = true;
-	widget.__qqGpOrigType = widget.type;
-	widget.__qqGpOrigCompute = widget.computeSize;
 	widget.hidden = true;
 	widget.type = "hidden";
 	widget.options ||= {};
 	widget.options.hidden = true;
 	widget.computeSize = () => [0, -4];
+}
+
+function splitValue(value) {
+	return String(value ?? "")
+		.split(SEP)
+		.map((piece) => piece.trim())
+		.filter((piece) => piece && piece !== UNUSED);
 }
 
 function setup(node) {
@@ -138,7 +131,7 @@ function setup(node) {
 	const widgets = {};
 	for (const lib of LIBS) {
 		const widget = node.widgets?.find((w) => w.name === lib.widget);
-		if (!widget) return; // 控件缺失就放弃画廊，节点仍可手选
+		if (!widget) return; // 控件缺失就放弃画廊，节点仍可手填
 		widgets[lib.key] = widget;
 		hideWidget(widget);
 	}
@@ -156,15 +149,15 @@ function setup(node) {
 				<span class="qq-gp-cap">${lib.label}</span>
 				<img class="qq-gp-mini" alt="" hidden>
 				<span class="qq-gp-cur">未选择</span>
-				<span class="qq-gp-badge">0</span>
+				<span class="qq-gp-pick" data-zero="1">0</span>
 				<span class="qq-gp-caret">▶</span>
 			</button>
 			<div class="qq-gp-body">
 				<div class="qq-gp-tools">
 					<input class="qq-gp-search" type="text" placeholder="搜索名称">
-					<button class="qq-gp-btn qq-gp-rand" type="button" title="随机挑一张">随机</button>
+					<button class="qq-gp-btn qq-gp-rand" type="button" title="随机挑一张加入选择">随机</button>
 					<button class="qq-gp-btn qq-gp-imp" type="button" title="导入图片（存到用户目录）">导入</button>
-					<button class="qq-gp-btn qq-gp-clear" type="button" title="改回未使用">清除</button>
+					<button class="qq-gp-btn qq-gp-clear" type="button" title="清空这一类的选择">清空</button>
 				</div>
 				<div class="qq-gp-grid"></div>
 				<div class="qq-gp-foot"><span class="qq-gp-count"></span><span class="qq-gp-hint"></span></div>
@@ -181,10 +174,9 @@ function setup(node) {
 		sections[lib.key] = {
 			lib,
 			sec,
-			hd: sec.querySelector(".qq-gp-hd"),
 			mini: sec.querySelector(".qq-gp-mini"),
 			cur: sec.querySelector(".qq-gp-cur"),
-			badge: sec.querySelector(".qq-gp-badge"),
+			pick: sec.querySelector(".qq-gp-pick"),
 			grid: sec.querySelector(".qq-gp-grid"),
 			search: sec.querySelector(".qq-gp-search"),
 			count: sec.querySelector(".qq-gp-count"),
@@ -204,7 +196,7 @@ function setup(node) {
 
 	let expandedKey = null;
 
-	// 节点高度跟着「有没有展开」走：收起时只有三行表头，展开时给网格留出空间。
+	// 节点高度跟着「有没有展开」走：收起时只有三行表头，展开时给网格留空间。
 	function refreshGallerySize() {
 		const height = HEADER_H * LIBS.length + (expandedKey ? MIN_BODY_H : 8) + 34;
 		const width = node.size?.[0] ?? 340;
@@ -212,17 +204,36 @@ function setup(node) {
 		node.graph?.setDirtyCanvas(true, true);
 	}
 
-	function currentLabel(lib) {
-		const value = widgets[lib.key]?.value ?? UNUSED;
-		return value === UNUSED ? UNUSED : value;
+	function selected(state) {
+		return splitValue(widgets[state.lib.key]?.value);
+	}
+
+	function setSelected(state, names) {
+		const widget = widgets[state.lib.key];
+		if (!widget) return;
+		const value = names.join(SEP);
+		if (widget.value === value) return;
+		widget.value = value;
+		widget.callback?.(value, app.canvas, node, null, null);
+		node.graph?.setDirtyCanvas(true, true);
 	}
 
 	function renderHeader(state) {
-		const label = currentLabel(state.lib);
-		const chosen = (state.data?.items ?? []).find((item) => item.label === label);
-		state.badge.textContent = String(state.data?.items?.length ?? 0);
-		state.cur.textContent = chosen ? chosen.label : UNUSED;
-		state.cur.title = chosen ? chosen.label : UNUSED;
+		const names = selected(state);
+		const chosen = (state.data?.items ?? []).find((item) => item.label === names[0]);
+		state.pick.textContent = String(names.length);
+		state.pick.dataset.zero = names.length ? "0" : "1";
+		if (!names.length) {
+			state.cur.textContent = UNUSED;
+			state.cur.title = UNUSED;
+		} else if (names.length === 1) {
+			state.cur.textContent = names[0];
+			state.cur.title = names[0];
+		} else {
+			const head = names.slice(0, 2).join("、");
+			state.cur.textContent = `${names.length} 张：${head}${names.length > 2 ? "…" : ""}`;
+			state.cur.title = names.join("\n");
+		}
 		const src = chosen ? firstImage(chosen) : "";
 		if (src) {
 			state.mini.hidden = false;
@@ -239,7 +250,7 @@ function setup(node) {
 		const shown = keyword
 			? items.filter((item) => String(item.label).toLowerCase().includes(keyword))
 			: items;
-		const chosen = currentLabel(state.lib);
+		const chosen = new Set(selected(state));
 
 		state.grid.replaceChildren();
 		if (!shown.length) {
@@ -260,8 +271,8 @@ function setup(node) {
 			const cell = document.createElement("button");
 			cell.type = "button";
 			cell.className = "qq-gp-cell";
-			cell.title = item.label;
-			if (item.label === chosen) cell.dataset.on = "1";
+			cell.title = `${item.label}\n点击切换选中（可多选）`;
+			if (chosen.has(item.label)) cell.dataset.on = "1";
 			const img = document.createElement("img");
 			img.loading = "lazy";
 			img.decoding = "async";
@@ -272,9 +283,13 @@ function setup(node) {
 			tag.textContent = item.label;
 			cell.append(img, tag);
 			cell.addEventListener("click", () => {
-				setWidget(node, widgets[state.lib.key], item.label);
-				collapseAll();
-				syncAll();
+				const current = selected(state);
+				const index = current.indexOf(item.label);
+				if (index >= 0) current.splice(index, 1);
+				else current.push(item.label);
+				setSelected(state, current);
+				renderHeader(state);
+				renderGrid(state);
 			});
 			cell.addEventListener("contextmenu", async (event) => {
 				event.preventDefault();
@@ -288,11 +303,13 @@ function setup(node) {
 							body: JSON.stringify({ name: entry.img }),
 						});
 					} catch (err) {
-						console.error("[QQ-白模参考] 删除失败", err);
+						console.error("[QQ-预制图像参考] 删除失败", err);
 					}
 				}
 				await reload(state.lib.key, true);
-				syncAll();
+				setSelected(state, selected(state).filter((name) => name !== item.label));
+				renderGrid(state);
+				renderHeader(state);
 			});
 			frag.append(cell);
 		}
@@ -301,8 +318,11 @@ function setup(node) {
 		state.count.textContent = keyword
 			? `匹配 ${shown.length} / ${items.length}`
 			: `共 ${items.length} 张`;
-		state.hint.textContent = `已选：${chosen === UNUSED ? "未使用" : chosen}`;
-		state.hint.title = state.hint.textContent;
+		const names = selected(state);
+		state.hint.textContent = names.length
+			? `已选 ${names.length} 张（按点击顺序输出）`
+			: "还没选";
+		state.hint.title = names.join("\n");
 	}
 
 	function syncAll() {
@@ -329,7 +349,7 @@ function setup(node) {
 			state.data = await loadLib(key, force);
 		} catch (err) {
 			state.data = { items: [], angles: [] };
-			state.hint.textContent = `读取失败：${err.message ?? err}`;
+			state.hint.textContent = `读取失败：${err?.message ?? err}`;
 		}
 		renderHeader(state);
 		if (state.expanded) renderGrid(state);
@@ -339,12 +359,15 @@ function setup(node) {
 	for (const lib of LIBS) {
 		const state = sections[lib.key];
 
-		state.hd.addEventListener("click", () => {
+		state.sec.querySelector(".qq-gp-hd").addEventListener("click", () => {
 			if (expandedKey === lib.key) {
 				collapseAll();
 			} else {
 				collapseAll(lib.key);
-				reload(lib.key).then(() => renderGrid(state));
+				reload(lib.key).then(() => {
+					renderGrid(state);
+					renderHeader(state);
+				});
 			}
 			syncAll();
 		});
@@ -355,7 +378,7 @@ function setup(node) {
 		});
 
 		state.sec.querySelector(".qq-gp-clear").addEventListener("click", () => {
-			setWidget(node, widgets[lib.key], UNUSED);
+			setSelected(state, []);
 			renderGrid(state);
 			renderHeader(state);
 		});
@@ -363,8 +386,12 @@ function setup(node) {
 		state.sec.querySelector(".qq-gp-rand").addEventListener("click", () => {
 			const items = state.data?.items ?? [];
 			if (!items.length) return;
-			const picked = items[Math.floor(Math.random() * items.length)];
-			setWidget(node, widgets[lib.key], picked.label);
+			const current = selected(state);
+			const pool = items.filter((item) => !current.includes(item.label));
+			if (!pool.length) return; // 全都选过了
+			const picked = pool[Math.floor(Math.random() * pool.length)];
+			current.push(picked.label);
+			setSelected(state, current);
 			renderGrid(state);
 			renderHeader(state);
 		});
@@ -387,10 +414,10 @@ function setup(node) {
 					});
 					if (!res.ok) throw new Error(`HTTP ${res.status}`);
 					const body = await res.json();
-					if (body?.index) dataCacheSet(lib.key, body.index);
+					if (body?.index) libData.set(lib.key, body.index);
 					ok += 1;
 				} catch (err) {
-					console.error("[QQ-白模参考] 导入失败", file.name, err);
+					console.error("[QQ-预制图像参考] 导入失败", file.name, err);
 				}
 			}
 			state.hint.textContent = `已导入 ${ok}/${files.length} 张`;
@@ -415,23 +442,22 @@ app.registerExtension({
 		const onNodeCreated = nodeType.prototype.onNodeCreated;
 		nodeType.prototype.onNodeCreated = function () {
 			const result = onNodeCreated?.apply(this, arguments);
-			// 画廊装不上也不能影响节点本身可用：只告警，保留下拉框与输出
+			// 画廊装不上也不能影响节点本身可用：只告警，保留字符串控件与输出
 			try {
 				setup(this);
 			} catch (err) {
-				console.error("[QQ-白模参考] 画廊初始化失败，下拉框仍可用：", err);
+				console.error("[QQ-预制图像参考] 画廊初始化失败，控件仍可用：", err);
 			}
 			return result;
 		};
 
-		// 从存档恢复后重新读一遍库（可能换了图）
 		const onConfigure = nodeType.prototype.onConfigure;
 		nodeType.prototype.onConfigure = function () {
 			const result = onConfigure?.apply(this, arguments);
 			try {
 				this.__qqGpSync?.();
 			} catch (err) {
-				console.error("[QQ-白模参考] 刷新失败：", err);
+				console.error("[QQ-预制图像参考] 刷新失败：", err);
 			}
 			return result;
 		};
