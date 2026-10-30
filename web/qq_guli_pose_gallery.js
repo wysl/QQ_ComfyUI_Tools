@@ -25,7 +25,7 @@ const HEADER_H = 40;
 const CSS = `
 .qq-gp{box-sizing:border-box;height:100%;display:flex;flex-direction:column;gap:4px;padding:4px;
   background:var(--comfy-menu-bg,#1e2128);color:var(--input-text,#e6e8ee);border-radius:6px;
-  overflow-x:hidden;overflow-y:auto;font:12px/1.35 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  overflow:hidden;font:12px/1.35 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
 .qq-gp *{box-sizing:border-box}
 .qq-gp-sec{flex:0 0 auto;display:flex;flex-direction:column;min-height:0;
   border:1px solid var(--border-color,#39404d);border-radius:6px;background:var(--comfy-input-bg,#12141a)}
@@ -45,7 +45,7 @@ const CSS = `
 .qq-gp-caret{flex:0 0 auto;color:var(--descrip-text,#96a0b0);transition:transform .12s}
 .qq-gp-sec[data-open="1"] .qq-gp-caret{transform:rotate(90deg)}
 .qq-gp-body{display:none;flex:1 1 auto;min-height:0;flex-direction:column;gap:5px;padding:0 5px 5px}
-.qq-gp-sec[data-open="1"] .qq-gp-body{min-height:190px}
+.qq-gp-sec[data-open="1"] .qq-gp-body{height:190px;min-height:190px;flex:0 0 auto}
 .qq-gp-sec[data-open="1"] .qq-gp-body{display:flex}
 .qq-gp-tools{display:flex;gap:5px;align-items:center;flex:0 0 auto}
 .qq-gp-tools input{flex:1 1 auto;min-width:0;height:22px;padding:0 6px;border-radius:4px;
@@ -280,49 +280,61 @@ function setup(node) {
 
 	let expandedKey = null;
 
-	// 实测出来的内容高度（CSS px），同时作为 DOM widget 的最小高度：
-	// 这样手动缩小也会被前端挡住，不会把最后一行裁掉。
-	let contentNeed = HEADER_H * LIBS.length + (LIBS.length - 1) * 4 + 8;
+	// 布局常量：必须与下面 CSS 里的数值一致。
+	// 用它们直接算内容高度，而不是量 scrollHeight —— 节点被拉高时内容不再溢出，
+	// scrollHeight 会等于可用高度，那样永远缩不回来。
+	const ROW_H = 42; // 行头 40 + 上下 1px 边框
+	const GAP = 4; // .qq-gp 的 gap
+	const PAD = 4; // .qq-gp 的内边距（上下各 4）
+	const BODY_H = 190; // 展开区块的 body 高度
+
+	let contentNeed = 0;
+
+	function contentHeight() {
+		const open = expandedKey ? 1 : 0;
+		return PAD * 2 + LIBS.length * ROW_H + (LIBS.length - 1) * GAP + open * BODY_H;
+	}
 
 	const gallery = node.addDOMWidget("qq_gp_gallery", "qq_gp_gallery", root, {
 		serialize: false,
 		hideOnZoom: false,
-		getMinHeight: () => contentNeed,
+		getMinHeight: () => contentHeight(),
 	});
 
-	// 按「内容实际需要的高度」与「当前可用高度」的差值调节点。
-	// 差值按画布缩放折算成节点坐标（node.size 是画布单位，scrollHeight 是 CSS px）。
-	function fitToContent(attempt = 0, shrink = false) {
-		if (!root?.isConnected) return;
-		const need = root.scrollHeight;
-		const have = root.clientHeight;
-		if (!need || !have) return;
-		contentNeed = need;
-		const deltaCss = need - have;
-		if (Math.abs(deltaCss) <= 2) return;
-		// 只有主动收起/展开时才缩回内容高度；手动拉高的情况保持用户的尺寸
-		if (deltaCss < 0 && !shrink) return;
-		if (node.__qqGpFitting) return;
+	// 「节点高度 - 控件可用高度」这层外壳（标题栏 + 内边距）只量一次：
+	// 它与节点大小无关，量到就能一直用，缩放也只差一个 scale。
+	function chromeCss() {
 		const scale = app.canvas?.ds?.scale || 1;
-		// 保护：万一布局怎么调都装不下，别无限往上长
-		if ((node.size?.[1] ?? 0) > contentNeed / scale + 240) return;
-		const width = node.size?.[0] ?? 340;
-		const height = Math.max(120, (node.size?.[1] ?? 200) + deltaCss / scale);
-		node.__qqGpFitting = true;
-		try {
-			node.setSize?.([width, height]);
-		} finally {
-			node.__qqGpFitting = false;
+		if (typeof node.__qqGpChrome === "number") return node.__qqGpChrome;
+		if (!root?.clientHeight) return null;
+		const chrome = (node.size?.[1] ?? 0) * scale - root.clientHeight;
+		if (chrome >= 0 && chrome < 400) {
+			node.__qqGpChrome = chrome;
+			return chrome;
 		}
+		return null;
+	}
+
+	// clampOnly=true 时只把「太矮」的节点撑高，用户拉大的尺寸不动
+	function fitToContent(attempt = 0, clampOnly = false) {
+		const chrome = chromeCss();
+		if (chrome == null) {
+			if (attempt < 8) requestAnimationFrame(() => fitToContent(attempt + 1, clampOnly));
+			return;
+		}
+		contentNeed = contentHeight();
+		const scale = app.canvas?.ds?.scale || 1;
+		const target = (contentNeed + chrome) / scale;
+		const current = node.size?.[1] ?? 0;
+		if (Math.abs(target - current) <= 1) return;
+		if (clampOnly && current >= target) return;
+		node.setSize?.([node.size?.[0] ?? 340, target]);
 		node.graph?.setDirtyCanvas(true, true);
-		// 布局一帧后再量一次，收敛到刚好包住内容
-		if (attempt < 3) {
-			requestAnimationFrame(() => fitToContent(attempt + 1, shrink));
-		}
+		if (attempt < 3) requestAnimationFrame(() => fitToContent(attempt + 1, clampOnly));
 	}
 
 	function refreshGallerySize() {
-		requestAnimationFrame(() => fitToContent(0, true));
+		requestAnimationFrame(() => fitToContent(0, false));
 	}
 
 	function selected(state) {
@@ -566,7 +578,7 @@ function setup(node) {
 	node.__qqGpSync = syncAll;
 	node.__qqGpFit = refreshGallerySize;
 	// 只长不缩：用户手动拉小时用它把内容撑回来，不会反过来夺走用户拉大的尺寸
-	node.__qqGpGrow = () => requestAnimationFrame(() => fitToContent(0, false));
+	node.__qqGpGrow = () => requestAnimationFrame(() => fitToContent(0, true));
 }
 
 app.registerExtension({
