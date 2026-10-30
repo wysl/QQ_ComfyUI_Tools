@@ -315,7 +315,7 @@ function setup(node) {
 				</div>
 				<div class="qq-gp-tools">
 					<input class="qq-gp-search" type="text" placeholder="搜索名称">
-					<button class="qq-gp-btn qq-gp-rand" type="button" title="随机挑一张加入选择">随机</button>
+					<button class="qq-gp-btn qq-gp-rand" type="button" title="随机挑一张（替换当前选择）">随机</button>
 					<button class="qq-gp-btn qq-gp-imp" type="button" title="导入图片（存到用户目录）">导入</button>
 					<button class="qq-gp-btn qq-gp-refresh" type="button" title="重新扫描图库（外部新增图片后点这里）">刷新</button>
 					<button class="qq-gp-btn qq-gp-clear" type="button" title="清空这一类的选择">清空</button>
@@ -731,12 +731,9 @@ function setup(node) {
 		state.sec.querySelector(".qq-gp-rand").addEventListener("click", () => {
 			const items = state.data?.items ?? [];
 			if (!items.length) return;
-			const current = selected(state);
-			const pool = items.filter((item) => !current.includes(item.label));
-			if (!pool.length) return; // 全都选过了
-			const picked = pool[Math.floor(Math.random() * pool.length)];
-			current.push(picked.label);
-			setSelected(state, current);
+			// 随机一个并替换掉当前选择，不做累加
+			const picked = items[Math.floor(Math.random() * items.length)];
+			setSelected(state, [picked.label]);
 			renderGrid(state);
 			renderHeader(state);
 		});
