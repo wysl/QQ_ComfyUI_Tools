@@ -89,6 +89,10 @@ const CSS = `
   font:12px/1.3 system-ui,"Microsoft YaHei",sans-serif;cursor:pointer;text-align:left}
 .qq-gp-angle-item:hover{background:rgba(79,140,255,.16)}
 .qq-gp-angle-item[data-on="1"]{border-color:var(--qq-gp-ac,#4f8cff)}
+.qq-gp-angle-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.qq-gp-angle-name{font-size:12px;line-height:1.2}
+.qq-gp-angle-order{font-size:10px;line-height:1.2;color:var(--qq-gp-ac,#4f8cff);
+  font-variant-numeric:tabular-nums}
 .qq-gp-angle-item img{width:56px;height:56px;object-fit:cover;border-radius:4px;
   background:#0f1116;flex:0 0 auto}
 
@@ -499,6 +503,17 @@ function setup(node) {
 		return key ? `${item.label}::${key}` : item.label;
 	}
 
+	// 输出序号：类型号-该类型内的第几张（姿态=1、脸模=2、服装=3）
+	function laneNo(state) {
+		return LIBS.findIndex((lib) => lib.key === state.lib.key) + 1;
+	}
+
+	function orderTag(state, token) {
+		const at = selected(state).indexOf(token);
+		return at >= 0 ? `${laneNo(state)}-${at + 1}` : "";
+	}
+
+
 	function srcOfToken(state, item, token) {
 		const angle = tokenAngle(token);
 		const entry = angle ? item.angles?.[angle] : Object.values(item.angles ?? {})[0];
@@ -538,9 +553,16 @@ function setup(node) {
 			thumb.loading = "lazy";
 			thumb.src = thumbURL(state.lib.key, entry.img);
 			thumb.alt = angleLabel(state, key);
-			const text = document.createElement("span");
-			text.textContent = angleLabel(state, key);
-			button.append(thumb, text);
+			const name = document.createElement("span");
+			name.className = "qq-gp-angle-name";
+			name.textContent = angleLabel(state, key);
+			const order = document.createElement("span");
+			order.className = "qq-gp-angle-order";
+			order.textContent = orderTag(state, token);
+			const textBox = document.createElement("span");
+			textBox.className = "qq-gp-angle-text";
+			textBox.append(name, order);
+			button.append(thumb, textBox);
 			attachHoverPreview(button, thumbURL(state.lib.key, entry.img), imgURL(state.lib.key, entry.img));
 			button.addEventListener("click", (event) => {
 				event.stopPropagation();
@@ -550,6 +572,8 @@ function setup(node) {
 				else list.push(token);
 				setSelected(state, list);
 				button.dataset.on = list.includes(token) ? "1" : "";
+				const orderEl = button.querySelector(".qq-gp-angle-order");
+				if (orderEl) orderEl.textContent = orderTag(state, token);
 				renderGrid(state);
 				renderHeader(state);
 			});
@@ -747,7 +771,7 @@ function setup(node) {
 				const names = picked.map((token) => angleLabel(state, tokenAngle(token))).filter(Boolean);
 				tag.textContent = names.length ? `${leaf} · ${names.join("/")}` : leaf;
 				cell.append(img, tag);
-				// 左上角：没选时提示视角数，选了就给每个视角一枚「视角 序号」小标
+				// 右下角：已选的每个视角各一枚「类型号-序号」小标（姿态 1-x、脸模 2-x、服装 3-x）
 				if (!picked.length && angles.length > 1) {
 					const anglesTag = document.createElement("span");
 					anglesTag.className = "qq-gp-angles";
@@ -760,9 +784,7 @@ function setup(node) {
 					const order = all.indexOf(token);
 					const mark = document.createElement("span");
 					mark.className = "qq-gp-order";
-					mark.textContent = angles.length > 1
-						? `${angleLabel(state, tokenAngle(token))} ${order + 1}`
-						: String(order + 1);
+					mark.textContent = orderTag(state, token);
 					mark.title = `输出顺序第 ${order + 1} 张`;
 					cell.append(mark);
 				}
