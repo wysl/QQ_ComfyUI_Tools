@@ -305,21 +305,37 @@ function setup(node) {
 		getMinHeight: () => contentHeight(),
 	});
 
-	// node.size 是节点框本身（标题栏画在框外，不占高度），
-	// 控件被 margin 内缩，所以节点高度 = 内容高度 + 上下边距。
+	// 收起时的「最小高度」直接问节点自己：把节点拖到最小时停住的那个尺寸，
+	// 就是 ComfyUI 按控件算出来的 computeSize，比我们猜常数准。
+	// 展开时在此基础上加展开区高度。
+	let baseHeight = 0;
+
+	function measureBase() {
+		const size = node.computeSize?.();
+		if (!Array.isArray(size) || !size[1]) return 0;
+		// computeSize 偶尔会带出异常值，用常数估个范围做保护
+		const guess = (contentHeight() + MARGIN * 2) / (app.canvas?.ds?.scale || 1);
+		if (size[1] < guess * 0.5 || size[1] > guess * 2 + 80) return 0;
+		return size[1];
+	}
+
 	function fitToContent(attempt = 0) {
-		// 刚创建的节点还没挂进 DOM，量不到尺寸；等几帧再试，否则只能等后面的事件补上
+		// 刚创建的节点还没挂进 DOM，量不到尺寸；等几帧再试
 		if (!root?.isConnected) {
 			if (attempt < 40) requestAnimationFrame(() => fitToContent(attempt + 1));
 			return;
 		}
-		contentNeed = contentHeight();
+		// 只在收起状态校准基准：展开时 computeSize 会把展开区也算进去
+		if (!baseHeight && !expandedKey) baseHeight = measureBase();
 		const scale = app.canvas?.ds?.scale || 1;
-		const target = (contentNeed + MARGIN * 2) / scale;
+		const target = baseHeight
+			? baseHeight + (expandedKey ? BODY_H / scale : 0)
+			: (contentHeight() + MARGIN * 2) / scale;
 		const current = node.size?.[1] ?? 0;
-		if (Math.abs(target - current) <= 1) return;
-		node.setSize?.([node.size?.[0] ?? 340, target]);
-		node.graph?.setDirtyCanvas(true, true);
+		if (Math.abs(target - current) > 1) {
+			node.setSize?.([node.size?.[0] ?? 340, target]);
+			node.graph?.setDirtyCanvas(true, true);
+		}
 		if (attempt < 3) requestAnimationFrame(() => fitToContent(attempt + 1));
 	}
 
@@ -329,11 +345,14 @@ function setup(node) {
 			if (attempt < 40) requestAnimationFrame(() => growToContent(attempt + 1));
 			return;
 		}
+		if (!baseHeight && !expandedKey) baseHeight = measureBase();
+		if (!baseHeight) return;
 		const scale = app.canvas?.ds?.scale || 1;
-		const target = (contentHeight() + MARGIN * 2) / scale;
-		if ((node.size?.[1] ?? 0) >= target - 1) return;
-		node.setSize?.([node.size?.[0] ?? 340, target]);
-		node.graph?.setDirtyCanvas(true, true);
+		const target = baseHeight + (expandedKey ? BODY_H / scale : 0);
+		if ((node.size?.[1] ?? 0) < target - 1) {
+			node.setSize?.([node.size?.[0] ?? 340, target]);
+			node.graph?.setDirtyCanvas(true, true);
+		}
 		if (attempt < 3) requestAnimationFrame(() => growToContent(attempt + 1));
 	}
 
