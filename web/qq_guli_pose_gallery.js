@@ -20,8 +20,7 @@ const LIBS = [
 ];
 
 const AUTO_ANGLE = "自动";
-const CAT_ALL = ""; // 全部
-const CAT_ROOT = "/"; // 只看 img/ 根目录
+const CAT_ALL = "/"; // "/" = 全部，按子目录分组展示
 
 const CELL = 72; // 缩略图格子边长
 const HEADER_H = 40;
@@ -65,6 +64,9 @@ const CSS = `
 .qq-gp-grid{flex:1 1 auto;min-height:0;overflow-y:auto;display:grid;gap:5px;
   grid-template-columns:repeat(auto-fill,${CELL}px);
   grid-auto-rows:${CELL}px;align-content:start}
+.qq-gp-group{grid-column:1/-1;padding:6px 2px 1px;border-bottom:1px solid var(--border-color,#39404d);
+  color:var(--descrip-text,#96a0b0);font-size:11px;letter-spacing:.02em}
+
 .qq-gp-cell{position:relative;width:${CELL}px;height:${CELL}px;padding:0;
   border:1px solid var(--border-color,#39404d);border-radius:5px;background:#0f1116;
   cursor:pointer;overflow:hidden}
@@ -528,8 +530,7 @@ function setup(node) {
 			if (title) option.title = title;
 			select.append(option);
 		};
-		add(CAT_ALL, "全部");
-		add(CAT_ROOT, "/", "只看 img/ 根目录里的图片");
+		add(CAT_ALL, "/", "全部：按子目录分组显示");
 		for (const cat of cats) add(cat, cat, `子目录 ${cat}`);
 		select.value = [...select.options].some((opt) => opt.value === keep) ? keep : CAT_ALL;
 		state.catFilter = select.value;
@@ -576,11 +577,7 @@ function setup(node) {
 		const keyword = state.keyword.trim().toLowerCase();
 		const cat = state.catFilter ?? CAT_ALL;
 		const shown = items.filter((item) => {
-			if (cat === CAT_ROOT) {
-				if (item.cat) return false;
-			} else if (cat && item.cat !== cat) {
-				return false;
-			}
+			if (cat && cat !== CAT_ALL && item.cat !== cat) return false;
 			if (!keyword) return true;
 			return String(item.label).toLowerCase().includes(keyword);
 		});
@@ -599,69 +596,89 @@ function setup(node) {
 		}
 
 		const frag = document.createDocumentFragment();
+		const groups = [];
+		const byCat = new Map();
 		for (const item of shown) {
-			const src = firstImage(item);
-			if (!src) continue;
-			const cell = document.createElement("button");
-			cell.type = "button";
-			cell.className = "qq-gp-cell";
-			cell.title = `${item.label}\n点击切换选中（可多选）`;
-			if (chosen.has(item.label)) cell.dataset.on = "1";
-			const img = document.createElement("img");
-			img.loading = "lazy";
-			img.decoding = "async";
-			img.src = thumbURL(state.lib.key, src);
-			img.alt = item.label;
-			const tag = document.createElement("span");
-			tag.className = "qq-gp-tag";
-			tag.textContent = item.label;
-			cell.append(img, tag);
-			const picked = selected(state);
-			const order = picked.indexOf(item.label);
-			if (order >= 0) {
-				const mark = document.createElement("span");
-				mark.className = "qq-gp-order";
-				mark.textContent = String(order + 1);
-				mark.title = `输出顺序第 ${order + 1} 张`;
-				cell.append(mark);
+			const key = item.cat || "";
+			if (!byCat.has(key)) {
+				byCat.set(key, []);
+				groups.push({ cat: key, items: byCat.get(key) });
 			}
-			attachHoverPreview(cell, thumbURL(state.lib.key, src), imgURL(state.lib.key, src));
-			cell.addEventListener("click", () => {
-				const current = selected(state);
-				const index = current.indexOf(item.label);
-				if (index >= 0) current.splice(index, 1);
-				else current.push(item.label);
-				setSelected(state, current);
-				renderHeader(state);
-				renderGrid(state);
-			});
-			cell.addEventListener("contextmenu", (event) => {
-				event.preventDefault();
-				const current = selected(state);
-				const at = current.indexOf(item.label);
-				openCellMenu(cell, [
-					{ label: "上移", disabled: at <= 0, onClick: () => moveSelection(state, at, at - 1) },
-					{
-						label: "下移",
-						disabled: at < 0 || at >= current.length - 1,
-						onClick: () => moveSelection(state, at, at + 1),
-					},
-					{
-						label: at >= 0 ? "取消选择" : "加入选择",
-						onClick: () => {
-							const list = selected(state);
-							const index = list.indexOf(item.label);
-							if (index >= 0) list.splice(index, 1);
-							else list.push(item.label);
-							setSelected(state, list);
-							renderGrid(state);
-							renderHeader(state);
+			byCat.get(key).push(item);
+		}
+		// "/" 状态下按子目录分组，组头显示分类名；选了具体分类就平铺
+		const grouped = cat === CAT_ALL && groups.length > 1;
+		for (const group of groups) {
+			if (grouped) {
+				const head = document.createElement("div");
+				head.className = "qq-gp-group";
+				head.textContent = group.cat ? `${group.cat}（${group.items.length}）` : `根目录（${group.items.length}）`;
+				frag.append(head);
+			}
+			for (const item of group.items) {
+				const src = firstImage(item);
+				if (!src) continue;
+				const cell = document.createElement("button");
+				cell.type = "button";
+				cell.className = "qq-gp-cell";
+				cell.title = `${item.label}\n点击切换选中（可多选）`;
+				if (chosen.has(item.label)) cell.dataset.on = "1";
+				const img = document.createElement("img");
+				img.loading = "lazy";
+				img.decoding = "async";
+				img.src = thumbURL(state.lib.key, src);
+				img.alt = item.label;
+				const tag = document.createElement("span");
+				tag.className = "qq-gp-tag";
+				tag.textContent = grouped ? item.label.split("/").pop() : item.label;
+				cell.append(img, tag);
+				const picked = selected(state);
+				const order = picked.indexOf(item.label);
+				if (order >= 0) {
+					const mark = document.createElement("span");
+					mark.className = "qq-gp-order";
+					mark.textContent = String(order + 1);
+					mark.title = `输出顺序第 ${order + 1} 张`;
+					cell.append(mark);
+				}
+				attachHoverPreview(cell, thumbURL(state.lib.key, src), imgURL(state.lib.key, src));
+				cell.addEventListener("click", () => {
+					const current = selected(state);
+					const index = current.indexOf(item.label);
+					if (index >= 0) current.splice(index, 1);
+					else current.push(item.label);
+					setSelected(state, current);
+					renderHeader(state);
+					renderGrid(state);
+				});
+				cell.addEventListener("contextmenu", (event) => {
+					event.preventDefault();
+					const current = selected(state);
+					const at = current.indexOf(item.label);
+					openCellMenu(cell, [
+						{ label: "上移", disabled: at <= 0, onClick: () => moveSelection(state, at, at - 1) },
+						{
+							label: "下移",
+							disabled: at < 0 || at >= current.length - 1,
+							onClick: () => moveSelection(state, at, at + 1),
 						},
-					},
-					{ label: "删除图片", onClick: () => deleteItem(state, item) },
-				]);
-			});
-			frag.append(cell);
+						{
+							label: at >= 0 ? "取消选择" : "加入选择",
+							onClick: () => {
+								const list = selected(state);
+								const index = list.indexOf(item.label);
+								if (index >= 0) list.splice(index, 1);
+								else list.push(item.label);
+								setSelected(state, list);
+								renderGrid(state);
+								renderHeader(state);
+							},
+						},
+						{ label: "删除图片", onClick: () => deleteItem(state, item) },
+					]);
+				});
+				frag.append(cell);
+			}
 		}
 		state.grid.append(frag);
 
@@ -796,7 +813,7 @@ function setup(node) {
 			for (const file of files) {
 				state.hint.textContent = `导入中… ${ok}/${files.length}`;
 				const form = new FormData();
-				if (state.catFilter && state.catFilter !== CAT_ROOT) {
+				if (state.catFilter && state.catFilter !== CAT_ALL) {
 					form.append("cat", state.catFilter);
 				}
 				form.append("file", file, file.name);
