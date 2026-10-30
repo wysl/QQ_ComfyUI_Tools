@@ -19,7 +19,6 @@ const LIBS = [
 	{ key: "cloth", label: "服装", widget: "服装" },
 ];
 
-const AUTO_ANGLE = "自动";
 const CAT_ALL = "/"; // "/" = 全部，按子目录分组展示
 
 const CELL = 72; // 缩略图格子边长
@@ -80,12 +79,18 @@ const CSS = `
 .qq-gp-cell .qq-gp-order{position:absolute;right:3px;top:2px;min-width:14px;padding:0 3px;
   border-radius:7px;background:var(--qq-gp-ac,#4f8cff);color:#fff;font-size:10px;
   line-height:14px;text-align:center;pointer-events:none}
-.qq-gp-anglebar{display:flex;gap:5px;align-items:center;flex:0 0 auto;
-  font-size:11px;color:var(--descrip-text,#96a0b0)}
-.qq-gp-anglebar[hidden]{display:none}
-.qq-gp-anglebar select{flex:1 1 auto;min-width:0;height:22px;padding:0 6px;border-radius:4px;
-  border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
-  color:var(--input-text,#e6e8ee);font:inherit}
+.qq-gp-angles-panel{position:fixed;z-index:1580;display:flex;flex-direction:column;gap:4px;
+  padding:6px;border-radius:8px;background:var(--comfy-menu-bg,#25292d);
+  border:1px solid var(--border-color,#39404d);box-shadow:0 10px 28px rgba(0,0,0,.6);
+  max-height:72vh;overflow-y:auto}
+.qq-gp-angle-item{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:5px;
+  border:1px solid transparent;background:transparent;color:var(--input-text,#e6e8ee);
+  font:12px/1.3 system-ui,"Microsoft YaHei",sans-serif;cursor:pointer;text-align:left}
+.qq-gp-angle-item:hover{background:rgba(79,140,255,.16)}
+.qq-gp-angle-item[data-on="1"]{border-color:var(--qq-gp-ac,#4f8cff)}
+.qq-gp-angle-item img{width:56px;height:56px;object-fit:cover;border-radius:4px;
+  background:#0f1116;flex:0 0 auto}
+
 .qq-gp-menu{position:fixed;z-index:1600;min-width:118px;padding:4px;border-radius:6px;
   background:var(--comfy-menu-bg,#25292d);border:1px solid var(--border-color,#39404d);
   box-shadow:0 8px 24px rgba(0,0,0,.6);font:12px/1.4 system-ui,"Microsoft YaHei",sans-serif}
@@ -197,6 +202,22 @@ function attachHoverPreview(anchor, thumb, full) {
 		hoverCloseTimer = setTimeout(closeHoverPreview, 140);
 	});
 }
+
+// ---- 每条姿态各自的角度（存在隐藏控件「姿态角度」的 JSON 里）----
+let anglePicker = null;
+let anglePickerDismiss = null;
+
+function closeAnglePicker() {
+	if (anglePickerDismiss) {
+		document.removeEventListener("pointerdown", anglePickerDismiss, true);
+		anglePickerDismiss = null;
+	}
+	anglePicker?.remove();
+	anglePicker = null;
+}
+
+// 角度映射在 setup() 里实现：需要访问隐藏控件，不能放模块级
+
 
 // ---- 右键菜单：上移 / 下移 / 取消 / 删除 ----
 let cellMenu = null;
@@ -323,10 +344,6 @@ function setup(node) {
 				<span class="qq-gp-caret">▶</span>
 			</button>
 			<div class="qq-gp-body">
-				<div class="qq-gp-anglebar" hidden>
-					<span>角度</span>
-					<select class="qq-gp-angle"></select>
-				</div>
 				<div class="qq-gp-tools">
 					<input class="qq-gp-search" type="text" placeholder="搜索名称">
 					<select class="qq-gp-cat" title="按子目录筛选"></select>
@@ -354,8 +371,6 @@ function setup(node) {
 			cur: sec.querySelector(".qq-gp-cur"),
 			pick: sec.querySelector(".qq-gp-pick"),
 			grid: sec.querySelector(".qq-gp-grid"),
-			angleBar: sec.querySelector(".qq-gp-anglebar"),
-			angle: sec.querySelector(".qq-gp-angle"),
 			search: sec.querySelector(".qq-gp-search"),
 			cat: sec.querySelector(".qq-gp-cat"),
 			count: sec.querySelector(".qq-gp-count"),
@@ -463,6 +478,104 @@ function setup(node) {
 		node.graph?.setDirtyCanvas(true, true);
 	}
 
+	// ---- 每条姿态的角度：存在隐藏控件「姿态角度」的 JSON 里 ----
+	function readAngleMap() {
+		const widget = widgets.poseAngle;
+		if (!widget) return {};
+		try {
+			const data = JSON.parse(widget.value || "{}");
+			return data && typeof data === "object" ? data : {};
+		} catch {
+			return {};
+		}
+	}
+
+	function writeAngleMap(map) {
+		const widget = widgets.poseAngle;
+		if (!widget) return;
+		const value = JSON.stringify(map);
+		if (widget.value === value) return;
+		widget.value = value;
+		widget.callback?.(value, app.canvas, node, null, null);
+		node.graph?.setDirtyCanvas(true, true);
+	}
+
+	function angleKeys(item) {
+		return Object.keys(item?.angles ?? {});
+	}
+
+	// 没记过就用该条自带的第一个角度
+	function angleOf(state, item) {
+		const keys = angleKeys(item);
+		const chosen = readAngleMap()[item.label];
+		return keys.includes(chosen) ? chosen : keys[0] ?? "";
+	}
+
+	function angleLabel(state, key) {
+		const found = (state.data?.angles ?? []).find((entry) => entry.key === key);
+		return found?.label ?? key;
+	}
+
+	// 点带多视角的缩略图：左侧弹出这一条的全部视角
+	function openAnglePicker(state, item, anchor) {
+		const label = item.label;
+		if (anglePicker?.dataset.label === label) {
+			closeAnglePicker();
+			return;
+		}
+		closeAnglePicker();
+		const panel = document.createElement("div");
+		panel.className = "qq-gp-angles-panel";
+		panel.dataset.label = label;
+		const current = angleOf(state, item);
+		for (const [key, entry] of Object.entries(item.angles ?? {})) {
+			if (!entry?.img) continue;
+			const button = document.createElement("button");
+			button.type = "button";
+			button.className = "qq-gp-angle-item";
+			if (key === current) button.dataset.on = "1";
+			const thumb = document.createElement("img");
+			thumb.loading = "lazy";
+			thumb.src = thumbURL(state.lib.key, entry.img);
+			thumb.alt = angleLabel(state, key);
+			const text = document.createElement("span");
+			text.textContent = angleLabel(state, key);
+			button.append(thumb, text);
+			button.addEventListener("click", (event) => {
+				event.stopPropagation();
+				const list = selected(state);
+				if (!list.includes(label)) list.push(label);
+				setSelected(state, list);
+				const map = readAngleMap();
+				map[label] = key;
+				writeAngleMap(map);
+				closeAnglePicker();
+				renderGrid(state);
+				renderHeader(state);
+			});
+			panel.append(button);
+		}
+		document.body.append(panel);
+		// 弹在缩略图左边，放不下就贴窗口左边
+		const rect = anchor.getBoundingClientRect();
+		const box = panel.getBoundingClientRect();
+		const left = Math.max(4, rect.left - box.width - 8);
+		const top = Math.max(4, Math.min(window.innerHeight - box.height - 4, rect.top));
+		panel.style.left = `${Math.round(left)}px`;
+		panel.style.top = `${Math.round(top)}px`;
+		anglePicker = panel;
+		setTimeout(() => {
+			const dismiss = (event) => {
+				if (!anglePicker) return;
+				if (anglePicker.contains(event.target)) return;
+				closeAnglePicker();
+			};
+			anglePickerDismiss = dismiss;
+			document.addEventListener("pointerdown", dismiss, true);
+		}, 0);
+	}
+
+
 	function moveSelection(state, from, to) {
 		const list = selected(state);
 		if (from < 0 || from >= list.length) return;
@@ -496,29 +609,6 @@ function setup(node) {
 	}
 
 	// 角度下拉：只在图库真的有多个视角时出现
-	function renderAngleBar(state) {
-		const widget = widgets[`${state.lib.key}Angle`];
-		if (!state.angleBar) return;
-		const angles = state.data?.angles ?? [];
-		if (!widget || angles.length <= 1) {
-			state.angleBar.hidden = true;
-			return;
-		}
-		state.angleBar.hidden = false;
-		state.angle.replaceChildren();
-		const auto = document.createElement("option");
-		auto.value = "";
-		auto.textContent = AUTO_ANGLE;
-		state.angle.append(auto);
-		for (const angle of angles) {
-			const option = document.createElement("option");
-			option.value = angle.key;
-			option.textContent = angle.label;
-			state.angle.append(option);
-		}
-		state.angle.value = widget.value || "";
-	}
-
 	// 分类下拉：全部 / 根目录 "/" / 已存在的子目录
 	function renderCatBar(state) {
 		const select = state.cat;
@@ -638,13 +728,19 @@ function setup(node) {
 				img.alt = item.label;
 				const tag = document.createElement("span");
 				tag.className = "qq-gp-tag";
-				tag.textContent = grouped ? item.label.split("/").pop() : item.label;
+				const leaf = grouped ? item.label.split("/").pop() : item.label;
+				tag.textContent =
+					angleKeys(item).length > 1
+						? `${leaf} · ${angleLabel(state, angleOf(state, item))}`
+						: leaf;
 				cell.append(img, tag);
 				const angleCount = Object.keys(item.angles ?? {}).length;
 				if (angleCount > 1) {
 					const anglesTag = document.createElement("span");
 					anglesTag.className = "qq-gp-angles";
-					anglesTag.textContent = `${angleCount} 视角`;
+					anglesTag.textContent = chosen.has(item.label)
+						? angleLabel(state, angleOf(state, item))
+						: `${angleCount} 视角`;
 					anglesTag.title = `这条含 ${angleCount} 个视角，用上方「角度」切换`;
 					cell.append(anglesTag);
 				}
@@ -659,6 +755,10 @@ function setup(node) {
 				}
 				attachHoverPreview(cell, thumbURL(state.lib.key, src), imgURL(state.lib.key, src));
 				cell.addEventListener("click", () => {
+					if (angleKeys(item).length > 1) {
+						openAnglePicker(state, item, cell);
+						return;
+					}
 					const current = selected(state);
 					const index = current.indexOf(item.label);
 					if (index >= 0) current.splice(index, 1);
@@ -718,13 +818,13 @@ function setup(node) {
 		for (const lib of LIBS) {
 			const state = sections[lib.key];
 			renderHeader(state);
-			renderAngleBar(state);
 			renderCatBar(state);
 			if (state.expanded) renderGrid(state);
 		}
 	}
 
 	function collapseAll(exceptKey = null) {
+		closeAnglePicker();
 		closeHoverPreview();
 		expandedKey = exceptKey;
 		for (const lib of LIBS) {
@@ -745,7 +845,6 @@ function setup(node) {
 		}
 		renderHeader(state);
 		if (state.expanded) renderGrid(state);
-		renderAngleBar(state);
 		renderCatBar(state);
 	}
 
@@ -776,16 +875,6 @@ function setup(node) {
 			renderGrid(state);
 		});
 
-		state.angle?.addEventListener("change", () => {
-			const widget = widgets[`${lib.key}Angle`];
-			if (!widget) return;
-			const value = state.angle.value || "";
-			if (widget.value === value) return;
-			widget.value = value;
-			widget.callback?.(value, app.canvas, node, null, null);
-			node.graph?.setDirtyCanvas(true, true);
-			renderGrid(state);
-		});
 
 		state.sec.querySelector(".qq-gp-refresh").addEventListener("click", async () => {
 			state.hint.textContent = "重新扫描…";
@@ -802,7 +891,6 @@ function setup(node) {
 				console.error("[QQ-预制图像参考] 刷新失败", err);
 				await reload(lib.key, true);
 			}
-			renderAngleBar(state);
 			renderCatBar(state);
 			renderHeader(state);
 			renderGrid(state);
@@ -907,6 +995,7 @@ app.registerExtension({
 		nodeType.prototype.onRemoved = function () {
 			try {
 				closeHoverPreview();
+				closeAnglePicker();
 			} catch (err) {
 				console.error("[QQ-预制图像参考] 清理预览失败：", err);
 			}
