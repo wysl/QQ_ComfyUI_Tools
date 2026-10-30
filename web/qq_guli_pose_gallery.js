@@ -34,7 +34,8 @@ const CSS = `
   background:transparent;border:0;color:inherit;font:inherit;cursor:pointer;text-align:left}
 .qq-gp-hd:hover .qq-gp-cap{color:var(--qq-gp-ac,#4f8cff)}
 .qq-gp-cap{flex:0 0 auto;font-weight:600}
-.qq-gp-mini{flex:0 0 auto;width:28px;height:28px;border-radius:4px;object-fit:cover;
+.qq-gp-minis{flex:0 0 auto;display:flex;align-items:center;gap:2px}
+.qq-gp-mini{flex:0 0 auto;width:22px;height:28px;border-radius:4px;object-fit:cover;
   background:#0b0d12;border:1px solid var(--border-color,#39404d)}
 .qq-gp-cur{flex:1 1 auto;min-width:0;color:var(--descrip-text,#96a0b0);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -236,7 +237,7 @@ function setup(node) {
 		sec.innerHTML = `
 			<button class="qq-gp-hd" type="button">
 				<span class="qq-gp-cap">${lib.label}</span>
-				<img class="qq-gp-mini" alt="" hidden>
+				<span class="qq-gp-minis"></span>
 				<span class="qq-gp-cur">未选择</span>
 				<span class="qq-gp-pick" data-zero="1">0</span>
 				<span class="qq-gp-caret">▶</span>
@@ -263,7 +264,7 @@ function setup(node) {
 		sections[lib.key] = {
 			lib,
 			sec,
-			mini: sec.querySelector(".qq-gp-mini"),
+			minis: sec.querySelector(".qq-gp-minis"),
 			cur: sec.querySelector(".qq-gp-cur"),
 			pick: sec.querySelector(".qq-gp-pick"),
 			grid: sec.querySelector(".qq-gp-grid"),
@@ -323,7 +324,6 @@ function setup(node) {
 
 	function renderHeader(state) {
 		const names = selected(state);
-		const chosen = (state.data?.items ?? []).find((item) => item.label === names[0]);
 		state.pick.textContent = String(names.length);
 		state.pick.dataset.zero = names.length ? "0" : "1";
 		if (!names.length) {
@@ -337,14 +337,22 @@ function setup(node) {
 			state.cur.textContent = `${names.length} 张：${head}${names.length > 2 ? "…" : ""}`;
 			state.cur.title = names.join("\n");
 		}
-		const src = chosen ? firstImage(chosen) : "";
-		if (src) {
-			state.mini.hidden = false;
-			state.mini.src = thumbURL(state.lib.key, src);
-			attachHoverPreview(state.mini, thumbURL(state.lib.key, src), imgURL(state.lib.key, src));
-		} else {
-			state.mini.hidden = true;
-			state.mini.removeAttribute("src");
+		// 行头最多列出已选的前 3 张，多选时能一眼看出不止一张
+		state.minis.replaceChildren();
+		const picks = names
+			.map((name) => (state.data?.items ?? []).find((item) => item.label === name))
+			.filter(Boolean)
+			.slice(0, 3);
+		for (const item of picks) {
+			const src = firstImage(item);
+			if (!src) continue;
+			const thumb = document.createElement("img");
+			thumb.className = "qq-gp-mini";
+			thumb.alt = item.label;
+			thumb.loading = "lazy";
+			thumb.src = thumbURL(state.lib.key, src);
+			attachHoverPreview(thumb, thumbURL(state.lib.key, src), imgURL(state.lib.key, src));
+			state.minis.append(thumb);
 		}
 	}
 
