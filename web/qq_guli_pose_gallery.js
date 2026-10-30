@@ -14,7 +14,7 @@ const SEP = "|";
 const UNUSED = "未使用";
 
 const LIBS = [
-	{ key: "pose", label: "姿态", widget: "姿态", angleWidget: "姿态角度" },
+	{ key: "pose", label: "姿态", widget: "姿态" },
 	{ key: "face", label: "脸模", widget: "脸模" },
 	{ key: "cloth", label: "服装", widget: "服装" },
 ];
@@ -83,6 +83,7 @@ const CSS = `
   padding:6px;border-radius:8px;background:var(--comfy-menu-bg,#25292d);
   border:1px solid var(--border-color,#39404d);box-shadow:0 10px 28px rgba(0,0,0,.6);
   max-height:72vh;overflow-y:auto}
+.qq-gp-angles-hint{padding:2px 4px 4px;color:var(--descrip-text,#96a0b0);font-size:10px}
 .qq-gp-angle-item{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:5px;
   border:1px solid transparent;background:transparent;color:var(--input-text,#e6e8ee);
   font:12px/1.3 system-ui,"Microsoft YaHei",sans-serif;cursor:pointer;text-align:left}
@@ -318,13 +319,6 @@ function setup(node) {
 		if (!widget) return; // 控件缺失就放弃画廊，节点仍可手填
 		widgets[lib.key] = widget;
 		hideWidget(widget);
-		if (lib.angleWidget) {
-			const angleWidget = node.widgets?.find((w) => w.name === lib.angleWidget);
-			if (angleWidget) {
-				widgets[`${lib.key}Angle`] = angleWidget;
-				hideWidget(angleWidget);
-			}
-		}
 	}
 
 	const root = document.createElement("div");
@@ -479,37 +473,38 @@ function setup(node) {
 	}
 
 	// ---- 每条姿态的角度：存在隐藏控件「姿态角度」的 JSON 里 ----
-	function readAngleMap() {
-		const widget = widgets.poseAngle;
-		if (!widget) return {};
-		try {
-			const data = JSON.parse(widget.value || "{}");
-			return data && typeof data === "object" ? data : {};
-		} catch {
-			return {};
-		}
-	}
-
-	function writeAngleMap(map) {
-		const widget = widgets.poseAngle;
-		if (!widget) return;
-		const value = JSON.stringify(map);
-		if (widget.value === value) return;
-		widget.value = value;
-		widget.callback?.(value, app.canvas, node, null, null);
-		node.graph?.setDirtyCanvas(true, true);
-	}
 
 	function angleKeys(item) {
 		return Object.keys(item?.angles ?? {});
 	}
 
-	// 没记过就用该条自带的第一个角度
-	function angleOf(state, item) {
-		const keys = angleKeys(item);
-		const chosen = readAngleMap()[item.label];
-		return keys.includes(chosen) ? chosen : keys[0] ?? "";
+	// 选择项是令牌：姿态是「条目::视角」，脸模/服装就是条目名
+	function tokenLabel(token) {
+		return String(token).split("::")[0];
 	}
+
+	function tokenAngle(token) {
+		return String(token).split("::")[1] ?? "";
+	}
+
+	function tokensOf(state, label) {
+		return selected(state).filter((token) => tokenLabel(token) === label);
+	}
+
+	function firstAngle(item) {
+		return angleKeys(item)[0] ?? "";
+	}
+
+	function tokenOf(item, key) {
+		return key ? `${item.label}::${key}` : item.label;
+	}
+
+	function srcOfToken(state, item, token) {
+		const angle = tokenAngle(token);
+		const entry = angle ? item.angles?.[angle] : Object.values(item.angles ?? {})[0];
+		return entry?.img ?? "";
+	}
+
 
 	function angleLabel(state, key) {
 		const found = (state.data?.angles ?? []).find((entry) => entry.key === key);
@@ -517,6 +512,7 @@ function setup(node) {
 	}
 
 	// 点带多视角的缩略图：左侧弹出这一条的全部视角
+	// 点带多视角的缩略图：右侧弹出这一条的全部视角，每个视角可独立开/关（多选）
 	function openAnglePicker(state, item, anchor) {
 		const label = item.label;
 		if (anglePicker?.dataset.label === label) {
@@ -527,13 +523,17 @@ function setup(node) {
 		const panel = document.createElement("div");
 		panel.className = "qq-gp-angles-panel";
 		panel.dataset.label = label;
-		const current = angleOf(state, item);
+		const hint = document.createElement("div");
+		hint.className = "qq-gp-angles-hint";
+		hint.textContent = "可多选视角";
+		panel.append(hint);
 		for (const [key, entry] of Object.entries(item.angles ?? {})) {
 			if (!entry?.img) continue;
+			const token = tokenOf(item, key);
 			const button = document.createElement("button");
 			button.type = "button";
 			button.className = "qq-gp-angle-item";
-			if (key === current) button.dataset.on = "1";
+			if (selected(state).includes(token)) button.dataset.on = "1";
 			const thumb = document.createElement("img");
 			thumb.loading = "lazy";
 			thumb.src = thumbURL(state.lib.key, entry.img);
@@ -545,12 +545,11 @@ function setup(node) {
 			button.addEventListener("click", (event) => {
 				event.stopPropagation();
 				const list = selected(state);
-				if (!list.includes(label)) list.push(label);
+				const at = list.indexOf(token);
+				if (at >= 0) list.splice(at, 1);
+				else list.push(token);
 				setSelected(state, list);
-				const map = readAngleMap();
-				map[label] = key;
-				writeAngleMap(map);
-				closeAnglePicker();
+				button.dataset.on = list.includes(token) ? "1" : "";
 				renderGrid(state);
 				renderHeader(state);
 			});
@@ -562,9 +561,7 @@ function setup(node) {
 		const box = panel.getBoundingClientRect();
 		const gap = 8;
 		let left = rect.right + gap;
-		if (left + box.width > window.innerWidth - 4) {
-			left = rect.left - box.width - gap;
-		}
+		if (left + box.width > window.innerWidth - 4) left = rect.left - box.width - gap;
 		left = Math.max(4, Math.min(window.innerWidth - box.width - 4, left));
 		const top = Math.max(4, Math.min(window.innerHeight - box.height - 4, rect.top));
 		panel.style.left = `${Math.round(left)}px`;
@@ -609,7 +606,7 @@ function setup(node) {
 			}
 		}
 		await reload(state.lib.key, true);
-		setSelected(state, selected(state).filter((name) => name !== item.label));
+		setSelected(state, selected(state).filter((token) => tokenLabel(token) !== item.label));
 		renderGrid(state);
 		renderHeader(state);
 	}
@@ -638,32 +635,38 @@ function setup(node) {
 
 
 	function renderHeader(state) {
-		const names = selected(state);
-		state.pick.textContent = String(names.length);
-		state.pick.dataset.zero = names.length ? "0" : "1";
-		if (!names.length) {
+		const tokens = selected(state);
+		state.pick.textContent = String(tokens.length);
+		state.pick.dataset.zero = tokens.length ? "0" : "1";
+		const describe = (token) => {
+			const label = tokenLabel(token);
+			const angle = tokenAngle(token);
+			return angle ? `${label} · ${angleLabel(state, angle)}` : label;
+		};
+		if (!tokens.length) {
 			state.cur.textContent = UNUSED;
 			state.cur.title = UNUSED;
-		} else if (names.length === 1) {
-			state.cur.textContent = names[0];
-			state.cur.title = names[0];
+		} else if (tokens.length === 1) {
+			state.cur.textContent = describe(tokens[0]);
+			state.cur.title = describe(tokens[0]);
 		} else {
-			const head = names.slice(0, 2).join("、");
-			state.cur.textContent = `${names.length} 张：${head}${names.length > 2 ? "…" : ""}`;
-			state.cur.title = names.join("\n");
+			const head = tokens.slice(0, 2).map(describe).join("、");
+			state.cur.textContent = `${tokens.length} 张：${head}${tokens.length > 2 ? "…" : ""}`;
+			state.cur.title = tokens.map(describe).join(String.fromCharCode(10));
 		}
-		// 行头最多列出已选的前 3 张，多选时能一眼看出不止一张
+		// 行头最多列出已选的前 3 张（按各自选的视角），多选时能一眼看出不止一张
 		state.minis.replaceChildren();
-		const picks = names
-			.map((name) => (state.data?.items ?? []).find((item) => item.label === name))
-			.filter(Boolean)
-			.slice(0, 3);
-		for (const item of picks) {
-			const src = firstImage(item);
+		for (const token of tokens.slice(0, 3)) {
+			const item = (state.data?.items ?? []).find((entry) => entry.label === tokenLabel(token));
+			if (!item) continue;
+			const angle = tokenAngle(token);
+			const entry = angle ? item.angles?.[angle] : Object.values(item.angles ?? {})[0];
+			const src = entry?.img;
 			if (!src) continue;
 			const thumb = document.createElement("img");
 			thumb.className = "qq-gp-mini";
-			thumb.alt = item.label;
+			thumb.alt = describe(token);
+			thumb.title = describe(token);
 			thumb.loading = "lazy";
 			thumb.src = thumbURL(state.lib.key, src);
 			attachHoverPreview(thumb, thumbURL(state.lib.key, src), imgURL(state.lib.key, src));
@@ -680,7 +683,6 @@ function setup(node) {
 			if (!keyword) return true;
 			return String(item.label).toLowerCase().includes(keyword);
 		});
-		const chosen = new Set(selected(state));
 
 		state.grid.replaceChildren();
 		if (!shown.length) {
@@ -725,43 +727,48 @@ function setup(node) {
 				const cell = document.createElement("button");
 				cell.type = "button";
 				cell.className = "qq-gp-cell";
-				cell.title = `${item.label}\n点击切换选中（可多选）`;
-				if (chosen.has(item.label)) cell.dataset.on = "1";
+				const picked = tokensOf(state, item.label);
+				const angles = angleKeys(item);
+				cell.title =
+					angles.length > 1
+						? `${item.label}
+点击在右侧展开 ${angles.length} 个视角（可多选）`
+						: `${item.label}
+点击切换选中（可多选）`;
+				if (picked.length) cell.dataset.on = "1";
 				const img = document.createElement("img");
 				img.loading = "lazy";
 				img.decoding = "async";
-				img.src = thumbURL(state.lib.key, src);
+				img.src = thumbURL(state.lib.key, picked.length ? srcOfToken(state, item, picked[0]) : src);
 				img.alt = item.label;
 				const tag = document.createElement("span");
 				tag.className = "qq-gp-tag";
 				const leaf = grouped ? item.label.split("/").pop() : item.label;
-				tag.textContent =
-					angleKeys(item).length > 1
-						? `${leaf} · ${angleLabel(state, angleOf(state, item))}`
-						: leaf;
+				const names = picked.map((token) => angleLabel(state, tokenAngle(token))).filter(Boolean);
+				tag.textContent = names.length ? `${leaf} · ${names.join("/")}` : leaf;
 				cell.append(img, tag);
-				const angleCount = Object.keys(item.angles ?? {}).length;
-				if (angleCount > 1) {
+				// 左上角：没选时提示视角数，选了就给每个视角一枚「视角 序号」小标
+				if (!picked.length && angles.length > 1) {
 					const anglesTag = document.createElement("span");
 					anglesTag.className = "qq-gp-angles";
-					anglesTag.textContent = chosen.has(item.label)
-						? angleLabel(state, angleOf(state, item))
-						: `${angleCount} 视角`;
-					anglesTag.title = `这条含 ${angleCount} 个视角，用上方「角度」切换`;
+					anglesTag.textContent = `${angles.length} 视角`;
+					anglesTag.title = `这条含 ${angles.length} 个视角，点开右侧面板可多选`;
 					cell.append(anglesTag);
 				}
-				const picked = selected(state);
-				const order = picked.indexOf(item.label);
-				if (order >= 0) {
+				const all = selected(state);
+				for (const token of picked.slice(0, 3)) {
+					const order = all.indexOf(token);
 					const mark = document.createElement("span");
 					mark.className = "qq-gp-order";
-					mark.textContent = String(order + 1);
+					mark.textContent = angles.length > 1
+						? `${angleLabel(state, tokenAngle(token))} ${order + 1}`
+						: String(order + 1);
 					mark.title = `输出顺序第 ${order + 1} 张`;
 					cell.append(mark);
 				}
 				attachHoverPreview(cell, thumbURL(state.lib.key, src), imgURL(state.lib.key, src));
 				cell.addEventListener("click", () => {
-					if (angleKeys(item).length > 1) {
+					if (angles.length > 1) {
 						openAnglePicker(state, item, cell);
 						return;
 					}
@@ -776,21 +783,28 @@ function setup(node) {
 				cell.addEventListener("contextmenu", (event) => {
 					event.preventDefault();
 					const current = selected(state);
-					const at = current.indexOf(item.label);
+					const single = picked.length === 1 ? picked[0] : null;
+					const at = single ? current.indexOf(single) : -1;
 					openCellMenu(cell, [
-						{ label: "上移", disabled: at <= 0, onClick: () => moveSelection(state, at, at - 1) },
+						{
+							label: "上移",
+							disabled: at <= 0,
+							onClick: () => moveSelection(state, at, at - 1),
+						},
 						{
 							label: "下移",
 							disabled: at < 0 || at >= current.length - 1,
 							onClick: () => moveSelection(state, at, at + 1),
 						},
 						{
-							label: at >= 0 ? "取消选择" : "加入选择",
+							label: picked.length ? "取消选中" : "加入选中",
 							onClick: () => {
-								const list = selected(state);
-								const index = list.indexOf(item.label);
-								if (index >= 0) list.splice(index, 1);
-								else list.push(item.label);
+								let list = selected(state);
+								if (picked.length) {
+									list = list.filter((token) => tokenLabel(token) !== item.label);
+								} else {
+									list.push(tokenOf(item, angles.length > 1 ? firstAngle(item) : ""));
+								}
 								setSelected(state, list);
 								renderGrid(state);
 								renderHeader(state);
