@@ -3,3 +3,5 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 config/grok_image_endpoints.json
+# 图库的用户素材兜底目录（正常情况下在 ComfyUI/user 下，不该进仓库）
+node_modules/userdata/

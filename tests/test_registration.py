@@ -64,9 +64,10 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 38)
+        self.assertEqual(len(mappings), 39)
         self.assertIn("QQImagePackageLoader", mappings)
         self.assertIn("QQImagePackageSaver", mappings)
+        self.assertIn("QQGuliPosePicker", mappings)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
