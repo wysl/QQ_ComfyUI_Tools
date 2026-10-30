@@ -20,7 +20,6 @@ const LIBS = [
 ];
 
 const CELL = 72; // 缩略图格子边长
-const MIN_BODY_H = 190;
 const HEADER_H = 40;
 
 const CSS = `
@@ -46,6 +45,7 @@ const CSS = `
 .qq-gp-caret{flex:0 0 auto;color:var(--descrip-text,#96a0b0);transition:transform .12s}
 .qq-gp-sec[data-open="1"] .qq-gp-caret{transform:rotate(90deg)}
 .qq-gp-body{display:none;flex:1 1 auto;min-height:0;flex-direction:column;gap:5px;padding:0 5px 5px}
+.qq-gp-sec[data-open="1"] .qq-gp-body{min-height:190px}
 .qq-gp-sec[data-open="1"] .qq-gp-body{display:flex}
 .qq-gp-tools{display:flex;gap:5px;align-items:center;flex:0 0 auto}
 .qq-gp-tools input{flex:1 1 auto;min-width:0;height:22px;padding:0 6px;border-radius:4px;
@@ -280,26 +280,32 @@ function setup(node) {
 
 	let expandedKey = null;
 
-	// 自然高度：收起时只占三行表头，展开时再加上网格。
-	function naturalHeight() {
-		return HEADER_H * LIBS.length + (expandedKey ? MIN_BODY_H : 6) + 8;
-	}
-
 	const gallery = node.addDOMWidget("qq_gp_gallery", "qq_gp_gallery", root, {
 		serialize: false,
 		hideOnZoom: false,
-		// 动态最小高度：收起时允许节点缩到只包住三行，避免一大片空白
-		getMinHeight: () => naturalHeight(),
+		// 最小高度只给个下限，真正的尺寸由 fitToContent 按实测内容高度调
+		getMinHeight: () => HEADER_H * LIBS.length,
 	});
 
-	// 只把节点调到自然高度；用户手动拉高过的尺寸不被回写覆盖
-	function refreshGallerySize() {
-		const height = naturalHeight() + 30; // 30 = 节点标题栏
+	// 按「内容实际需要的高度」和「当前可用高度」的差值调节点。
+	// 不写死标题栏/行高常数：实测过一次就准，换主题、缩放、字体都不受影响。
+	function fitToContent(attempt = 0) {
+		if (!root?.isConnected) return;
+		const need = root.scrollHeight;
+		const have = root.clientHeight;
+		if (!need || !have) return;
+		const delta = need - have;
+		if (Math.abs(delta) <= 2) return;
 		const width = node.size?.[0] ?? 340;
-		if (!node.size || Math.abs((node.size[1] ?? 0) - height) > 0.5) {
-			node.setSize?.([width, height]);
-		}
+		const height = Math.max(120, (node.size?.[1] ?? 200) + delta);
+		node.setSize?.([width, height]);
 		node.graph?.setDirtyCanvas(true, true);
+		// 布局一帧后再量一次，收敛到刚好包住内容
+		if (attempt < 3) requestAnimationFrame(() => fitToContent(attempt + 1));
+	}
+
+	function refreshGallerySize() {
+		requestAnimationFrame(() => fitToContent());
 	}
 
 	function selected(state) {
@@ -529,8 +535,12 @@ function setup(node) {
 
 	collapseAll();
 	refreshGallerySize();
-	Promise.all(LIBS.map((lib) => reload(lib.key))).then(() => syncAll());
+	Promise.all(LIBS.map((lib) => reload(lib.key))).then(() => {
+		syncAll();
+		refreshGallerySize();
+	});
 	node.__qqGpSync = syncAll;
+	node.__qqGpFit = refreshGallerySize;
 }
 
 app.registerExtension({
@@ -567,6 +577,7 @@ app.registerExtension({
 			const result = onConfigure?.apply(this, arguments);
 			try {
 				this.__qqGpSync?.();
+				this.__qqGpFit?.();
 			} catch (err) {
 				console.error("[QQ-预制图像参考] 刷新失败：", err);
 			}
