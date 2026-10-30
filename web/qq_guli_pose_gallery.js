@@ -538,6 +538,7 @@ function setup(node) {
 		const panel = document.createElement("div");
 		panel.className = "qq-gp-angles-panel";
 		panel.dataset.label = label;
+		panel.__qqAnchor = anchor;
 		const hint = document.createElement("div");
 		hint.className = "qq-gp-angles-hint";
 		hint.textContent = "可多选视角";
@@ -595,6 +596,8 @@ function setup(node) {
 			const dismiss = (event) => {
 				if (!anglePicker) return;
 				if (anglePicker.contains(event.target)) return;
+				// 点回原缩略图时不在这里关，让它的 click 处理器决定（再次点击=收起）
+				if (anglePicker.__qqAnchor?.contains(event.target)) return;
 				closeAnglePicker();
 			};
 			anglePickerDismiss = dismiss;
