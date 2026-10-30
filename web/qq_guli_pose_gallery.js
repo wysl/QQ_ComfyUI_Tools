@@ -205,7 +205,7 @@ function hideWidget(widget) {
 	widget.type = "hidden";
 	widget.options ||= {};
 	widget.options.hidden = true;
-	widget.computeSize = () => [0, -4];
+	widget.computeSize = () => [0, 0];
 }
 
 function splitValue(value) {
@@ -281,7 +281,7 @@ function setup(node) {
 	let expandedKey = null;
 
 	// 布局常量：必须与下面 CSS 里的数值一致。
-	// 用它们直接算内容高度，而不是量 scrollHeight —— 节点被拉高时内容不再溢出，
+	// 直接算内容高度，而不是量 scrollHeight —— 节点被拉高时内容不再溢出，
 	// scrollHeight 会等于可用高度，那样永远缩不回来。
 	const ROW_H = 42; // 行头 40 + 上下 1px 边框
 	const GAP = 4; // .qq-gp 的 gap
@@ -289,6 +289,8 @@ function setup(node) {
 	const BODY_H = 190; // 展开区块的 body 高度
 
 	let contentNeed = 0;
+	let chrome = 0; // 节点外壳（标题栏/外边距）占的高度
+	let calibrated = false;
 
 	function contentHeight() {
 		const open = expandedKey ? 1 : 0;
@@ -298,30 +300,33 @@ function setup(node) {
 	const gallery = node.addDOMWidget("qq_gp_gallery", "qq_gp_gallery", root, {
 		serialize: false,
 		hideOnZoom: false,
+		// 默认有 10px 外边距，会让内容与节点边界之间多出一圈空白
+		margin: 0,
 		getMinHeight: () => contentHeight(),
 	});
 
-	// 「节点高度 - 控件可用高度」这层外壳（标题栏 + 内边距）只量一次：
-	// 它与节点大小无关，量到就能一直用，缩放也只差一个 scale。
-	function chromeCss() {
+	// 外壳高度只校准一次：先按「没有外壳」把节点摆成内容高度，再量控件实际
+	// 拿到多少；差值就是外壳。比硬编码标题栏高度可靠（主题/边距都能自适应）。
+	function calibrate(attempt = 0) {
+		if (calibrated || !root?.isConnected) return;
 		const scale = app.canvas?.ds?.scale || 1;
-		if (typeof node.__qqGpChrome === "number") return node.__qqGpChrome;
-		if (!root?.clientHeight) return null;
-		const chrome = (node.size?.[1] ?? 0) * scale - root.clientHeight;
-		if (chrome >= 0 && chrome < 400) {
-			node.__qqGpChrome = chrome;
-			return chrome;
-		}
-		return null;
+		const content = contentHeight();
+		node.setSize?.([node.size?.[0] ?? 340, content / scale]);
+		requestAnimationFrame(() => {
+			const have = root.clientHeight;
+			if (!have) {
+				if (attempt < 10) calibrate(attempt + 1);
+				return;
+			}
+			chrome = Math.max(0, Math.round(content - have));
+			calibrated = true;
+			fitToContent(0, false);
+		});
 	}
 
 	// clampOnly=true 时只把「太矮」的节点撑高，用户拉大的尺寸不动
 	function fitToContent(attempt = 0, clampOnly = false) {
-		const chrome = chromeCss();
-		if (chrome == null) {
-			if (attempt < 8) requestAnimationFrame(() => fitToContent(attempt + 1, clampOnly));
-			return;
-		}
+		if (!root?.isConnected) return;
 		contentNeed = contentHeight();
 		const scale = app.canvas?.ds?.scale || 1;
 		const target = (contentNeed + chrome) / scale;
@@ -334,6 +339,10 @@ function setup(node) {
 	}
 
 	function refreshGallerySize() {
+		if (!calibrated) {
+			calibrate();
+			return;
+		}
 		requestAnimationFrame(() => fitToContent(0, false));
 	}
 
