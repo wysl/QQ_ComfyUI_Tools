@@ -1,47 +1,77 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
+// QQ-白模参考 的前端：三段折叠图库（姿态 / 脸模 / 服装）。
+//
+// 默认三行都收起，只显示「类型 + 当前选中项的缩略图 + 名字」；
+// 点某一行才展开该类型的缩略图网格，点缩略图即选中并自动收起。
+// 缩略图统一按固定格子缩放（object-fit: cover），不会像旧版那样堆叠。
+//
+// 数据全部来自 /qq_gulipose/<lib>/index.json，图片落在用户目录，插件目录不存图。
+
 const NODE_NAME = "QQGuliPosePicker";
-const API = "/qq_gulipose/pose";
+const PREFIX = "/qq_gulipose";
 
-const MODE_FIXED = "固定选中";
-const MODE_RANDOM_ALL = "全库随机";
-const MODE_RANDOM_FILTERED = "范围内随机";
-const ALL = "全部";
+const LIBS = [
+	{ key: "pose", label: "姿态", widget: "姿态" },
+	{ key: "face", label: "脸模", widget: "脸模" },
+	{ key: "garment", label: "服装", widget: "服装" },
+];
 
-// 画廊高度随节点高度走：这三个常量只用来算「除画廊外占掉多少」。
-const MIN_GALLERY_H = 240;
-const NODE_CHROME_H = 38; // 标题栏 + 节点内边距
-const PARAM_ROW_H = 24; // 一个参数行：widget 20 + 间距 4
+const UNUSED = "未使用";
+const CELL = 72; // 缩略图格子边长，自动缩放用
+const MIN_BODY_H = 190;
+const HEADER_H = 40;
 
 const CSS = `
-.qq-gp{box-sizing:border-box;height:100%;display:flex;flex-direction:column;gap:6px;padding:6px;
+.qq-gp{box-sizing:border-box;height:100%;display:flex;flex-direction:column;gap:4px;padding:4px;
   background:var(--comfy-menu-bg,#1e2128);color:var(--input-text,#e6e8ee);border-radius:6px;
   overflow:hidden;font:12px/1.35 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
 .qq-gp *{box-sizing:border-box}
-.qq-gp-tools{display:flex;gap:6px;align-items:center;flex:0 0 auto}
-.qq-gp-tools select,.qq-gp-tools input{min-width:0;height:24px;padding:0 6px;border-radius:4px;
+.qq-gp-sec{flex:0 0 auto;display:flex;flex-direction:column;min-height:0;
+  border:1px solid var(--border-color,#39404d);border-radius:6px;background:var(--comfy-input-bg,#12141a)}
+.qq-gp-sec[data-open="1"]{flex:1 1 auto;min-height:0}
+.qq-gp-hd{display:flex;align-items:center;gap:6px;width:100%;height:${HEADER_H}px;padding:0 6px;
+  background:transparent;border:0;color:inherit;font:inherit;cursor:pointer;text-align:left}
+.qq-gp-hd:hover .qq-gp-cap{color:var(--qq-gp-ac,#4f8cff)}
+.qq-gp-cap{flex:0 0 auto;font-weight:600}
+.qq-gp-mini{flex:0 0 auto;width:28px;height:28px;border-radius:4px;object-fit:cover;
+  background:#0b0d12;border:1px solid var(--border-color,#39404d)}
+.qq-gp-sec[data-open="1"] .qq-gp-mini{width:64px;height:64px}
+.qq-gp-cur{flex:1 1 auto;min-width:0;color:var(--descrip-text,#96a0b0);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qq-gp-badge{flex:0 0 auto;padding:0 5px;border-radius:8px;font-size:10px;
+  background:rgba(79,140,255,.16);color:var(--qq-gp-ac,#4f8cff)}
+.qq-gp-caret{flex:0 0 auto;color:var(--descrip-text,#96a0b0);transition:transform .12s}
+.qq-gp-sec[data-open="1"] .qq-gp-caret{transform:rotate(90deg)}
+.qq-gp-body{display:none;flex:1 1 auto;min-height:0;flex-direction:column;gap:5px;padding:0 5px 5px}
+.qq-gp-sec[data-open="1"] .qq-gp-body{display:flex}
+.qq-gp-tools{display:flex;gap:5px;align-items:center;flex:0 0 auto}
+.qq-gp-tools input{flex:1 1 auto;min-width:0;height:22px;padding:0 6px;border-radius:4px;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
   color:inherit;font:inherit}
-.qq-gp-tools select{flex:0 0 34%}
-.qq-gp-tools input{flex:1 1 auto}
-.qq-gp-btn{flex:0 0 auto;height:24px;padding:0 10px;border-radius:4px;cursor:pointer;
-  border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);color:inherit;
-  font:inherit}
+.qq-gp-btn{flex:0 0 auto;height:22px;padding:0 8px;border-radius:4px;cursor:pointer;
+  border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
+  color:inherit;font:inherit}
 .qq-gp-btn:hover{border-color:var(--qq-gp-ac,#4f8cff);color:var(--qq-gp-ac,#4f8cff)}
-.qq-gp-grid{flex:1 1 auto;min-height:0;overflow-y:auto;display:grid;gap:6px;
-  grid-template-columns:repeat(auto-fill,minmax(78px,1fr));align-content:start}
-.qq-gp-cell{position:relative;padding:0;border:1px solid var(--border-color,#39404d);
-  border-radius:6px;background:#0f1116;cursor:pointer;overflow:hidden;aspect-ratio:1/1}
+.qq-gp-grid{flex:1 1 auto;min-height:0;overflow-y:auto;display:grid;gap:5px;
+  grid-template-columns:repeat(auto-fill,${CELL}px);
+  grid-auto-rows:${CELL}px;align-content:start}
+.qq-gp-cell{position:relative;width:${CELL}px;height:${CELL}px;padding:0;
+  border:1px solid var(--border-color,#39404d);border-radius:5px;background:#0f1116;
+  cursor:pointer;overflow:hidden}
 .qq-gp-cell img{width:100%;height:100%;object-fit:cover;display:block}
 .qq-gp-cell:hover{border-color:var(--qq-gp-ac,#4f8cff)}
-.qq-gp-cell[data-on="1"]{border-color:var(--qq-gp-ac,#4f8cff);box-shadow:0 0 0 1px var(--qq-gp-ac,#4f8cff) inset}
-.qq-gp-cell .qq-gp-tag{position:absolute;left:0;right:0;bottom:0;padding:1px 4px;font-size:10px;
-  background:rgba(12,14,18,.72);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.qq-gp-empty{grid-column:1/-1;padding:18px 10px;text-align:center;color:var(--descrip-text,#96a0b0);
-  line-height:1.6}
+.qq-gp-cell[data-on="1"]{border-color:var(--qq-gp-ac,#4f8cff);
+  box-shadow:0 0 0 1px var(--qq-gp-ac,#4f8cff) inset}
+.qq-gp-cell .qq-gp-tag{position:absolute;left:0;right:0;bottom:0;padding:1px 3px;font-size:9px;
+  background:rgba(10,12,16,.74);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qq-gp-empty{grid-column:1/-1;padding:12px 6px;text-align:center;line-height:1.6;
+  color:var(--descrip-text,#96a0b0)}
+.qq-gp-empty code{background:rgba(255,255,255,.06);padding:1px 4px;border-radius:3px;
+  word-break:break-all}
 .qq-gp-foot{flex:0 0 auto;display:flex;justify-content:space-between;gap:8px;
-  color:var(--descrip-text,#96a0b0);font-size:11px}
+  color:var(--descrip-text,#96a0b0);font-size:10px;padding-top:2px}
 .qq-gp-foot span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 `;
 
@@ -53,317 +83,357 @@ function injectCSS() {
 	document.head.append(el);
 }
 
-let dbPromise = null;
-
-function loadDB(force = false) {
-	if (!dbPromise || force) {
-		dbPromise = api
-			.fetchApi(`${API}/index.json`)
-			.then((res) => {
-				if (!res.ok) throw new Error(`HTTP ${res.status}`);
-				return res.json();
-			})
-			.catch((err) => {
-				if (!force) dbPromise = null;
-				throw err;
-			});
-	}
-	return dbPromise;
+function imgURL(lib, name) {
+	return api.apiURL(`${PREFIX}/${lib}/img/${encodeURIComponent(name)}`);
 }
 
-function thumbURL(pose) {
-	const base = pose.root === "custom" ? `${API}/custom/thumbs` : `${API}/thumbs`;
-	const entry = pose.angles?.front ?? Object.values(pose.angles ?? {})[0];
-	const name = entry?.thumb;
-	if (!name) return "";
-	const encoded = encodeURIComponent(name);
-	// 自定义图的缩略图紧随原图，加个版本号避免浏览器缓存旧图
-	return api.apiURL(`${base}/${encoded}`) + (pose.root === "custom" ? `?v=${pose.mtime ?? 0}` : "");
+function thumbURL(lib, name) {
+	return api.apiURL(`${PREFIX}/${lib}/thumb/${encodeURIComponent(name)}`);
+}
+
+function firstImage(item) {
+	const angles = item?.angles ?? {};
+	const entry = angles.front ?? Object.values(angles)[0];
+	return entry?.img ?? "";
+}
+
+const dbCache = new Map();
+
+async function loadLib(lib, force = false) {
+	if (!force && dbCache.has(lib)) return dbCache.get(lib);
+	const res = await api.fetchApi(`${PREFIX}/${lib}/index.json`);
+	if (!res.ok) throw new Error(`HTTP ${res.status}`);
+	const data = await res.json();
+	dataCacheSet(lib, data);
+	return data;
+}
+
+function dataCacheSet(lib, data) {
+	dbCache.set(lib, data);
+}
+
+function setWidget(node, widget, value) {
+	if (!widget || widget.value === value) return false;
+	widget.value = value;
+	widget.callback?.(value, app.canvas, node, null, null);
+	node.graph?.setDirtyCanvas(true, true);
+	return true;
+}
+
+function hideWidget(widget) {
+	if (!widget || widget.__qqGpHidden) return;
+	widget.__qqGpHidden = true;
+	widget.__qqGpOrigType = widget.type;
+	widget.__qqGpOrigCompute = widget.computeSize;
+	widget.hidden = true;
+	widget.type = "hidden";
+	widget.options ||= {};
+	widget.options.hidden = true;
+	widget.computeSize = () => [0, -4];
 }
 
 function setup(node) {
 	injectCSS();
 
-	const w = (name) => node.widgets?.find((x) => x.name === name);
-	const modeWidget = w("模式");
-	const poseWidget = w("姿态");
-	const angleWidget = w("视角");
-	const seriesWidget = w("筛选系列");
-	const catWidget = w("筛选分类");
-	if (!modeWidget || !poseWidget || !angleWidget || !seriesWidget || !catWidget) return;
+	const widgets = {};
+	for (const lib of LIBS) {
+		const widget = node.widgets?.find((w) => w.name === lib.widget);
+		if (!widget) return; // 控件缺失就放弃画廊，节点仍可手选
+		widgets[lib.key] = widget;
+		hideWidget(widget);
+	}
 
 	const root = document.createElement("div");
 	root.className = "qq-gp";
-	root.innerHTML = `
-		<div class="qq-gp-tools">
-			<select class="qq-gp-series" title="按系列筛选"></select>
-			<input class="qq-gp-search" type="text" placeholder="搜索编号 / 名称">
-			<button class="qq-gp-btn qq-gp-imp" type="button" title="导入自己的姿态图">导入</button>
-			<button class="qq-gp-btn qq-gp-shuffle" type="button" title="随机挑一个（切回固定选中）">随机</button>
-		</div>
-		<div class="qq-gp-grid"><div class="qq-gp-empty">载入姿态库…</div></div>
-		<div class="qq-gp-foot"><span class="qq-gp-count"></span><span class="qq-gp-hint"></span></div>`;
 
-	const seriesSel = root.querySelector(".qq-gp-series");
-	const searchInput = root.querySelector(".qq-gp-search");
-	const grid = root.querySelector(".qq-gp-grid");
-	const countEl = root.querySelector(".qq-gp-count");
-	const hintEl = root.querySelector(".qq-gp-hint");
+	const sections = {};
+	for (const lib of LIBS) {
+		const sec = document.createElement("div");
+		sec.className = "qq-gp-sec";
+		sec.dataset.open = "0";
+		sec.innerHTML = `
+			<button class="qq-gp-hd" type="button">
+				<span class="qq-gp-cap">${lib.label}</span>
+				<img class="qq-gp-mini" alt="" hidden>
+				<span class="qq-gp-cur">未选择</span>
+				<span class="qq-gp-badge">0</span>
+				<span class="qq-gp-caret">▶</span>
+			</button>
+			<div class="qq-gp-body">
+				<div class="qq-gp-tools">
+					<input class="qq-gp-search" type="text" placeholder="搜索名称">
+					<button class="qq-gp-btn qq-gp-rand" type="button" title="随机挑一张">随机</button>
+					<button class="qq-gp-btn qq-gp-imp" type="button" title="导入图片（存到用户目录）">导入</button>
+					<button class="qq-gp-btn qq-gp-clear" type="button" title="改回未使用">清除</button>
+				</div>
+				<div class="qq-gp-grid"></div>
+				<div class="qq-gp-foot"><span class="qq-gp-count"></span><span class="qq-gp-hint"></span></div>
+			</div>`;
+		root.append(sec);
 
-	const gallery = node.addDOMWidget("qq_guli_pose_gallery", "qq_guli_pose_gallery", root, {
+		const fileInput = document.createElement("input");
+		fileInput.type = "file";
+		fileInput.accept = "image/*";
+		fileInput.multiple = true;
+		fileInput.style.display = "none";
+		sec.append(fileInput);
+
+		sections[lib.key] = {
+			lib,
+			sec,
+			hd: sec.querySelector(".qq-gp-hd"),
+			mini: sec.querySelector(".qq-gp-mini"),
+			cur: sec.querySelector(".qq-gp-cur"),
+			badge: sec.querySelector(".qq-gp-badge"),
+			grid: sec.querySelector(".qq-gp-grid"),
+			search: sec.querySelector(".qq-gp-search"),
+			count: sec.querySelector(".qq-gp-count"),
+			hint: sec.querySelector(".qq-gp-hint"),
+			fileInput,
+			keyword: "",
+			data: null,
+			expanded: false,
+		};
+	}
+
+	const gallery = node.addDOMWidget("qq_gp_gallery", "qq_gp_gallery", root, {
 		serialize: false,
 		hideOnZoom: false,
-		getMinHeight: () => MIN_GALLERY_H,
+		getMinHeight: () => HEADER_H * LIBS.length + MIN_BODY_H,
 	});
 
-	function chromeHeight() {
-		let rows = 0;
-		for (const widget of node.widgets ?? []) {
-			if (widget === gallery || widget.hidden) continue;
-			rows += 1;
-		}
-		return NODE_CHROME_H + rows * PARAM_ROW_H;
-	}
+	let expandedKey = null;
 
-	gallery.computeSize = (width) => [
-		width ?? node.size[0],
-		Math.max(MIN_GALLERY_H, node.size[1] - chromeHeight()),
-	];
-
-	let data = null;
-	let filterSeries = ALL;
-	let keyword = "";
-
-	const setWidget = (widget, value) => {
-		if (!widget || widget.value === value) return;
-		widget.value = value;
-		widget.callback?.(value, app.canvas, node, null, null);
+	// 节点高度跟着「有没有展开」走：收起时只有三行表头，展开时给网格留出空间。
+	function refreshGallerySize() {
+		const height = HEADER_H * LIBS.length + (expandedKey ? MIN_BODY_H : 8) + 34;
+		const width = node.size?.[0] ?? 340;
+		node.setSize?.([width, height]);
 		node.graph?.setDirtyCanvas(true, true);
-	};
-
-	function matches(pose) {
-		if (filterSeries !== ALL && pose.series !== filterSeries) return false;
-		if (!keyword) return true;
-		const hay = `${pose.code ?? ""} ${pose.name ?? ""} ${pose.label ?? ""} ${pose.cat ?? ""}`.toLowerCase();
-		return hay.includes(keyword);
 	}
 
-	function render() {
-		const chosen = poseWidget.value;
-		const poses = (data?.poses ?? []).filter(matches);
-		grid.replaceChildren();
-		if (!poses.length) {
+	function currentLabel(lib) {
+		const value = widgets[lib.key]?.value ?? UNUSED;
+		return value === UNUSED ? UNUSED : value;
+	}
+
+	function renderHeader(state) {
+		const label = currentLabel(state.lib);
+		const chosen = (state.data?.items ?? []).find((item) => item.label === label);
+		state.badge.textContent = String(state.data?.items?.length ?? 0);
+		state.cur.textContent = chosen ? chosen.label : UNUSED;
+		state.cur.title = chosen ? chosen.label : UNUSED;
+		const src = chosen ? firstImage(chosen) : "";
+		if (src) {
+			state.mini.hidden = false;
+			state.mini.src = thumbURL(state.lib.key, src);
+		} else {
+			state.mini.hidden = true;
+			state.mini.removeAttribute("src");
+		}
+	}
+
+	function renderGrid(state) {
+		const items = state.data?.items ?? [];
+		const keyword = state.keyword.trim().toLowerCase();
+		const shown = keyword
+			? items.filter((item) => String(item.label).toLowerCase().includes(keyword))
+			: items;
+		const chosen = currentLabel(state.lib);
+
+		state.grid.replaceChildren();
+		if (!shown.length) {
 			const empty = document.createElement("div");
 			empty.className = "qq-gp-empty";
-			empty.textContent = data?.poses?.length
-				? "没有符合筛选条件的姿态，换个系列或清空搜索。"
-				: "姿态库还是空的。点下面的「导入」放几张文模参考图进来。";
-			grid.append(empty);
+			if (!items.length) {
+				empty.innerHTML = `这里还没有图。点「导入」放几张，或把图片丢进<br><code>ComfyUI/user/QQ_ComfyUI_Tools/GuliPoses/${state.lib.key}/img/</code>`;
+			} else {
+				empty.textContent = "没有匹配的名称，换个关键词。";
+			}
+			state.grid.append(empty);
 		}
+
 		const frag = document.createDocumentFragment();
-		for (const pose of poses) {
+		for (const item of shown) {
+			const src = firstImage(item);
+			if (!src) continue;
 			const cell = document.createElement("button");
 			cell.type = "button";
 			cell.className = "qq-gp-cell";
-			cell.title = `${pose.label}\n分类：${pose.cat ?? ""}｜视角：${Object.keys(pose.angles ?? {}).length}`;
-			if (pose.label === chosen) cell.dataset.on = "1";
+			cell.title = item.label;
+			if (item.label === chosen) cell.dataset.on = "1";
 			const img = document.createElement("img");
 			img.loading = "lazy";
 			img.decoding = "async";
-			img.src = thumbURL(pose);
-			img.alt = pose.label;
+			img.src = thumbURL(state.lib.key, src);
+			img.alt = item.label;
 			const tag = document.createElement("span");
 			tag.className = "qq-gp-tag";
-			tag.textContent = pose.code || pose.name || "";
+			tag.textContent = item.label;
 			cell.append(img, tag);
 			cell.addEventListener("click", () => {
-				// 点图 = 固定选中这张；同时把模式和视角拉回确定值，避免"选了却还在随机"
-				setWidget(modeWidget, MODE_FIXED);
-				setWidget(poseWidget, pose.label);
-				const angles = Object.keys(pose.angles ?? {});
-				const current = angleWidget.value;
-				if (current !== "随机视角" && !angles.includes(labelToAngle(current))) {
-					setWidget(angleWidget, "正面");
-				}
-				render();
+				setWidget(node, widgets[state.lib.key], item.label);
+				collapseAll();
+				syncAll();
 			});
-			// 自定义图可以右键删除（内置素材只读，删了下次升级也会回来）
-			if (pose.root === "custom") {
-				cell.addEventListener("contextmenu", async (event) => {
-					event.preventDefault();
-					const names = Object.values(pose.angles ?? {}).map((x) => x.img).filter(Boolean);
-					if (!names.length) return;
-					if (!confirm(`删除「${pose.label}」这张自定义图？\n（文件会从用户目录里删掉，不可恢复）`)) return;
-					for (const name of names) {
-						try {
-							await api.fetchApi(`${API}/custom/delete`, {
-								method: "POST",
-								headers: { "Content-Type": "application/json" },
-								body: JSON.stringify({ name }),
-							});
-						} catch (err) {
-							console.error("[QQ-姿态库] 删除失败：", name, err);
-						}
+			cell.addEventListener("contextmenu", async (event) => {
+				event.preventDefault();
+				if (!confirm(`删除「${item.label}」这张图？\n文件会从用户目录里删掉，不可恢复。`)) return;
+				for (const entry of Object.values(item.angles ?? {})) {
+					if (!entry?.img) continue;
+					try {
+						await api.fetchApi(`${PREFIX}/${state.lib.key}/delete`, {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({ name: entry.img }),
+						});
+					} catch (err) {
+						console.error("[QQ-白模参考] 删除失败", err);
 					}
-					await refresh(true);
-				});
-			}
+				}
+				await reload(state.lib.key, true);
+				syncAll();
+			});
 			frag.append(cell);
 		}
-		grid.append(frag);
-		countEl.textContent = `共 ${poses.length} / ${data?.poses?.length ?? 0} 个姿态`;
-		hintEl.textContent = poseWidget.value === data?.poses?.[0]?.label ? "" : "已选：";
-		if (hintEl.textContent) hintEl.textContent += String(chosen).slice(0, 22);
+		state.grid.append(frag);
+
+		state.count.textContent = keyword
+			? `匹配 ${shown.length} / ${items.length}`
+			: `共 ${items.length} 张`;
+		state.hint.textContent = `已选：${chosen === UNUSED ? "未使用" : chosen}`;
+		state.hint.title = state.hint.textContent;
 	}
 
-	function labelToAngle(label) {
-		const map = { 正面: "front", 俯视: "high", 仰视: "low", 侧面: "side", 斜侧: "diag" };
-		return map[label] ?? "front";
+	function syncAll() {
+		for (const lib of LIBS) {
+			const state = sections[lib.key];
+			renderHeader(state);
+			if (state.expanded) renderGrid(state);
+		}
 	}
 
-	function syncSeriesOptions() {
-		const wanted = [ALL, ...(data?.series ?? []).map((s) => s.name)];
-		const current = seriesSel.value;
-		seriesSel.replaceChildren();
-		for (const name of wanted) {
-			const opt = document.createElement("option");
-			opt.value = name;
-			opt.textContent = name;
-			seriesSel.append(opt);
+	function collapseAll(exceptKey = null) {
+		expandedKey = exceptKey;
+		for (const lib of LIBS) {
+			const state = sections[lib.key];
+			state.expanded = lib.key === exceptKey;
+			state.sec.dataset.open = state.expanded ? "1" : "0";
 		}
-		seriesSel.value = wanted.includes(current) ? current : ALL;
-		filterSeries = seriesSel.value;
+		refreshGallerySize();
 	}
 
-	seriesSel.addEventListener("change", () => {
-		filterSeries = seriesSel.value;
-		render();
-	});
-
-	let searchTimer = null;
-	searchInput.addEventListener("input", () => {
-		clearTimeout(searchTimer);
-		searchTimer = setTimeout(() => {
-			keyword = searchInput.value.trim().toLowerCase();
-			render();
-		}, 120);
-	});
-
-	root.querySelector(".qq-gp-shuffle").addEventListener("click", () => {
-		const pool = (data?.poses ?? []).filter(matches);
-		if (!pool.length) return;
-		const picked = pool[Math.floor(Math.random() * pool.length)];
-		setWidget(modeWidget, MODE_FIXED);
-		setWidget(poseWidget, picked.label);
-		render();
-	});
-
-	// ---- 导入：选文件 → 名称/分类/视角 → POST ----
-	const fileInput = document.createElement("input");
-	fileInput.type = "file";
-	fileInput.accept = "image/*";
-	fileInput.multiple = true;
-	fileInput.style.display = "none";
-	root.append(fileInput);
-
-	root.querySelector(".qq-gp-imp").addEventListener("click", () => fileInput.click());
-
-	fileInput.addEventListener("change", async () => {
-		const files = [...(fileInput.files ?? [])];
-		fileInput.value = "";
-		if (!files.length) return;
-		hintEl.textContent = `导入中… 0/${files.length}`;
-		let ok = 0;
-		for (const file of files) {
-			const form = new FormData();
-			form.append("file", file, file.name);
-			form.append("name", "");
-			form.append("cat", "");
-			form.append("angle", "");
-			try {
-				const res = await api.fetchApi(`${API}/custom/upload`, { method: "POST", body: form });
-				if (!res.ok) throw new Error(`HTTP ${res.status}`);
-				const body = await res.json();
-				if (body?.index) data = body.index;
-				ok += 1;
-			} catch (err) {
-				console.error("[QQ-姿态库] 导入失败：", file.name, err);
-			}
-			hintEl.textContent = `导入中… ${ok}/${files.length}`;
-		}
-		if (files.length > 1 || ok === 0) {
-			await refresh(true);
-		} else {
-			syncSeriesOptions();
-			render();
-		}
-		hintEl.textContent = ok === files.length ? `已导入 ${ok} 张` : `导入 ${ok}/${files.length} 张，其余失败`;
-	});
-
-	async function refresh(force = false) {
+	async function reload(key, force) {
+		const state = sections[key];
 		try {
-			data = await loadDB(force);
+			state.data = await loadLib(key, force);
 		} catch (err) {
-			grid.replaceChildren();
-			const empty = document.createElement("div");
-			empty.className = "qq-gp-empty";
-			empty.textContent = `姿态库读不出来：${err}`;
-			grid.append(empty);
-			return;
+			state.data = { items: [], angles: [] };
+			state.hint.textContent = `读取失败：${err.message ?? err}`;
 		}
-		syncSeriesOptions();
-		render();
+		renderHeader(state);
+		if (state.expanded) renderGrid(state);
 	}
 
-	// 模式切换到「全库随机 / 范围内随机」时，画廊选中态跟着清掉
-	for (const widget of [modeWidget, poseWidget, angleWidget]) {
-		const original = widget.callback;
-		widget.callback = function (...args) {
-			const ret = original?.apply(this, args);
-			render();
-			return ret;
-		};
+	// ---- 交互 ----
+	for (const lib of LIBS) {
+		const state = sections[lib.key];
+
+		state.hd.addEventListener("click", () => {
+			if (expandedKey === lib.key) {
+				collapseAll();
+			} else {
+				collapseAll(lib.key);
+				reload(lib.key).then(() => renderGrid(state));
+			}
+			syncAll();
+		});
+
+		state.search.addEventListener("input", () => {
+			state.keyword = state.search.value;
+			renderGrid(state);
+		});
+
+		state.sec.querySelector(".qq-gp-clear").addEventListener("click", () => {
+			setWidget(node, widgets[lib.key], UNUSED);
+			renderGrid(state);
+			renderHeader(state);
+		});
+
+		state.sec.querySelector(".qq-gp-rand").addEventListener("click", () => {
+			const items = state.data?.items ?? [];
+			if (!items.length) return;
+			const picked = items[Math.floor(Math.random() * items.length)];
+			setWidget(node, widgets[lib.key], picked.label);
+			renderGrid(state);
+			renderHeader(state);
+		});
+
+		state.sec.querySelector(".qq-gp-imp").addEventListener("click", () => state.fileInput.click());
+
+		state.fileInput.addEventListener("change", async () => {
+			const files = [...(state.fileInput.files ?? [])];
+			state.fileInput.value = "";
+			if (!files.length) return;
+			let ok = 0;
+			for (const file of files) {
+				state.hint.textContent = `导入中… ${ok}/${files.length}`;
+				const form = new FormData();
+				form.append("file", file, file.name);
+				try {
+					const res = await api.fetchApi(`${PREFIX}/${lib.key}/upload`, {
+						method: "POST",
+						body: form,
+					});
+					if (!res.ok) throw new Error(`HTTP ${res.status}`);
+					const body = await res.json();
+					if (body?.index) dataCacheSet(lib.key, body.index);
+					ok += 1;
+				} catch (err) {
+					console.error("[QQ-白模参考] 导入失败", file.name, err);
+				}
+			}
+			state.hint.textContent = `已导入 ${ok}/${files.length} 张`;
+			await reload(lib.key, true);
+			renderGrid(state);
+		});
 	}
 
-	refresh();
-	node.__qqGuliRefresh = () => refresh(true);
+	collapseAll();
+	refreshGallerySize();
+	Promise.all(LIBS.map((lib) => reload(lib.key))).then(() => syncAll());
+	node.__qqGpSync = syncAll;
 }
 
 app.registerExtension({
-	name: "QQ.ComfyUI.GuliPoseGallery",
+	name: "QQ.GuliReferenceGallery",
 	beforeRegisterNodeDef(nodeType, nodeData) {
-		if (nodeData.name !== NODE_NAME) return;
-		if (nodeType.prototype.__qqGuliPatched) return;
-		nodeType.prototype.__qqGuliPatched = true;
+		if (nodeData?.name !== NODE_NAME) return;
+		if (nodeType.prototype.__qqGpPatched) return;
+		nodeType.prototype.__qqGpPatched = true;
 
 		const onNodeCreated = nodeType.prototype.onNodeCreated;
 		nodeType.prototype.onNodeCreated = function () {
-			const r = onNodeCreated?.apply(this, arguments);
-			// 画廊装不上也不能影响节点本身可用：只告警，保留控件与输出
+			const result = onNodeCreated?.apply(this, arguments);
+			// 画廊装不上也不能影响节点本身可用：只告警，保留下拉框与输出
 			try {
 				setup(this);
 			} catch (err) {
-				console.error("[QQ-姿态库] 画廊初始化失败，节点参数仍可用：", err);
+				console.error("[QQ-白模参考] 画廊初始化失败，下拉框仍可用：", err);
 			}
-			return r;
+			return result;
 		};
 
-		const onExecuted = nodeType.prototype.onExecuted;
-		nodeType.prototype.onExecuted = function (message) {
-			onExecuted?.apply(this, arguments);
-			const picked = message?.picked?.[0];
-			if (picked?.label) {
-				const poseWidget = this.widgets?.find((x) => x.name === "姿态");
-				const angleWidget = this.widgets?.find((x) => x.name === "视角");
-				if (poseWidget && poseWidget.value !== picked.label) {
-					poseWidget.value = picked.label;
-				}
-				const label = { front: "正面", high: "俯视", low: "仰视", side: "侧面", diag: "斜侧" }[picked.angle];
-				if (angleWidget && label && angleWidget.value !== "随机视角") {
-					angleWidget.value = label;
-				}
-				this.graph?.setDirtyCanvas(true, true);
+		// 从存档恢复后重新读一遍库（可能换了图）
+		const onConfigure = nodeType.prototype.onConfigure;
+		nodeType.prototype.onConfigure = function () {
+			const result = onConfigure?.apply(this, arguments);
+			try {
+				this.__qqGpSync?.();
+			} catch (err) {
+				console.error("[QQ-白模参考] 刷新失败：", err);
 			}
+			return result;
 		};
 	},
 });
