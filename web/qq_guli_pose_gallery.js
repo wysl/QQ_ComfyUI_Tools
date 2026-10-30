@@ -306,31 +306,21 @@ function setup(node) {
 	});
 
 	// node.size 是节点框本身（标题栏画在框外，不占高度），
-	// 控件被 margin 内缩，所以先按「内容高度 + 上下边距」摆一次，
-	// 再看有没有被裁：被裁就补上差值。常数只负责给个好起点，
-	// 最终以实际能不能装下为准，主题行高不同也不会裁掉最后一行。
+	// 控件被 margin 内缩，所以节点高度 = 内容高度 + 上下边距。
 	function fitToContent(attempt = 0) {
+		// 刚创建的节点还没挂进 DOM，量不到尺寸；等几帧再试，否则只能等后面的事件补上
 		if (!root?.isConnected) {
 			if (attempt < 40) requestAnimationFrame(() => fitToContent(attempt + 1));
 			return;
 		}
 		contentNeed = contentHeight();
 		const scale = app.canvas?.ds?.scale || 1;
-		const width = node.size?.[0] ?? 340;
-		if (attempt === 0) {
-			node.setSize?.([width, (contentNeed + MARGIN * 2) / scale]);
-		} else {
-			const over = root.scrollHeight - root.clientHeight;
-			// 控件高度这一帧还没跟上时，别重复加同一份差值，否则会越撑越高
-			const have = root.clientHeight;
-			const same = node.__qqGpLastHave === have;
-			node.__qqGpLastHave = have;
-			if (over > 2 && !same) {
-				node.setSize?.([width, (node.size?.[1] ?? 0) + Math.min(over, 80) / scale]);
-			}
-		}
+		const target = (contentNeed + MARGIN * 2) / scale;
+		const current = node.size?.[1] ?? 0;
+		if (Math.abs(target - current) <= 1) return;
+		node.setSize?.([node.size?.[0] ?? 340, target]);
 		node.graph?.setDirtyCanvas(true, true);
-		if (attempt < 6) requestAnimationFrame(() => fitToContent(attempt + 1));
+		if (attempt < 3) requestAnimationFrame(() => fitToContent(attempt + 1));
 	}
 
 	// 只把「太矮」的撑高，用户拉大的尺寸不动
@@ -340,19 +330,11 @@ function setup(node) {
 			return;
 		}
 		const scale = app.canvas?.ds?.scale || 1;
-		const width = node.size?.[0] ?? 340;
 		const target = (contentHeight() + MARGIN * 2) / scale;
-		if ((node.size?.[1] ?? 0) < target - 1) {
-			node.setSize?.([width, target]);
-			node.graph?.setDirtyCanvas(true, true);
-		} else {
-			const over = root.scrollHeight - root.clientHeight;
-			if (over > 2) {
-				node.setSize?.([width, (node.size?.[1] ?? 0) + over / scale]);
-				node.graph?.setDirtyCanvas(true, true);
-			}
-		}
-		if (attempt < 6) requestAnimationFrame(() => growToContent(attempt + 1));
+		if ((node.size?.[1] ?? 0) >= target - 1) return;
+		node.setSize?.([node.size?.[0] ?? 340, target]);
+		node.graph?.setDirtyCanvas(true, true);
+		if (attempt < 3) requestAnimationFrame(() => growToContent(attempt + 1));
 	}
 
 	function refreshGallerySize() {
