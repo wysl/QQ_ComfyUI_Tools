@@ -77,6 +77,10 @@ const CSS = `
 .qq-gp-foot{flex:0 0 auto;display:flex;justify-content:space-between;gap:8px;
   color:var(--descrip-text,#96a0b0);font-size:10px;padding-top:2px}
 .qq-gp-foot span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qq-gp-hover{position:fixed;z-index:1400;display:block;overflow:hidden;border-radius:6px;
+  border:1px solid var(--border-color,#39404d);background:#0b0d12;
+  box-shadow:0 8px 28px rgba(0,0,0,.55);pointer-events:auto}
+.qq-gp-hover img{display:block;width:100%;height:auto}
 `;
 
 function injectCSS() {
@@ -87,8 +91,81 @@ function injectCSS() {
 	document.head.append(el);
 }
 
+// ---- 悬停大图预览（与 QQ-多媒体加载 同一做法：浮层 + 贴边定位）----
+let hoverPreview = null;
+let hoverCloseTimer = null;
+
+function closeHoverPreview() {
+	clearTimeout(hoverCloseTimer);
+	hoverCloseTimer = null;
+	hoverPreview?.remove();
+	hoverPreview = null;
+}
+
+function positionHoverPreview(preview, anchor) {
+	if (!preview?.isConnected || !anchor?.isConnected) return;
+	const rect = anchor.getBoundingClientRect();
+	const width = preview.offsetWidth || 200;
+	const height = preview.offsetHeight || 200;
+	const margin = 8;
+	let left = rect.left + rect.width / 2 - width / 2;
+	let top = rect.top - margin - height;
+	if (top < margin) top = Math.min(window.innerHeight - margin - height, rect.bottom + margin);
+	left = Math.max(margin, Math.min(window.innerWidth - margin - width, left));
+	preview.style.left = `${Math.round(left)}px`;
+	preview.style.top = `${Math.round(top)}px`;
+}
+
+function showHoverPreview(anchor, url) {
+	closeHoverPreview();
+	const preview = document.createElement("a");
+	preview.className = "qq-gp-hover";
+	preview.href = url;
+	preview.target = "_blank";
+	preview.rel = "noopener noreferrer";
+	preview.title = "点击查看原图";
+	const image = document.createElement("img");
+	image.alt = "";
+	image.decoding = "async";
+	image.src = url;
+	image.addEventListener("load", () => positionHoverPreview(preview, anchor), { once: true });
+	preview.append(image);
+	const width = Math.round(
+		Math.min(Math.max(anchor.clientWidth || 72, 72) * 4, 360, window.innerWidth - 16)
+	);
+	preview.style.width = `${width}px`;
+	preview.addEventListener("pointerenter", () => clearTimeout(hoverCloseTimer));
+	preview.addEventListener("pointerleave", () => {
+		clearTimeout(hoverCloseTimer);
+		hoverCloseTimer = setTimeout(closeHoverPreview, 140);
+	});
+	preview.addEventListener("pointerdown", (event) => event.stopPropagation());
+	preview.addEventListener("click", (event) => event.stopPropagation());
+	document.body.append(preview);
+	hoverPreview = preview;
+	positionHoverPreview(preview, anchor);
+}
+
+function attachHoverPreview(anchor, url) {
+	if (!anchor) return;
+	anchor.__qqGpHoverUrl = url || "";
+	if (anchor.__qqGpHover) return;
+	anchor.__qqGpHover = true;
+	anchor.addEventListener("pointerenter", () => {
+		if (anchor.__qqGpHoverUrl) showHoverPreview(anchor, anchor.__qqGpHoverUrl);
+	});
+	anchor.addEventListener("pointerleave", () => {
+		clearTimeout(hoverCloseTimer);
+		hoverCloseTimer = setTimeout(closeHoverPreview, 140);
+	});
+}
+
 function thumbURL(lib, name) {
 	return api.apiURL(`${PREFIX}/${lib}/thumb/${encodeURIComponent(name)}`);
+}
+
+function imgURL(lib, name) {
+	return api.apiURL(`${PREFIX}/${lib}/img/${encodeURIComponent(name)}`);
 }
 
 function firstImage(item) {
@@ -188,19 +265,27 @@ function setup(node) {
 		};
 	}
 
+	let expandedKey = null;
+
+	// 自然高度：收起时只占三行表头，展开时再加上网格。
+	function naturalHeight() {
+		return HEADER_H * LIBS.length + (expandedKey ? MIN_BODY_H : 6) + 8;
+	}
+
 	const gallery = node.addDOMWidget("qq_gp_gallery", "qq_gp_gallery", root, {
 		serialize: false,
 		hideOnZoom: false,
-		getMinHeight: () => HEADER_H * LIBS.length + MIN_BODY_H,
+		// 动态最小高度：收起时允许节点缩到只包住三行，避免一大片空白
+		getMinHeight: () => naturalHeight(),
 	});
 
-	let expandedKey = null;
-
-	// 节点高度跟着「有没有展开」走：收起时只有三行表头，展开时给网格留空间。
+	// 只把节点调到自然高度；用户手动拉高过的尺寸不被回写覆盖
 	function refreshGallerySize() {
-		const height = HEADER_H * LIBS.length + (expandedKey ? MIN_BODY_H : 8) + 34;
+		const height = naturalHeight() + 30; // 30 = 节点标题栏
 		const width = node.size?.[0] ?? 340;
-		node.setSize?.([width, height]);
+		if (!node.size || Math.abs((node.size[1] ?? 0) - height) > 0.5) {
+			node.setSize?.([width, height]);
+		}
 		node.graph?.setDirtyCanvas(true, true);
 	}
 
@@ -238,6 +323,7 @@ function setup(node) {
 		if (src) {
 			state.mini.hidden = false;
 			state.mini.src = thumbURL(state.lib.key, src);
+			attachHoverPreview(state.mini, imgURL(state.lib.key, src));
 		} else {
 			state.mini.hidden = true;
 			state.mini.removeAttribute("src");
@@ -282,6 +368,7 @@ function setup(node) {
 			tag.className = "qq-gp-tag";
 			tag.textContent = item.label;
 			cell.append(img, tag);
+			attachHoverPreview(cell, imgURL(state.lib.key, src));
 			cell.addEventListener("click", () => {
 				const current = selected(state);
 				const index = current.indexOf(item.label);
@@ -334,6 +421,7 @@ function setup(node) {
 	}
 
 	function collapseAll(exceptKey = null) {
+		closeHoverPreview();
 		expandedKey = exceptKey;
 		for (const lib of LIBS) {
 			const state = sections[lib.key];
@@ -449,6 +537,16 @@ app.registerExtension({
 				console.error("[QQ-预制图像参考] 画廊初始化失败，控件仍可用：", err);
 			}
 			return result;
+		};
+
+		const onRemoved = nodeType.prototype.onRemoved;
+		nodeType.prototype.onRemoved = function () {
+			try {
+				closeHoverPreview();
+			} catch (err) {
+				console.error("[QQ-预制图像参考] 清理预览失败：", err);
+			}
+			return onRemoved?.apply(this, arguments);
 		};
 
 		const onConfigure = nodeType.prototype.onConfigure;
