@@ -119,6 +119,67 @@ class ScanTests(_Sandbox):
         self.assertEqual(db.scan("pose")["items"], [])
 
 
+class CategoryTests(_Sandbox):
+    """子目录就是分类：可索引、可筛、可缩略图、可删除。"""
+
+    def test_subdirectories_are_categories(self):
+        _write_png(db.img_dir("pose") / "户外" / "p1.png")
+        _write_png(db.img_dir("pose") / "p2.png")
+        data = db.scan("pose")
+        self.assertEqual(data["cats"], ["户外"])
+        cats = {item["label"]: item["cat"] for item in data["items"]}
+        self.assertEqual(cats, {"p2": "", "户外/p1": "户外"})
+
+    def test_same_name_in_two_categories_does_not_collide(self):
+        _write_png(db.img_dir("pose") / "a" / "同名.png")
+        _write_png(db.img_dir("pose") / "b" / "同名.png")
+        labels = sorted(item["label"] for item in db.scan("pose")["items"])
+        self.assertEqual(labels, ["a/同名", "b/同名"])
+
+    def test_categories_are_sorted(self):
+        for cat in ("乙", "甲", "丙"):
+            _write_png(db.img_dir("face") / cat / "x.png")
+        self.assertEqual(db.scan("face")["cats"], sorted(["甲", "乙", "丙"]))
+
+    def test_pick_reads_from_a_subdirectory(self):
+        _write_png(db.img_dir("cloth") / "外套" / "红色.png", colour=(255, 0, 0), size=(8, 8))
+        batch = poses.QQGuliPosePicker().pick("", "", "外套/红色")
+        self.assertAlmostEqual(float(batch[0][0, 0, 0, 0]), 1.0, places=2)
+
+    def test_thumb_of_a_subdirectory_image(self):
+        _write_png(db.img_dir("pose") / "分类" / "p.png")
+        thumb = db.ensure_thumb("pose", "分类/p.png")
+        self.assertIsNotNone(thumb)
+        self.assertTrue(thumb.is_file())
+        self.assertEqual(thumb.parent.name, "分类")
+
+    def test_delete_removes_a_subdirectory_image(self):
+        name = db.save_upload("pose", "a.png", b"x", None, "新分类")
+        self.assertEqual(name, "新分类/a.png")
+        self.assertTrue(db.delete("pose", name))
+        self.assertFalse((db.img_dir("pose") / name).exists())
+
+    def test_upload_into_category_writes_there(self):
+        name = db.save_upload("face", "f.png", b"x", None, "棚拍")
+        self.assertEqual(name, "棚拍/f.png")
+        self.assertIn("棚拍", db.scan("face")["cats"])
+
+    def test_angle_grouping_inside_a_category(self):
+        _write_png(db.img_dir("pose") / "站立" / "A_front.png")
+        _write_png(db.img_dir("pose") / "站立" / "A_side.png")
+        items = db.scan("pose")["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(set(items[0]["angles"]), {"front", "side"})
+        self.assertEqual(items[0]["cat"], "站立")
+
+    def test_traversal_is_rejected(self):
+        self.assertEqual(db._safe_rel("../escape.png"), "")
+        self.assertEqual(db._safe_rel("a/../../b.png"), "")
+        self.assertEqual(db._safe_rel(".hidden/x.png"), "")
+        self.assertFalse(db.delete("pose", "../escape.png"))
+        self.assertIsNone(db.ensure_thumb("pose", "../escape.png"))
+
+
 class RenameTests(_Sandbox):
     """garment/ 这个旧库名要能并进 cloth/。"""
 

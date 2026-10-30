@@ -326,6 +326,8 @@ Depth Pro 的 `metric_depth` 是三通道批次，可直接接入。1536×1536 �
 
 **画廊**：面板上三行——姿态 / 脸模 / 服装，默认都收起，只显示「类型 + 已选张数 + 前几张缩略图」。点某一行才展开该类型的缩略图网格；每行有「随机」（随机挑一张并替换当前选择）、「导入」、「刷新」（外部往 `img/` 丢图后点它，不用刷新页面）、「清空」。
 
+**子目录分类**：`img/` 下的子目录名就是分类名（例如 `pose/img/站立/`、`pose/img/坐姿/`），会递归扫描。工具条里搜索框和分类下拉框各占一半：下拉可选「全部」、`/`（只看根目录）或具体子目录。分类会拼进条目名，`站立/A_front` 与 `坐姿/A_front` 不会撞名。
+
 **输出顺序**：选中的缩略图右上角带序号，就是批次里的位置。右键缩略图可以「上移 / 下移 / 取消选择 / 删除图片」，序号会同步更新。
 
 **姿态角度**：姿态图库有多视角时，展开「姿态」会在上方多出一行角度选择（自动 / 正面 / 侧面 / 俯视 / 仰视 / 斜侧）。选「自动」时优先取正面，某一条没有这个角度会自动退回它自带的第一个角度。脸模和服装是单图库，不显示这一行。
@@ -340,7 +342,8 @@ Depth Pro 的 `metric_depth` 是三通道批次，可直接接入。1536×1536 �
 <ComfyUI>/user/QQ_ComfyUI_Tools/GuliPoses/pose/img/       姿态图
 <ComfyUI>/user/QQ_ComfyUI_Tools/GuliPoses/face/img/       脸模图
 <ComfyUI>/user/QQ_ComfyUI_Tools/GuliPoses/cloth/img/      服装图
-<ComfyUI>/user/QQ_ComfyUI_Tools/GuliPoses/<类型>/thumbs/  缩略图，可随时删，按需重建
+<ComfyUI>/user/QQ_ComfyUI_Tools/GuliPoses/<类型>/img/<分类>/  可选：子目录 = 分类
+<ComfyUI>/user/QQ_ComfyUI_Tools/GuliPoses/<类型>/thumbs/     缩略图（保持分类结构），可随时删，按需重建
 ```
 
 - 直接往 `img/` 里丢 `png / jpg / webp / bmp / gif` 即可，**不用重启**，刷新页面就能看到

@@ -20,6 +20,8 @@ const LIBS = [
 ];
 
 const AUTO_ANGLE = "自动";
+const CAT_ALL = ""; // 全部
+const CAT_ROOT = "/"; // 只看 img/ 根目录
 
 const CELL = 72; // 缩略图格子边长
 const HEADER_H = 40;
@@ -50,9 +52,12 @@ const CSS = `
 .qq-gp-sec[data-open="1"] .qq-gp-body{height:190px;min-height:190px;flex:0 0 auto}
 .qq-gp-sec[data-open="1"] .qq-gp-body{display:flex}
 .qq-gp-tools{display:flex;gap:5px;align-items:center;flex:0 0 auto}
-.qq-gp-tools input{flex:1 1 auto;min-width:0;height:22px;padding:0 6px;border-radius:4px;
+.qq-gp-tools input{flex:1 1 0;min-width:0;height:22px;padding:0 6px;border-radius:4px;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
   color:inherit;font:inherit}
+.qq-gp-tools select{flex:1 1 0;min-width:0;height:22px;padding:0 4px;border-radius:4px;
+  border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
+  color:var(--input-text,#e6e8ee);font:inherit}
 .qq-gp-btn{flex:0 0 auto;height:22px;padding:0 8px;border-radius:4px;cursor:pointer;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
   color:inherit;font:inherit}
@@ -232,12 +237,16 @@ function openCellMenu(anchor, entries) {
 }
 
 
+function mediaURL(lib, kind, name) {
+	return api.apiURL(`${PREFIX}/${lib}/${kind}?name=${encodeURIComponent(name)}`);
+}
+
 function thumbURL(lib, name) {
-	return api.apiURL(`${PREFIX}/${lib}/thumb/${encodeURIComponent(name)}`);
+	return mediaURL(lib, "thumb", name);
 }
 
 function imgURL(lib, name) {
-	return api.apiURL(`${PREFIX}/${lib}/img/${encodeURIComponent(name)}`);
+	return mediaURL(lib, "img", name);
 }
 
 function firstImage(item) {
@@ -315,6 +324,7 @@ function setup(node) {
 				</div>
 				<div class="qq-gp-tools">
 					<input class="qq-gp-search" type="text" placeholder="搜索名称">
+					<select class="qq-gp-cat" title="按子目录筛选"></select>
 					<button class="qq-gp-btn qq-gp-rand" type="button" title="随机挑一张（替换当前选择）">随机</button>
 					<button class="qq-gp-btn qq-gp-imp" type="button" title="导入图片（存到用户目录）">导入</button>
 					<button class="qq-gp-btn qq-gp-refresh" type="button" title="重新扫描图库（外部新增图片后点这里）">刷新</button>
@@ -342,6 +352,7 @@ function setup(node) {
 			angleBar: sec.querySelector(".qq-gp-anglebar"),
 			angle: sec.querySelector(".qq-gp-angle"),
 			search: sec.querySelector(".qq-gp-search"),
+			cat: sec.querySelector(".qq-gp-cat"),
 			count: sec.querySelector(".qq-gp-count"),
 			hint: sec.querySelector(".qq-gp-hint"),
 			fileInput,
@@ -503,6 +514,28 @@ function setup(node) {
 		state.angle.value = widget.value || "";
 	}
 
+	// 分类下拉：全部 / 根目录 "/" / 已存在的子目录
+	function renderCatBar(state) {
+		const select = state.cat;
+		if (!select) return;
+		const cats = state.data?.cats ?? [];
+		const keep = state.catFilter ?? CAT_ALL;
+		select.replaceChildren();
+		const add = (value, text, title) => {
+			const option = document.createElement("option");
+			option.value = value;
+			option.textContent = text;
+			if (title) option.title = title;
+			select.append(option);
+		};
+		add(CAT_ALL, "全部");
+		add(CAT_ROOT, "/", "只看 img/ 根目录里的图片");
+		for (const cat of cats) add(cat, cat, `子目录 ${cat}`);
+		select.value = [...select.options].some((opt) => opt.value === keep) ? keep : CAT_ALL;
+		state.catFilter = select.value;
+	}
+
+
 
 	function renderHeader(state) {
 		const names = selected(state);
@@ -541,9 +574,16 @@ function setup(node) {
 	function renderGrid(state) {
 		const items = state.data?.items ?? [];
 		const keyword = state.keyword.trim().toLowerCase();
-		const shown = keyword
-			? items.filter((item) => String(item.label).toLowerCase().includes(keyword))
-			: items;
+		const cat = state.catFilter ?? CAT_ALL;
+		const shown = items.filter((item) => {
+			if (cat === CAT_ROOT) {
+				if (item.cat) return false;
+			} else if (cat && item.cat !== cat) {
+				return false;
+			}
+			if (!keyword) return true;
+			return String(item.label).toLowerCase().includes(keyword);
+		});
 		const chosen = new Set(selected(state));
 
 		state.grid.replaceChildren();
@@ -640,6 +680,7 @@ function setup(node) {
 			const state = sections[lib.key];
 			renderHeader(state);
 			renderAngleBar(state);
+			renderCatBar(state);
 			if (state.expanded) renderGrid(state);
 		}
 	}
@@ -666,6 +707,7 @@ function setup(node) {
 		renderHeader(state);
 		if (state.expanded) renderGrid(state);
 		renderAngleBar(state);
+		renderCatBar(state);
 	}
 
 	// ---- 交互 ----
@@ -683,6 +725,11 @@ function setup(node) {
 				});
 			}
 			syncAll();
+		});
+
+		state.cat?.addEventListener("change", () => {
+			state.catFilter = state.cat.value;
+			renderGrid(state);
 		});
 
 		state.search.addEventListener("input", () => {
@@ -717,6 +764,7 @@ function setup(node) {
 				await reload(lib.key, true);
 			}
 			renderAngleBar(state);
+			renderCatBar(state);
 			renderHeader(state);
 			renderGrid(state);
 		});
@@ -748,6 +796,9 @@ function setup(node) {
 			for (const file of files) {
 				state.hint.textContent = `导入中… ${ok}/${files.length}`;
 				const form = new FormData();
+				if (state.catFilter && state.catFilter !== CAT_ROOT) {
+					form.append("cat", state.catFilter);
+				}
 				form.append("file", file, file.name);
 				try {
 					const res = await api.fetchApi(`${PREFIX}/${lib.key}/upload`, {
