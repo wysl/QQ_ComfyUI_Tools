@@ -24,7 +24,7 @@
 | `QQ/视频` | 视频开头黑屏 · 视频补帧×2 | 视频首段与补帧 |
 | `QQ/H3` | H3分段时长 · H3提示词 · H3功能区路由 · H3 分段彩噪 | MiniMax H3 分段工作流 |
 | `QQ/Qwen` | Qwen2.1 提示词增强 | 提示词增强 |
-| `QQ/图像生成` | Qwen2.1 一键出图 · Grok图像生成 | 直接出图 |
+| `QQ/图像生成` | Qwen2.1 一键出图 · Grok图像生成 · 即梦AI出图 | 直接出图 |
 | `QQ/LR 调色` | 光线调节 · 色彩调节 · 基础增强 · 暖色调色 · 冷色调色 · 颗粒效果 | 可串联调色 |
 
 ## 多媒体
@@ -279,7 +279,7 @@ Depth Pro 的 `metric_depth` 是三通道批次，可直接接入。1536×1536 �
 
 ## 图像生成
 
-### QQ-Qwen Image 2.1 AI提示词增强(PE or API)
+### QQ-Qwen2.1 提示词增强(PE or API)
 
 复刻 TE MAN 的 Qwen Image 2.1 提示词增强，去掉旧的「本地」通用 LLaMA 通路，保留「本地官方PE」和「API」两种方式。
 
@@ -290,7 +290,7 @@ Depth Pro 的 `metric_depth` 是三通道批次，可直接接入。1536×1536 �
 - API 走 OpenAI 兼容接口，参考图按最长边压成 JPEG 后 base64 发送。`api_url` 留空时可回读本机 TE MAN 插件的 `config.ini`；`api_key` 只使用节点内输入的值，不会读取 TE_MAN 配置。
 - `最大生成token` 默认 4096，`最大边长` 默认 1024。
 
-### QQ-Qwen Image 2.1 一键出图(编码+K采样+VAE解码)
+### QQ-Qwen2.1 一键出图(编码+K采样+VAE解码)
 
 把 Qwen Image 2.1 编码、KSampler 和 VAE 解码合成一个节点：内部先按官方规则编码正负条件和参考图 latent，再跑采样，最后解码直接输出 `图像`。
 
