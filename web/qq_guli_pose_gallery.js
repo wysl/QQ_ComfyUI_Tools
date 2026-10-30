@@ -289,8 +289,9 @@ function setup(node) {
 	const BODY_H = 190; // 展开区块的 body 高度
 
 	let contentNeed = 0;
-	let chrome = 0; // 节点外壳（标题栏/外边距）占的高度
-	let calibrated = false;
+
+	// DOM 控件四周留一点边距，否则它会把节点的圆角边框盖住（看起来像「外框没了」）。
+	const MARGIN = 6;
 
 	function contentHeight() {
 		const open = expandedKey ? 1 : 0;
@@ -300,50 +301,37 @@ function setup(node) {
 	const gallery = node.addDOMWidget("qq_gp_gallery", "qq_gp_gallery", root, {
 		serialize: false,
 		hideOnZoom: false,
-		// 默认有 10px 外边距，会让内容与节点边界之间多出一圈空白
-		margin: 0,
+		margin: MARGIN,
 		getMinHeight: () => contentHeight(),
 	});
 
-	// 外壳高度只校准一次：先按「没有外壳」把节点摆成内容高度，再量控件实际
-	// 拿到多少；差值就是外壳。比硬编码标题栏高度可靠（主题/边距都能自适应）。
-	function calibrate(attempt = 0) {
-		if (calibrated || !root?.isConnected) return;
-		const scale = app.canvas?.ds?.scale || 1;
-		const content = contentHeight();
-		node.setSize?.([node.size?.[0] ?? 340, content / scale]);
-		requestAnimationFrame(() => {
-			const have = root.clientHeight;
-			if (!have) {
-				if (attempt < 10) calibrate(attempt + 1);
-				return;
-			}
-			chrome = Math.max(0, Math.round(content - have));
-			calibrated = true;
-			fitToContent(0, false);
-		});
-	}
-
-	// clampOnly=true 时只把「太矮」的节点撑高，用户拉大的尺寸不动
-	function fitToContent(attempt = 0, clampOnly = false) {
+	// node.size 是节点框本身（标题栏画在框外，不占高度），
+	// 控件被 margin 内缩，所以节点高度 = 内容高度 + 上下边距。
+	function fitToContent(attempt = 0) {
 		if (!root?.isConnected) return;
 		contentNeed = contentHeight();
 		const scale = app.canvas?.ds?.scale || 1;
-		const target = (contentNeed + chrome) / scale;
+		const target = (contentNeed + MARGIN * 2) / scale;
 		const current = node.size?.[1] ?? 0;
 		if (Math.abs(target - current) <= 1) return;
-		if (clampOnly && current >= target) return;
 		node.setSize?.([node.size?.[0] ?? 340, target]);
 		node.graph?.setDirtyCanvas(true, true);
-		if (attempt < 3) requestAnimationFrame(() => fitToContent(attempt + 1, clampOnly));
+		if (attempt < 3) requestAnimationFrame(() => fitToContent(attempt + 1));
+	}
+
+	// 只把「太矮」的撑高，用户拉大的尺寸不动
+	function growToContent(attempt = 0) {
+		if (!root?.isConnected) return;
+		const scale = app.canvas?.ds?.scale || 1;
+		const target = (contentHeight() + MARGIN * 2) / scale;
+		if ((node.size?.[1] ?? 0) >= target - 1) return;
+		node.setSize?.([node.size?.[0] ?? 340, target]);
+		node.graph?.setDirtyCanvas(true, true);
+		if (attempt < 3) requestAnimationFrame(() => growToContent(attempt + 1));
 	}
 
 	function refreshGallerySize() {
-		if (!calibrated) {
-			calibrate();
-			return;
-		}
-		requestAnimationFrame(() => fitToContent(0, false));
+		requestAnimationFrame(() => fitToContent());
 	}
 
 	function selected(state) {
@@ -587,7 +575,7 @@ function setup(node) {
 	node.__qqGpSync = syncAll;
 	node.__qqGpFit = refreshGallerySize;
 	// 只长不缩：用户手动拉小时用它把内容撑回来，不会反过来夺走用户拉大的尺寸
-	node.__qqGpGrow = () => requestAnimationFrame(() => fitToContent(0, true));
+	node.__qqGpGrow = () => requestAnimationFrame(() => growToContent());
 }
 
 app.registerExtension({
