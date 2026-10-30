@@ -308,7 +308,11 @@ function setup(node) {
 	// node.size 是节点框本身（标题栏画在框外，不占高度），
 	// 控件被 margin 内缩，所以节点高度 = 内容高度 + 上下边距。
 	function fitToContent(attempt = 0) {
-		if (!root?.isConnected) return;
+		// 刚创建的节点还没挂进 DOM，量不到尺寸；等几帧再试，否则只能等后面的事件补上
+		if (!root?.isConnected) {
+			if (attempt < 40) requestAnimationFrame(() => fitToContent(attempt + 1));
+			return;
+		}
 		contentNeed = contentHeight();
 		const scale = app.canvas?.ds?.scale || 1;
 		const target = (contentNeed + MARGIN * 2) / scale;
@@ -321,7 +325,10 @@ function setup(node) {
 
 	// 只把「太矮」的撑高，用户拉大的尺寸不动
 	function growToContent(attempt = 0) {
-		if (!root?.isConnected) return;
+		if (!root?.isConnected) {
+			if (attempt < 40) requestAnimationFrame(() => growToContent(attempt + 1));
+			return;
+		}
 		const scale = app.canvas?.ds?.scale || 1;
 		const target = (contentHeight() + MARGIN * 2) / scale;
 		if ((node.size?.[1] ?? 0) >= target - 1) return;
@@ -568,6 +575,8 @@ function setup(node) {
 
 	collapseAll();
 	refreshGallerySize();
+	// 兜底：首帧布局在某些前端版本会晚一拍，再补一次
+	setTimeout(refreshGallerySize, 120);
 	Promise.all(LIBS.map((lib) => reload(lib.key))).then(() => {
 		syncAll();
 		refreshGallerySize();
