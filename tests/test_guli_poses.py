@@ -209,12 +209,31 @@ class PickTests(_Sandbox):
         batch = poses.QQGuliPosePicker().pick("站立|站立", "", "")
         self.assertEqual(tuple(batch[0].shape), (1, 48, 32, 3))
 
+    def test_pose_angle_is_honoured(self):
+        _write_png(db.img_dir("pose") / "姿势A_front.png", colour=(255, 0, 0), size=(8, 8))
+        _write_png(db.img_dir("pose") / "姿势A_side.png", colour=(0, 0, 255), size=(8, 8))
+        batch = poses.QQGuliPosePicker().pick("姿势A", "", "", "侧面")
+        self.assertAlmostEqual(float(batch[0][0, 0, 0, 2]), 1.0, places=2)
+
+    def test_missing_angle_falls_back_to_front(self):
+        _write_png(db.img_dir("pose") / "只有正面_front.png", colour=(255, 0, 0), size=(8, 8))
+        batch = poses.QQGuliPosePicker().pick("只有正面", "", "", "俯视")
+        self.assertAlmostEqual(float(batch[0][0, 0, 0, 0]), 1.0, places=2)
+
+    def test_angle_key_accepts_chinese_and_english(self):
+        self.assertEqual(db.angle_key("pose", "侧面"), "side")
+        self.assertEqual(db.angle_key("pose", "side"), "side")
+        self.assertIsNone(db.angle_key("pose", "不存在"))
+        self.assertIsNone(db.angle_key("pose", ""))
+
     def test_contract_is_a_single_image_output(self):
         node = poses.QQGuliPosePicker
         self.assertEqual(node.RETURN_TYPES, ("IMAGE",))
         self.assertEqual(node.RETURN_NAMES, ("参考图",))
         self.assertEqual(node.CATEGORY, "QQ/图库")
-        self.assertEqual(list(node.INPUT_TYPES()["required"]), ["姿态", "脸模", "服装"])
+        self.assertEqual(
+            list(node.INPUT_TYPES()["required"]), ["姿态", "脸模", "服装", "姿态角度"]
+        )
 
 
 class ImportTests(_Sandbox):

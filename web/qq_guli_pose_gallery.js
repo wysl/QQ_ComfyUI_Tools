@@ -14,10 +14,12 @@ const SEP = "|";
 const UNUSED = "未使用";
 
 const LIBS = [
-	{ key: "pose", label: "姿态", widget: "姿态" },
+	{ key: "pose", label: "姿态", widget: "姿态", angleWidget: "姿态角度" },
 	{ key: "face", label: "脸模", widget: "脸模" },
 	{ key: "cloth", label: "服装", widget: "服装" },
 ];
+
+const AUTO_ANGLE = "自动";
 
 const CELL = 72; // 缩略图格子边长
 const HEADER_H = 40;
@@ -65,9 +67,22 @@ const CSS = `
 .qq-gp-cell:hover{border-color:var(--qq-gp-ac,#4f8cff)}
 .qq-gp-cell[data-on="1"]{border-color:var(--qq-gp-ac,#4f8cff);
   box-shadow:0 0 0 1px var(--qq-gp-ac,#4f8cff) inset}
-.qq-gp-cell[data-on="1"]::after{content:"✓";position:absolute;right:3px;top:1px;
-  font-size:12px;font-weight:700;color:var(--qq-gp-ac,#4f8cff);
-  text-shadow:0 0 3px #000,0 0 3px #000}
+.qq-gp-cell .qq-gp-order{position:absolute;right:3px;top:2px;min-width:14px;padding:0 3px;
+  border-radius:7px;background:var(--qq-gp-ac,#4f8cff);color:#fff;font-size:10px;
+  line-height:14px;text-align:center;pointer-events:none}
+.qq-gp-anglebar{display:flex;gap:5px;align-items:center;flex:0 0 auto;
+  font-size:11px;color:var(--descrip-text,#96a0b0)}
+.qq-gp-anglebar[hidden]{display:none}
+.qq-gp-anglebar select{flex:1 1 auto;min-width:0;height:22px;padding:0 6px;border-radius:4px;
+  border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
+  color:var(--input-text,#e6e8ee);font:inherit}
+.qq-gp-menu{position:fixed;z-index:1600;min-width:118px;padding:4px;border-radius:6px;
+  background:var(--comfy-menu-bg,#25292d);border:1px solid var(--border-color,#39404d);
+  box-shadow:0 8px 24px rgba(0,0,0,.6);font:12px/1.4 system-ui,"Microsoft YaHei",sans-serif}
+.qq-gp-menu button{display:block;width:100%;padding:4px 8px;border:0;border-radius:4px;
+  background:none;color:var(--input-text,#e6e8ee);text-align:left;cursor:pointer;font:inherit}
+.qq-gp-menu button:hover{background:rgba(79,140,255,.18)}
+.qq-gp-menu button:disabled{opacity:.4;cursor:default;background:none}
 .qq-gp-cell .qq-gp-tag{position:absolute;left:0;right:0;bottom:0;padding:1px 3px;font-size:9px;
   background:rgba(10,12,16,.74);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qq-gp-empty{grid-column:1/-1;padding:12px 6px;text-align:center;line-height:1.6;
@@ -173,6 +188,50 @@ function attachHoverPreview(anchor, thumb, full) {
 	});
 }
 
+// ---- 右键菜单：上移 / 下移 / 取消 / 删除 ----
+let cellMenu = null;
+
+function closeCellMenu() {
+	cellMenu?.remove();
+	cellMenu = null;
+}
+
+function openCellMenu(anchor, entries) {
+	closeCellMenu();
+	const menu = document.createElement("div");
+	menu.className = "qq-gp-menu";
+	for (const entry of entries) {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.textContent = entry.label;
+		button.disabled = !!entry.disabled;
+		button.addEventListener("click", (event) => {
+			event.stopPropagation();
+			closeCellMenu();
+			entry.onClick?.();
+		});
+		menu.append(button);
+	}
+	document.body.append(menu);
+	const rect = anchor.getBoundingClientRect();
+	const menuRect = menu.getBoundingClientRect();
+	const left = Math.max(4, Math.min(window.innerWidth - menuRect.width - 4, rect.left));
+	const top = Math.max(4, Math.min(window.innerHeight - menuRect.height - 4, rect.top));
+	menu.style.left = `${Math.round(left)}px`;
+	menu.style.top = `${Math.round(top)}px`;
+	cellMenu = menu;
+	setTimeout(() => {
+		const dismiss = (event) => {
+			if (!cellMenu) return;
+			if (cellMenu.contains(event.target)) return;
+			closeCellMenu();
+			document.removeEventListener("pointerdown", dismiss, true);
+		};
+		document.addEventListener("pointerdown", dismiss, true);
+	}, 0);
+}
+
+
 function thumbURL(lib, name) {
 	return api.apiURL(`${PREFIX}/${lib}/thumb/${encodeURIComponent(name)}`);
 }
@@ -224,6 +283,13 @@ function setup(node) {
 		if (!widget) return; // 控件缺失就放弃画廊，节点仍可手填
 		widgets[lib.key] = widget;
 		hideWidget(widget);
+		if (lib.angleWidget) {
+			const angleWidget = node.widgets?.find((w) => w.name === lib.angleWidget);
+			if (angleWidget) {
+				widgets[`${lib.key}Angle`] = angleWidget;
+				hideWidget(angleWidget);
+			}
+		}
 	}
 
 	const root = document.createElement("div");
@@ -243,10 +309,15 @@ function setup(node) {
 				<span class="qq-gp-caret">▶</span>
 			</button>
 			<div class="qq-gp-body">
+				<div class="qq-gp-anglebar" hidden>
+					<span>角度</span>
+					<select class="qq-gp-angle"></select>
+				</div>
 				<div class="qq-gp-tools">
 					<input class="qq-gp-search" type="text" placeholder="搜索名称">
 					<button class="qq-gp-btn qq-gp-rand" type="button" title="随机挑一张加入选择">随机</button>
 					<button class="qq-gp-btn qq-gp-imp" type="button" title="导入图片（存到用户目录）">导入</button>
+					<button class="qq-gp-btn qq-gp-refresh" type="button" title="重新扫描图库（外部新增图片后点这里）">刷新</button>
 					<button class="qq-gp-btn qq-gp-clear" type="button" title="清空这一类的选择">清空</button>
 				</div>
 				<div class="qq-gp-grid"></div>
@@ -268,6 +339,8 @@ function setup(node) {
 			cur: sec.querySelector(".qq-gp-cur"),
 			pick: sec.querySelector(".qq-gp-pick"),
 			grid: sec.querySelector(".qq-gp-grid"),
+			angleBar: sec.querySelector(".qq-gp-anglebar"),
+			angle: sec.querySelector(".qq-gp-angle"),
 			search: sec.querySelector(".qq-gp-search"),
 			count: sec.querySelector(".qq-gp-count"),
 			hint: sec.querySelector(".qq-gp-hint"),
@@ -374,6 +447,63 @@ function setup(node) {
 		node.graph?.setDirtyCanvas(true, true);
 	}
 
+	function moveSelection(state, from, to) {
+		const list = selected(state);
+		if (from < 0 || from >= list.length) return;
+		if (to < 0 || to >= list.length) return;
+		const [moved] = list.splice(from, 1);
+		list.splice(to, 0, moved);
+		setSelected(state, list);
+		renderGrid(state);
+		renderHeader(state);
+	}
+
+	async function deleteItem(state, item) {
+		if (!confirm(`删除「${item.label}」这张图？
+文件会从用户目录里删掉，不可恢复。`)) return;
+		for (const entry of Object.values(item.angles ?? {})) {
+			if (!entry?.img) continue;
+			try {
+				await api.fetchApi(`${PREFIX}/${state.lib.key}/delete`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ name: entry.img }),
+				});
+			} catch (err) {
+				console.error("[QQ-预制图像参考] 删除失败", err);
+			}
+		}
+		await reload(state.lib.key, true);
+		setSelected(state, selected(state).filter((name) => name !== item.label));
+		renderGrid(state);
+		renderHeader(state);
+	}
+
+	// 角度下拉：只在图库真的有多个视角时出现
+	function renderAngleBar(state) {
+		const widget = widgets[`${state.lib.key}Angle`];
+		if (!state.angleBar) return;
+		const angles = state.data?.angles ?? [];
+		if (!widget || angles.length <= 1) {
+			state.angleBar.hidden = true;
+			return;
+		}
+		state.angleBar.hidden = false;
+		state.angle.replaceChildren();
+		const auto = document.createElement("option");
+		auto.value = "";
+		auto.textContent = AUTO_ANGLE;
+		state.angle.append(auto);
+		for (const angle of angles) {
+			const option = document.createElement("option");
+			option.value = angle.key;
+			option.textContent = angle.label;
+			state.angle.append(option);
+		}
+		state.angle.value = widget.value || "";
+	}
+
+
 	function renderHeader(state) {
 		const names = selected(state);
 		state.pick.textContent = String(names.length);
@@ -446,6 +576,15 @@ function setup(node) {
 			tag.className = "qq-gp-tag";
 			tag.textContent = item.label;
 			cell.append(img, tag);
+			const picked = selected(state);
+			const order = picked.indexOf(item.label);
+			if (order >= 0) {
+				const mark = document.createElement("span");
+				mark.className = "qq-gp-order";
+				mark.textContent = String(order + 1);
+				mark.title = `输出顺序第 ${order + 1} 张`;
+				cell.append(mark);
+			}
 			attachHoverPreview(cell, thumbURL(state.lib.key, src), imgURL(state.lib.key, src));
 			cell.addEventListener("click", () => {
 				const current = selected(state);
@@ -456,25 +595,31 @@ function setup(node) {
 				renderHeader(state);
 				renderGrid(state);
 			});
-			cell.addEventListener("contextmenu", async (event) => {
+			cell.addEventListener("contextmenu", (event) => {
 				event.preventDefault();
-				if (!confirm(`删除「${item.label}」这张图？\n文件会从用户目录里删掉，不可恢复。`)) return;
-				for (const entry of Object.values(item.angles ?? {})) {
-					if (!entry?.img) continue;
-					try {
-						await api.fetchApi(`${PREFIX}/${state.lib.key}/delete`, {
-							method: "POST",
-							headers: { "Content-Type": "application/json" },
-							body: JSON.stringify({ name: entry.img }),
-						});
-					} catch (err) {
-						console.error("[QQ-预制图像参考] 删除失败", err);
-					}
-				}
-				await reload(state.lib.key, true);
-				setSelected(state, selected(state).filter((name) => name !== item.label));
-				renderGrid(state);
-				renderHeader(state);
+				const current = selected(state);
+				const at = current.indexOf(item.label);
+				openCellMenu(cell, [
+					{ label: "上移", disabled: at <= 0, onClick: () => moveSelection(state, at, at - 1) },
+					{
+						label: "下移",
+						disabled: at < 0 || at >= current.length - 1,
+						onClick: () => moveSelection(state, at, at + 1),
+					},
+					{
+						label: at >= 0 ? "取消选择" : "加入选择",
+						onClick: () => {
+							const list = selected(state);
+							const index = list.indexOf(item.label);
+							if (index >= 0) list.splice(index, 1);
+							else list.push(item.label);
+							setSelected(state, list);
+							renderGrid(state);
+							renderHeader(state);
+						},
+					},
+					{ label: "删除图片", onClick: () => deleteItem(state, item) },
+				]);
 			});
 			frag.append(cell);
 		}
@@ -494,6 +639,7 @@ function setup(node) {
 		for (const lib of LIBS) {
 			const state = sections[lib.key];
 			renderHeader(state);
+			renderAngleBar(state);
 			if (state.expanded) renderGrid(state);
 		}
 	}
@@ -519,6 +665,7 @@ function setup(node) {
 		}
 		renderHeader(state);
 		if (state.expanded) renderGrid(state);
+		renderAngleBar(state);
 	}
 
 	// ---- 交互 ----
@@ -542,6 +689,38 @@ function setup(node) {
 			state.keyword = state.search.value;
 			renderGrid(state);
 		});
+
+		state.angle?.addEventListener("change", () => {
+			const widget = widgets[`${lib.key}Angle`];
+			if (!widget) return;
+			const value = state.angle.value || "";
+			if (widget.value === value) return;
+			widget.value = value;
+			widget.callback?.(value, app.canvas, node, null, null);
+			node.graph?.setDirtyCanvas(true, true);
+			renderGrid(state);
+		});
+
+		state.sec.querySelector(".qq-gp-refresh").addEventListener("click", async () => {
+			state.hint.textContent = "重新扫描…";
+			try {
+				const res = await api.fetchApi(`${PREFIX}/${lib.key}/rescan`, { method: "POST" });
+				if (res.ok) {
+					const body = await res.json();
+					libData.set(lib.key, body);
+					state.data = body;
+				} else {
+					await reload(lib.key, true);
+				}
+			} catch (err) {
+				console.error("[QQ-预制图像参考] 刷新失败", err);
+				await reload(lib.key, true);
+			}
+			renderAngleBar(state);
+			renderHeader(state);
+			renderGrid(state);
+		});
+
 
 		state.sec.querySelector(".qq-gp-clear").addEventListener("click", () => {
 			setSelected(state, []);
