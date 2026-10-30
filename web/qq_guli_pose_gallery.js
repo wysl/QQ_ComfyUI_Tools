@@ -77,10 +77,13 @@ const CSS = `
 .qq-gp-foot{flex:0 0 auto;display:flex;justify-content:space-between;gap:8px;
   color:var(--descrip-text,#96a0b0);font-size:10px;padding-top:2px}
 .qq-gp-foot span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.qq-gp-hover{position:fixed;z-index:1400;display:block;overflow:hidden;border-radius:6px;
-  border:1px solid var(--border-color,#39404d);background:#0b0d12;
-  box-shadow:0 8px 28px rgba(0,0,0,.55);pointer-events:auto}
-.qq-gp-hover img{display:block;width:100%;height:auto}
+.qq-gp-hover{position:fixed;z-index:1400;box-sizing:border-box;display:block;overflow:hidden;
+  padding:3px;border-radius:7px;border:1px solid var(--p-primary-color,#85a8c4);
+  background:var(--comfy-menu-bg,#25292d);box-shadow:0 10px 28px rgba(0,0,0,.62);
+  pointer-events:auto;cursor:zoom-in;opacity:0;transition:opacity .14s ease}
+.qq-gp-hover.is-visible{opacity:1}
+.qq-gp-hover img{display:block;width:100%;height:100%;object-fit:contain;border-radius:4px;
+  background:#111;pointer-events:none}
 `;
 
 function injectCSS() {
@@ -116,24 +119,30 @@ function positionHoverPreview(preview, anchor) {
 	preview.style.top = `${Math.round(top)}px`;
 }
 
-function showHoverPreview(anchor, url) {
+function showHoverPreview(anchor, thumb, full) {
 	closeHoverPreview();
 	const preview = document.createElement("a");
 	preview.className = "qq-gp-hover";
-	preview.href = url;
+	preview.href = full || thumb;
 	preview.target = "_blank";
 	preview.rel = "noopener noreferrer";
 	preview.title = "点击查看原图";
 	const image = document.createElement("img");
 	image.alt = "";
 	image.decoding = "async";
-	image.src = url;
+	// 预览用缩略图就够（盒子最大也就 3×72），点开才是原图
+	image.src = thumb;
 	image.addEventListener("load", () => positionHoverPreview(preview, anchor), { once: true });
 	preview.append(image);
+	// 与 QQ-多媒体加载 一致：盒子各边 = 缩略图 3 倍，再夹到视口内
 	const width = Math.round(
-		Math.min(Math.max(anchor.clientWidth || 72, 72) * 4, 360, window.innerWidth - 16)
+		Math.min(Math.max(anchor.clientWidth || 72, 48) * 3, window.innerWidth - 16)
+	);
+	const height = Math.round(
+		Math.min(Math.max(anchor.clientHeight || 72, 48) * 3, window.innerHeight - 16)
 	);
 	preview.style.width = `${width}px`;
+	preview.style.height = `${height}px`;
 	preview.addEventListener("pointerenter", () => clearTimeout(hoverCloseTimer));
 	preview.addEventListener("pointerleave", () => {
 		clearTimeout(hoverCloseTimer);
@@ -144,15 +153,19 @@ function showHoverPreview(anchor, url) {
 	document.body.append(preview);
 	hoverPreview = preview;
 	positionHoverPreview(preview, anchor);
+	requestAnimationFrame(() => preview.classList.add("is-visible"));
 }
 
-function attachHoverPreview(anchor, url) {
+function attachHoverPreview(anchor, thumb, full) {
 	if (!anchor) return;
-	anchor.__qqGpHoverUrl = url || "";
+	anchor.__qqGpHoverThumb = thumb || "";
+	anchor.__qqGpHoverFull = full || thumb || "";
 	if (anchor.__qqGpHover) return;
 	anchor.__qqGpHover = true;
 	anchor.addEventListener("pointerenter", () => {
-		if (anchor.__qqGpHoverUrl) showHoverPreview(anchor, anchor.__qqGpHoverUrl);
+		if (anchor.__qqGpHoverThumb) {
+			showHoverPreview(anchor, anchor.__qqGpHoverThumb, anchor.__qqGpHoverFull);
+		}
 	});
 	anchor.addEventListener("pointerleave", () => {
 		clearTimeout(hoverCloseTimer);
@@ -323,7 +336,7 @@ function setup(node) {
 		if (src) {
 			state.mini.hidden = false;
 			state.mini.src = thumbURL(state.lib.key, src);
-			attachHoverPreview(state.mini, imgURL(state.lib.key, src));
+			attachHoverPreview(state.mini, thumbURL(state.lib.key, src), imgURL(state.lib.key, src));
 		} else {
 			state.mini.hidden = true;
 			state.mini.removeAttribute("src");
@@ -368,7 +381,7 @@ function setup(node) {
 			tag.className = "qq-gp-tag";
 			tag.textContent = item.label;
 			cell.append(img, tag);
-			attachHoverPreview(cell, imgURL(state.lib.key, src));
+			attachHoverPreview(cell, thumbURL(state.lib.key, src), imgURL(state.lib.key, src));
 			cell.addEventListener("click", () => {
 				const current = selected(state);
 				const index = current.indexOf(item.label);
