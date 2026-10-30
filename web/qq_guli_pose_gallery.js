@@ -293,9 +293,21 @@ function setup(node) {
 	// DOM 控件四周留一点边距，否则它会把节点的圆角边框盖住（看起来像「外框没了」）。
 	const MARGIN = 6;
 
+	// 行高优先实测（主题字号/边框不同就差这几像素），量不到再退回常量
+	function rowHeight() {
+		for (const lib of LIBS) {
+			const state = sections[lib.key];
+			if (state?.expanded) continue;
+			const h = state?.sec?.offsetHeight;
+			if (h) return h;
+		}
+		return ROW_H;
+	}
+
 	function contentHeight() {
 		const open = expandedKey ? 1 : 0;
-		return PAD * 2 + LIBS.length * ROW_H + (LIBS.length - 1) * GAP + open * BODY_H;
+		const rowH = rowHeight();
+		return PAD * 2 + LIBS.length * rowH + (LIBS.length - 1) * GAP + open * BODY_H;
 	}
 
 	const gallery = node.addDOMWidget("qq_gp_gallery", "qq_gp_gallery", root, {
@@ -317,10 +329,12 @@ function setup(node) {
 		const scale = app.canvas?.ds?.scale || 1;
 		const target = (contentNeed + MARGIN * 2) / scale;
 		const current = node.size?.[1] ?? 0;
-		if (Math.abs(target - current) <= 1) return;
-		node.setSize?.([node.size?.[0] ?? 340, target]);
-		node.graph?.setDirtyCanvas(true, true);
-		if (attempt < 3) requestAnimationFrame(() => fitToContent(attempt + 1));
+		if (Math.abs(target - current) > 1) {
+			node.setSize?.([node.size?.[0] ?? 340, target]);
+			node.graph?.setDirtyCanvas(true, true);
+		}
+		// 首帧量的行高可能还没定型，多跟几帧，以稳定后的实测值为准
+		if (attempt < 6) requestAnimationFrame(() => fitToContent(attempt + 1));
 	}
 
 	// 只把「太矮」的撑高，用户拉大的尺寸不动
@@ -331,10 +345,11 @@ function setup(node) {
 		}
 		const scale = app.canvas?.ds?.scale || 1;
 		const target = (contentHeight() + MARGIN * 2) / scale;
-		if ((node.size?.[1] ?? 0) >= target - 1) return;
-		node.setSize?.([node.size?.[0] ?? 340, target]);
-		node.graph?.setDirtyCanvas(true, true);
-		if (attempt < 3) requestAnimationFrame(() => growToContent(attempt + 1));
+		if ((node.size?.[1] ?? 0) < target - 1) {
+			node.setSize?.([node.size?.[0] ?? 340, target]);
+			node.graph?.setDirtyCanvas(true, true);
+		}
+		if (attempt < 6) requestAnimationFrame(() => growToContent(attempt + 1));
 	}
 
 	function refreshGallerySize() {
