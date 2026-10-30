@@ -1496,5 +1496,52 @@ class RegistrationTests(unittest.TestCase):
         )
         self.assertIn('const HIDDEN_SCALE_WIDGETS = ["自定义宽度", "自定义高度"];', source)
 
+class ImportIsolationTests(unittest.TestCase):
+    """新增子模块出错时，绝不能把整个包拖垮。
+
+    2026-10 的真实事故：`node_modules/__init__.py` 里裸调一个注册函数，
+    它在真实 ComfyUI 抛异常 → 整个包导入失败 → 所有节点从前端消失，
+    已有工作流全部显示 ``frontend_only``、控件值变 ``UNKNOWN``。
+    这里锁死"可选模块失败不影响其余节点"这个不变量。
+    """
+
+    def test_optional_modules_are_imported_behind_a_guard(self):
+        source = (Path(__file__).resolve().parents[1] / "node_modules" / "__init__.py").read_text(
+            encoding="utf-8"
+        )
+        # 姿态库节点与路由都必须包在 try 里，失败时各自降级成空映射
+        self.assertIn("except Exception as _guli_pose_err", source)
+        self.assertIn("except Exception as _guli_err", source)
+        self.assertIn("GULI_POSE_NODE_CLASS_MAPPINGS = {}", source)
+        self.assertIn("GULI_POSE_NODE_DISPLAY_NAME_MAPPINGS = {}", source)
+
+    def test_guli_api_register_never_raises_without_a_server(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "node_modules"))
+        import importlib
+
+        module = importlib.import_module("guli_api")
+        # 没有 server / PromptServer 时必须静默返回，而不是抛异常
+        module.register()
+
+    def test_guli_api_register_survives_a_broken_router(self):
+        import importlib
+        from unittest import mock
+
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "node_modules"))
+        module = importlib.import_module("guli_api")
+        with mock.patch.dict(sys.modules, {"server": None}):
+            module.register()  # `from server import PromptServer` 抛错也必须被吞掉
+
+        class Boom:
+            def get(self, *_a, **_k):
+                raise RuntimeError("router exploded")
+
+            post = delete = get
+
+        fake_server = type("S", (), {"instance": type("I", (), {"routes": Boom()})()})
+        with mock.patch.dict(sys.modules, {"server": type("M", (), {"PromptServer": fake_server})}):
+            module.register()  # 路由注册失败也不能外抛
+
+
 if __name__ == "__main__":
     unittest.main()
