@@ -36,7 +36,6 @@ const CSS = `
 .qq-gp-cap{flex:0 0 auto;font-weight:600}
 .qq-gp-mini{flex:0 0 auto;width:28px;height:28px;border-radius:4px;object-fit:cover;
   background:#0b0d12;border:1px solid var(--border-color,#39404d)}
-.qq-gp-sec[data-open="1"] .qq-gp-mini{width:56px;height:56px}
 .qq-gp-cur{flex:1 1 auto;min-width:0;color:var(--descrip-text,#96a0b0);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qq-gp-pick{flex:0 0 auto;padding:0 5px;border-radius:8px;font-size:10px;
