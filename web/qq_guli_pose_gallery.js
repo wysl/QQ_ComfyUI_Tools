@@ -74,6 +74,9 @@ const CSS = `
 .qq-gp-cell:hover{border-color:var(--qq-gp-ac,#4f8cff)}
 .qq-gp-cell[data-on="1"]{border-color:var(--qq-gp-ac,#4f8cff);
   box-shadow:0 0 0 1px var(--qq-gp-ac,#4f8cff) inset}
+.qq-gp-cell .qq-gp-angles{position:absolute;left:2px;top:2px;padding:0 3px;border-radius:6px;
+  background:rgba(10,12,16,.78);color:#cfd6e4;font-size:9px;line-height:13px;pointer-events:none}
+
 .qq-gp-cell .qq-gp-order{position:absolute;right:3px;top:2px;min-width:14px;padding:0 3px;
   border-radius:7px;background:var(--qq-gp-ac,#4f8cff);color:#fff;font-size:10px;
   line-height:14px;text-align:center;pointer-events:none}
@@ -612,7 +615,12 @@ function setup(node) {
 			if (grouped) {
 				const head = document.createElement("div");
 				head.className = "qq-gp-group";
-				head.textContent = group.cat ? `${group.cat}（${group.items.length}）` : `根目录（${group.items.length}）`;
+				const shots = group.items.reduce(
+					(sum, entry) => sum + Object.keys(entry.angles ?? {}).length,
+					0
+				);
+				const name = group.cat || "根目录";
+				head.textContent = `${name}（${group.items.length} 组 · ${shots} 张图）`;
 				frag.append(head);
 			}
 			for (const item of group.items) {
@@ -632,6 +640,14 @@ function setup(node) {
 				tag.className = "qq-gp-tag";
 				tag.textContent = grouped ? item.label.split("/").pop() : item.label;
 				cell.append(img, tag);
+				const angleCount = Object.keys(item.angles ?? {}).length;
+				if (angleCount > 1) {
+					const anglesTag = document.createElement("span");
+					anglesTag.className = "qq-gp-angles";
+					anglesTag.textContent = `${angleCount} 视角`;
+					anglesTag.title = `这条含 ${angleCount} 个视角，用上方「角度」切换`;
+					cell.append(anglesTag);
+				}
 				const picked = selected(state);
 				const order = picked.indexOf(item.label);
 				if (order >= 0) {
@@ -682,9 +698,15 @@ function setup(node) {
 		}
 		state.grid.append(frag);
 
-		state.count.textContent = keyword
-			? `匹配 ${shown.length} / ${items.length}`
-			: `共 ${items.length} 张`;
+		const totalShots = items.reduce(
+			(sum, entry) => sum + Object.keys(entry.angles ?? {}).length,
+			0
+		);
+		const countText =
+			totalShots === items.length
+				? `共 ${items.length} 张`
+				: `共 ${items.length} 组 · ${totalShots} 张图`;
+		state.count.textContent = keyword ? `匹配 ${shown.length} / ${items.length}` : countText;
 		const names = selected(state);
 		state.hint.textContent = names.length
 			? `已选 ${names.length} 张（按点击顺序输出）`
