@@ -107,7 +107,7 @@ const CSS = `
 .qq-gp-foot{flex:0 0 auto;display:flex;justify-content:space-between;gap:8px;
   color:var(--descrip-text,#96a0b0);font-size:10px;padding-top:2px}
 .qq-gp-foot span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.qq-gp-hover{position:fixed;z-index:1400;box-sizing:border-box;display:block;overflow:hidden;
+.qq-gp-hover{position:fixed;z-index:1700;box-sizing:border-box;display:block;overflow:hidden;
   padding:3px;border-radius:7px;border:1px solid var(--p-primary-color,#85a8c4);
   background:var(--comfy-menu-bg,#25292d);box-shadow:0 10px 28px rgba(0,0,0,.62);
   pointer-events:auto;cursor:zoom-in;opacity:0;transition:opacity .14s ease}
@@ -541,6 +541,7 @@ function setup(node) {
 			const text = document.createElement("span");
 			text.textContent = angleLabel(state, key);
 			button.append(thumb, text);
+			attachHoverPreview(button, thumbURL(state.lib.key, entry.img), imgURL(state.lib.key, entry.img));
 			button.addEventListener("click", (event) => {
 				event.stopPropagation();
 				const list = selected(state);
@@ -556,10 +557,15 @@ function setup(node) {
 			panel.append(button);
 		}
 		document.body.append(panel);
-		// 弹在缩略图左边，放不下就贴窗口左边
+		// 弹在缩略图右侧；右边放不下就翻到左侧
 		const rect = anchor.getBoundingClientRect();
 		const box = panel.getBoundingClientRect();
-		const left = Math.max(4, rect.left - box.width - 8);
+		const gap = 8;
+		let left = rect.right + gap;
+		if (left + box.width > window.innerWidth - 4) {
+			left = rect.left - box.width - gap;
+		}
+		left = Math.max(4, Math.min(window.innerWidth - box.width - 4, left));
 		const top = Math.max(4, Math.min(window.innerHeight - box.height - 4, rect.top));
 		panel.style.left = `${Math.round(left)}px`;
 		panel.style.top = `${Math.round(top)}px`;
