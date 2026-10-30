@@ -63,8 +63,8 @@ const CSS = `
 .qq-gp-btn:hover{border-color:var(--qq-gp-ac,#4f8cff);color:var(--qq-gp-ac,#4f8cff)}
 .qq-gp-grid{flex:1 1 auto;min-height:0;overflow-y:auto;display:grid;gap:5px;
   grid-template-columns:repeat(auto-fill,${CELL}px);
-  grid-auto-rows:${CELL}px;align-content:start}
-.qq-gp-group{grid-column:1/-1;padding:6px 2px 1px;border-bottom:1px solid var(--border-color,#39404d);
+  grid-auto-rows:auto;align-content:start}
+.qq-gp-group{grid-column:1/-1;align-self:start;padding:4px 2px 2px;border-bottom:1px solid var(--border-color,#39404d);
   color:var(--descrip-text,#96a0b0);font-size:11px;letter-spacing:.02em}
 
 .qq-gp-cell{position:relative;width:${CELL}px;height:${CELL}px;padding:0;
