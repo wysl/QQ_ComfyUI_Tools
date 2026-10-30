@@ -2646,5 +2646,161 @@ class TemplatePersistenceTests(unittest.TestCase):
         self.assertIn("STATE.load()", source)
 
 
+class SubmitSideEffectTests(unittest.TestCase):
+    """手机直发 prompt 的两处补课：存档同步、randomize 种子换新。
+
+    桌面端由前端在排队时改写控件并序列化存档；手机端绕过前端直发
+    模板 prompt，这两件事没人做，必须在提交路径上补回来。
+    """
+
+    def setUp(self):
+        self.ui = _load("mobile_ui_under_test", _MODULES_DIR / "mobile_ui.py")
+        self.dispatch = _load(
+            "route_dispatch_under_test", _MODULES_DIR / "route_dispatch.py"
+        )
+        self.collect = _load(
+            "route_collect_under_test", _MODULES_DIR / "route_collect.py"
+        )
+
+    @staticmethod
+    def _graph():
+        """MOSS 骨架：分发(983) 三路接到收集(985)，收集留空自动跟随。"""
+        return {
+            "nodes": [
+                {
+                    "id": 983,
+                    "type": "QQRouteDispatch",
+                    "inputs": [
+                        {"name": "value", "type": "*", "link": 113},
+                        {
+                            "name": "轮询输出",
+                            "type": "BOOLEAN",
+                            "widget": {"name": "轮询输出"},
+                            "link": 114,
+                        },
+                        {
+                            "name": "select",
+                            "type": "COMBO",
+                            "widget": {"name": "select"},
+                            "link": 115,
+                        },
+                    ],
+                    "outputs": [
+                        {"name": "输出1", "label": "不优化", "links": [110]},
+                        {"name": "输出2", "label": "Clip优化", "links": [111]},
+                        {"name": "输出3", "label": "PE优化", "links": [112]},
+                    ],
+                    "widgets_values": [False, "不优化"],
+                },
+                {
+                    "id": 985,
+                    "type": "QQRouteCollect",
+                    "inputs": [
+                        {"name": "value1", "type": "*", "label": "不优化", "link": 110},
+                        {"name": "value2", "type": "*", "label": "Clip优化", "link": 111},
+                        {"name": "value3", "type": "*", "label": "PE优化", "link": 112},
+                    ],
+                    "widgets_values": [""],
+                },
+            ],
+            "links": [
+                [110, 983, 0, 985, 0, "*"],
+                [111, 983, 1, 985, 1, "*"],
+                [112, 983, 2, 985, 2, "*"],
+            ],
+        }
+
+    @staticmethod
+    def _select_parameters():
+        return [
+            {"key": "1005:select", "name": "select", "targets": [["983", "select"]]}
+        ]
+
+    def test_submitted_value_reaches_the_archived_widget(self):
+        stored = self._graph()
+        graph = self.ui.apply_parameter_values_to_graph(
+            stored, self._select_parameters(), {"1005:select": "PE优化"}
+        )
+        self.assertEqual(graph["nodes"][0]["widgets_values"], [False, "PE优化"])
+        # 模板存档是长驻状态，不许就地改动。
+        self.assertEqual(stored["nodes"][0]["widgets_values"], [False, "不优化"])
+
+    def test_dispatch_and_collect_pick_the_same_port(self):
+        """收集的自动跟随读存档、分发按提交值路由；不同步就整图静默不执行。"""
+        for choice, port in (("不优化", 0), ("Clip优化", 1), ("PE优化", 2)):
+            with self.subTest(choice=choice):
+                graph = self.ui.apply_parameter_values_to_graph(
+                    self._graph(), self._select_parameters(), {"1005:select": choice}
+                )
+                extra = {"workflow": graph}
+                self.assertEqual(self.collect.resolve_pick_index("", 985, extra), port)
+                self.assertEqual(
+                    self.dispatch.resolve_output_index(choice, 983, extra), port
+                )
+
+    def test_widget_write_skips_the_seed_control_string(self):
+        graph = {
+            "nodes": [
+                {
+                    "id": 5,
+                    "type": "X",
+                    "inputs": [
+                        {"name": "seed", "widget": {"name": "seed"}},
+                        {"name": "steps", "widget": {"name": "steps"}},
+                    ],
+                    "widgets_values": [666, "randomize", 30],
+                }
+            ]
+        }
+        updated = self.ui.apply_parameter_values_to_graph(
+            graph, [{"key": "k", "targets": [["5", "steps"]]}], {"k": 20}
+        )
+        self.assertEqual(updated["nodes"][0]["widgets_values"], [666, "randomize", 20])
+
+    @staticmethod
+    def _seeded_prompt_and_graph(control):
+        prompt = {"998": {"class_type": "KSampler", "inputs": {"seed": 666, "steps": 30}}}
+        graph = {
+            "nodes": [
+                {
+                    "id": 998,
+                    "type": "KSampler",
+                    "inputs": [
+                        {"name": "seed", "widget": {"name": "seed"}},
+                        {"name": "steps", "widget": {"name": "steps"}},
+                    ],
+                    "widgets_values": [666, control, 30],
+                }
+            ]
+        }
+        return prompt, graph
+
+    def test_randomize_seed_is_rerolled_each_submit(self):
+        prompt, graph = self._seeded_prompt_and_graph("randomize")
+        self.assertEqual(self.ui.randomize_seeded_widgets(prompt, graph), 1)
+        seed = prompt["998"]["inputs"]["seed"]
+        self.assertNotEqual(seed, 666)
+        self.assertEqual(prompt["998"]["inputs"]["steps"], 30)
+        # 新种子写回控件值那一格，randomize 后缀原样保留。
+        self.assertEqual(graph["nodes"][0]["widgets_values"], [seed, "randomize", 30])
+
+    def test_fixed_seeds_and_form_seeds_are_left_alone(self):
+        prompt, fixed = self._seeded_prompt_and_graph("fixed")
+        self.assertEqual(self.ui.randomize_seeded_widgets(prompt, fixed), 0)
+        self.assertEqual(prompt["998"]["inputs"]["seed"], 666)
+
+        # 种子是手机参数时归表单和骰子按钮管，不能替用户改。
+        prompt, graph = self._seeded_prompt_and_graph("randomize")
+        parameters = [{"key": "998:seed", "targets": [["998", "seed"]]}]
+        self.assertEqual(self.ui.randomize_seeded_widgets(prompt, graph, parameters), 0)
+        self.assertEqual(prompt["998"]["inputs"]["seed"], 666)
+
+    def test_linked_seeds_are_left_alone(self):
+        prompt, graph = self._seeded_prompt_and_graph("randomize")
+        prompt["998"]["inputs"]["seed"] = ["1005", 2]
+        self.assertEqual(self.ui.randomize_seeded_widgets(prompt, graph), 0)
+        self.assertEqual(prompt["998"]["inputs"]["seed"], ["1005", 2])
+
+
 if __name__ == "__main__":
     unittest.main()
