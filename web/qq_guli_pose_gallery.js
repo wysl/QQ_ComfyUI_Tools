@@ -32,6 +32,7 @@ const CSS = `
 .qq-gp-sec{flex:0 0 auto;display:flex;flex-direction:column;min-height:0;
   border:1px solid var(--border-color,#39404d);border-radius:6px;background:var(--comfy-input-bg,#12141a)}
 .qq-gp-sec[data-open="1"]{flex:1 1 auto;min-height:0}
+.qq-gp-sec.qq-gp-grouped[data-open="1"]{flex:0 0 auto}
 .qq-gp-hd{display:flex;align-items:center;gap:6px;width:100%;height:${HEADER_H}px;padding:0 6px;
   background:transparent;border:0;color:inherit;font:inherit;cursor:pointer;text-align:left}
 .qq-gp-hd:hover .qq-gp-cap{color:var(--qq-gp-ac,#4f8cff)}
@@ -491,6 +492,9 @@ function setup(node) {
 				target = Math.max(target, current);
 			}
 		}
+		// 兜底：如果实测还有溢出（差几像素），按差值补上
+		const over = root.scrollHeight - root.clientHeight;
+		if (over > 2) target = Math.max(target, current + over / scale);
 		if (Math.abs(target - current) > 1) {
 			node.setSize?.([node.size?.[0] ?? 340, target]);
 			node.graph?.setDirtyCanvas(true, true);
