@@ -31,7 +31,7 @@ const CSS = `
 .qq-gp *{box-sizing:border-box}
 .qq-gp-sec{flex:0 0 auto;display:flex;flex-direction:column;min-height:0;
   border:1px solid var(--border-color,#39404d);border-radius:6px;background:var(--comfy-input-bg,#12141a)}
-.qq-gp-sec[data-open="1"]{flex:0 0 auto;min-height:0}
+.qq-gp-sec[data-open="1"]{flex:1 1 auto;min-height:0}
 .qq-gp-hd{display:flex;align-items:center;gap:6px;width:100%;height:${HEADER_H}px;padding:0 6px;
   background:transparent;border:0;color:inherit;font:inherit;cursor:pointer;text-align:left}
 .qq-gp-hd:hover .qq-gp-cap{color:var(--qq-gp-ac,#4f8cff)}
@@ -46,21 +46,21 @@ const CSS = `
 .qq-gp-pick[data-zero="1"]{background:rgba(255,255,255,.06);color:var(--descrip-text,#96a0b0)}
 .qq-gp-caret{flex:0 0 auto;color:var(--descrip-text,#96a0b0);transition:transform .12s}
 .qq-gp-sec[data-open="1"] .qq-gp-caret{transform:rotate(90deg)}
-.qq-gp-body{display:none;flex:1 1 auto;min-height:0;flex-direction:column;gap:3px;padding:0 5px 3px}
-.qq-gp-sec[data-open="1"] .qq-gp-body{height:190px;min-height:190px;flex:0 0 auto}
+.qq-gp-body{display:none;flex:1 1 auto;min-height:0;flex-direction:column;gap:5px;padding:0 5px 5px}
+.qq-gp-sec[data-open="1"] .qq-gp-body{height:210px;min-height:210px;flex:0 0 auto}
 .qq-gp-sec[data-open="1"] .qq-gp-body{display:flex}
 .qq-gp-tools{display:flex;gap:5px;align-items:center;flex:0 0 auto}
-.qq-gp-tools input{flex:1 1 0;min-width:0;height:20px;padding:0 6px;border-radius:4px;
+.qq-gp-tools input{flex:1 1 0;min-width:0;height:22px;padding:0 6px;border-radius:4px;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
   color:inherit;font:inherit}
-.qq-gp-tools select{flex:1 1 0;min-width:0;height:20px;padding:0 4px;border-radius:4px;
+.qq-gp-tools select{flex:1 1 0;min-width:0;height:22px;padding:0 4px;border-radius:4px;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
   color:var(--input-text,#e6e8ee);font:inherit}
-.qq-gp-btn{flex:0 0 auto;height:20px;padding:0 8px;border-radius:4px;cursor:pointer;
+.qq-gp-btn{flex:0 0 auto;height:22px;padding:0 8px;border-radius:4px;cursor:pointer;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
   color:inherit;font:inherit}
 .qq-gp-btn:hover{border-color:var(--qq-gp-ac,#4f8cff);color:var(--qq-gp-ac,#4f8cff)}
-.qq-gp-grid{flex:1 1 auto;min-height:0;overflow-y:auto;display:grid;gap:4px;
+.qq-gp-grid{flex:1 1 auto;min-height:0;overflow-y:auto;display:grid;gap:5px;
   grid-template-columns:repeat(auto-fill,${CELL}px);
   grid-auto-rows:auto;align-content:start}
 .qq-gp-group{grid-column:1/-1;align-self:start;padding:4px 2px 2px;border-bottom:1px solid var(--border-color,#39404d);
@@ -110,7 +110,7 @@ const CSS = `
 .qq-gp-empty code{background:rgba(255,255,255,.06);padding:1px 4px;border-radius:3px;
   word-break:break-all}
 .qq-gp-foot{flex:0 0 auto;display:flex;justify-content:space-between;gap:8px;
-  color:var(--descrip-text,#96a0b0);font-size:10px;line-height:12px;padding-top:0}
+  color:var(--descrip-text,#96a0b0);font-size:10px;padding-top:2px}
 .qq-gp-foot span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qq-gp-hover{position:fixed;z-index:1700;box-sizing:border-box;display:block;overflow:hidden;
   padding:3px;border-radius:7px;border:1px solid var(--p-primary-color,#85a8c4);
@@ -388,7 +388,7 @@ function setup(node) {
 	const ROW_H = 42; // 行头 40 + 上下 1px 边框
 	const GAP = 4; // .qq-gp 的 gap
 	const PAD = 4; // .qq-gp 的内边距（上下各 4）
-	const BODY_H = 190; // 展开区块的 body 高度
+	const BODY_H = 210; // 展开区块的 body 高度（实测：网格 158px，两排需 149px）
 
 	let contentNeed = 0;
 
@@ -407,19 +407,8 @@ function setup(node) {
 		getMinHeight: () => contentHeight(),
 	});
 
-	// 收起时的「最小高度」直接问节点自己：把节点拖到最小时停住的那个尺寸，
-	// 就是 ComfyUI 按控件算出来的 computeSize，比我们猜常数准。
-	// 展开时在此基础上加展开区高度。
-	let baseHeight = 0;
-
-	function measureBase() {
-		const size = node.computeSize?.();
-		if (!Array.isArray(size) || !size[1]) return 0;
-		// computeSize 偶尔会带出异常值，用常数估个范围做保护
-		const guess = (contentHeight() + MARGIN * 2) / (app.canvas?.ds?.scale || 1);
-		if (size[1] < guess * 0.5 || size[1] > guess * 2 + 80) return 0;
-		return size[1];
-	}
+	// 节点高度直接用 ComfyUI 自己算的 computeSize：它就是「手动把节点拖到最小」
+	// 停住的那个值，收起/展开都会跟着控件的 minHeight 变，不需要我们再猜常数。
 
 	function fitToContent(attempt = 0) {
 		// 刚创建的节点还没挂进 DOM，量不到尺寸；等几帧再试
@@ -427,18 +416,12 @@ function setup(node) {
 			if (attempt < 40) requestAnimationFrame(() => fitToContent(attempt + 1));
 			return;
 		}
-		// 只在收起状态校准基准：展开时 computeSize 会把展开区也算进去
-		if (!baseHeight && !expandedKey) baseHeight = measureBase();
 		const scale = app.canvas?.ds?.scale || 1;
+		const guess = (contentHeight() + MARGIN * 2) / scale;
+		const min = node.computeSize?.()?.[1] ?? 0;
+		// computeSize 就是「手动拖到最小」的那个高度，直接用它最稳
+		const target = min > guess * 0.5 && min < guess * 2 + 120 ? min : guess;
 		const current = node.size?.[1] ?? 0;
-		let target = baseHeight
-			? baseHeight + (expandedKey ? BODY_H / scale : 0)
-			: (contentHeight() + MARGIN * 2) / scale;
-		// 展开后如果内容还是被裁（常见于主题行高更大），按实测差值补高，只长不缩
-		if (expandedKey) {
-			const over = root.scrollHeight - root.clientHeight;
-			if (over > 2) target = Math.max(target, current + Math.min(over, 200) / scale);
-		}
 		if (Math.abs(target - current) > 1) {
 			node.setSize?.([node.size?.[0] ?? 340, target]);
 			node.graph?.setDirtyCanvas(true, true);
@@ -452,10 +435,10 @@ function setup(node) {
 			if (attempt < 40) requestAnimationFrame(() => growToContent(attempt + 1));
 			return;
 		}
-		if (!baseHeight && !expandedKey) baseHeight = measureBase();
-		if (!baseHeight) return;
 		const scale = app.canvas?.ds?.scale || 1;
-		const target = baseHeight + (expandedKey ? BODY_H / scale : 0);
+		const guess = (contentHeight() + MARGIN * 2) / scale;
+		const min = node.computeSize?.()?.[1] ?? 0;
+		const target = min > guess * 0.5 && min < guess * 2 + 120 ? min : guess;
 		if ((node.size?.[1] ?? 0) < target - 1) {
 			node.setSize?.([node.size?.[0] ?? 340, target]);
 			node.graph?.setDirtyCanvas(true, true);
