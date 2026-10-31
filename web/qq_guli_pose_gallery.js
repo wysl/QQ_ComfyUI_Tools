@@ -47,7 +47,7 @@ const CSS = `
 .qq-gp-caret{flex:0 0 auto;color:var(--descrip-text,#96a0b0);transition:transform .12s}
 .qq-gp-sec[data-open="1"] .qq-gp-caret{transform:rotate(90deg)}
 .qq-gp-body{display:none;flex:1 1 auto;min-height:0;flex-direction:column;gap:5px;padding:0 5px 5px}
-.qq-gp-sec[data-open="1"] .qq-gp-body{height:190px;min-height:190px;flex:0 0 auto}
+.qq-gp-sec[data-open="1"] .qq-gp-body{height:auto;min-height:0;flex:1 1 auto}
 .qq-gp-sec[data-open="1"] .qq-gp-body{display:flex}
 .qq-gp-tools{display:flex;gap:5px;align-items:center;flex:0 0 auto}
 .qq-gp-tools input{flex:1 1 0;min-width:0;height:22px;padding:0 6px;border-radius:4px;
