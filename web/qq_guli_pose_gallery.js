@@ -46,21 +46,21 @@ const CSS = `
 .qq-gp-pick[data-zero="1"]{background:rgba(255,255,255,.06);color:var(--descrip-text,#96a0b0)}
 .qq-gp-caret{flex:0 0 auto;color:var(--descrip-text,#96a0b0);transition:transform .12s}
 .qq-gp-sec[data-open="1"] .qq-gp-caret{transform:rotate(90deg)}
-.qq-gp-body{display:none;flex:1 1 auto;min-height:0;flex-direction:column;gap:5px;padding:0 5px 5px}
+.qq-gp-body{display:none;flex:1 1 auto;min-height:0;flex-direction:column;gap:3px;padding:0 5px 3px}
 .qq-gp-sec[data-open="1"] .qq-gp-body{height:190px;min-height:190px;flex:0 0 auto}
 .qq-gp-sec[data-open="1"] .qq-gp-body{display:flex}
 .qq-gp-tools{display:flex;gap:5px;align-items:center;flex:0 0 auto}
-.qq-gp-tools input{flex:1 1 0;min-width:0;height:22px;padding:0 6px;border-radius:4px;
+.qq-gp-tools input{flex:1 1 0;min-width:0;height:20px;padding:0 6px;border-radius:4px;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
   color:inherit;font:inherit}
-.qq-gp-tools select{flex:1 1 0;min-width:0;height:22px;padding:0 4px;border-radius:4px;
+.qq-gp-tools select{flex:1 1 0;min-width:0;height:20px;padding:0 4px;border-radius:4px;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
   color:var(--input-text,#e6e8ee);font:inherit}
-.qq-gp-btn{flex:0 0 auto;height:22px;padding:0 8px;border-radius:4px;cursor:pointer;
+.qq-gp-btn{flex:0 0 auto;height:20px;padding:0 8px;border-radius:4px;cursor:pointer;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
   color:inherit;font:inherit}
 .qq-gp-btn:hover{border-color:var(--qq-gp-ac,#4f8cff);color:var(--qq-gp-ac,#4f8cff)}
-.qq-gp-grid{flex:1 1 auto;min-height:0;overflow-y:auto;display:grid;gap:5px;
+.qq-gp-grid{flex:1 1 auto;min-height:0;overflow-y:auto;display:grid;gap:4px;
   grid-template-columns:repeat(auto-fill,${CELL}px);
   grid-auto-rows:auto;align-content:start}
 .qq-gp-group{grid-column:1/-1;align-self:start;padding:4px 2px 2px;border-bottom:1px solid var(--border-color,#39404d);
@@ -110,7 +110,7 @@ const CSS = `
 .qq-gp-empty code{background:rgba(255,255,255,.06);padding:1px 4px;border-radius:3px;
   word-break:break-all}
 .qq-gp-foot{flex:0 0 auto;display:flex;justify-content:space-between;gap:8px;
-  color:var(--descrip-text,#96a0b0);font-size:10px;padding-top:2px}
+  color:var(--descrip-text,#96a0b0);font-size:10px;line-height:12px;padding-top:0}
 .qq-gp-foot span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qq-gp-hover{position:fixed;z-index:1700;box-sizing:border-box;display:block;overflow:hidden;
   padding:3px;border-radius:7px;border:1px solid var(--p-primary-color,#85a8c4);
