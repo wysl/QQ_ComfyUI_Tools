@@ -48,6 +48,7 @@ const CSS = `
 .qq-gp-sec[data-open="1"] .qq-gp-caret{transform:rotate(90deg)}
 .qq-gp-body{display:none;flex:1 1 auto;min-height:0;flex-direction:column;gap:5px;padding:0 5px 5px}
 .qq-gp-sec[data-open="1"] .qq-gp-body{height:auto;min-height:0;flex:1 1 auto}
+.qq-gp-sec.qq-gp-grouped[data-open="1"] .qq-gp-body{flex:0 0 auto}
 .qq-gp-sec[data-open="1"] .qq-gp-body{display:flex}
 .qq-gp-tools{display:flex;gap:5px;align-items:center;flex:0 0 auto}
 .qq-gp-tools input{flex:1 1 0;min-width:0;height:22px;padding:0 6px;border-radius:4px;
@@ -394,26 +395,63 @@ function setup(node) {
 	// DOM 控件四周留一点边距，否则它会把节点的圆角边框盖住（看起来像「外框没了」）。
 	const MARGIN = 6;
 
-	// 分组标题（子目录）会额外占高度，直接实测它们的总高：
-	// 没有子目录时返回 0，高度与原来完全一致。
-	function headerExtraHeight() {
+	// 网格高度 = 正好覆盖「两排缩略图（含它们上方的分组标题）」为止。
+	// 换算到内容坐标系（加 scrollTop），滚动过也算得对。
+	function applyGridHeight() {
 		if (!expandedKey) return 0;
 		const grid = sections[expandedKey]?.grid;
 		if (!grid) return 0;
-		const gap = parseFloat(getComputedStyle(grid).rowGap) || 5;
-		let extra = 0;
-		grid.querySelectorAll(".qq-gp-group").forEach((head) => {
-			extra += head.offsetHeight + gap;
-		});
-		return extra;
+		const kids = [...grid.children];
+		if (!kids.length) return 0;
+		// 没有子目录（没有分组标题）时保持原来的弹性布局，不受影响
+		const grouped = !!grid.querySelector(".qq-gp-group");
+		sections[expandedKey].sec.classList.toggle("qq-gp-grouped", grouped);
+		if (!grouped) {
+			grid.style.height = "";
+			grid.style.flex = "";
+			return 0;
+		}
+		const gridRect = grid.getBoundingClientRect();
+		const scroll = grid.scrollTop;
+		const scale = app.canvas?.ds?.scale || 1;
+		let rows = 0;
+		let lastTop = null;
+		let target = 0;
+		for (const kid of kids) {
+			const rect = kid.getBoundingClientRect();
+			if (kid.classList.contains("qq-gp-cell")) {
+				if (lastTop === null || Math.abs(rect.top - lastTop) > 1) {
+					rows += 1;
+					lastTop = rect.top;
+				}
+			}
+			target = (rect.bottom - gridRect.top) / scale + scroll;
+			if (rows >= 2) break;
+		}
+		if (target > 0) {
+			grid.style.height = `${Math.round(target)}px`;
+			grid.style.flex = "0 0 auto";
+		}
+		return target;
 	}
+
 
 	function contentHeight() {
 		const open = expandedKey ? 1 : 0;
-		return PAD * 2 + LIBS.length * ROW_H + (LIBS.length - 1) * GAP + open * BODY_H
-			+ headerExtraHeight();
+		return PAD * 2 + LIBS.length * ROW_H + (LIBS.length - 1) * GAP + open * BODY_H;
 	}
 
+	// 网格高度 = 正好覆盖两排缩略图（含它们上方的分组标题）为止。
+	// 直接写死这个高度，节点再按 body 实际高度定，不会来回抖。
+	function contentHeight() {
+		const open = expandedKey ? 1 : 0;
+		return PAD * 2 + LIBS.length * ROW_H + (LIBS.length - 1) * GAP + open * BODY_H;
+	}
+
+	// 网格高度 = 正好覆盖两排缩略图（含它们上方的分组标题）为止。
+	// 直接写死这个高度，节点再按 body 实际高度定，不会来回抖。
+	// 网格高度 = 正好覆盖两排缩略图（含它们上方的分组标题）为止。
+	// 直接写死这个高度，节点再按 body 实际高度定，不会来回抖。
 	const gallery = node.addDOMWidget("qq_gp_gallery", "qq_gp_gallery", root, {
 		serialize: false,
 		hideOnZoom: false,
@@ -437,8 +475,22 @@ function setup(node) {
 			if (attempt < 40) requestAnimationFrame(() => fitToContent(attempt + 1));
 			return;
 		}
-		const target = minNodeHeight();
+		const scale = app.canvas?.ds?.scale || 1;
 		const current = node.size?.[1] ?? 0;
+		let target = minNodeHeight();
+		if (expandedKey) {
+			const hasGroups = !!sections[expandedKey]?.grid?.querySelector(".qq-gp-group");
+			if (hasGroups) {
+				applyGridHeight();
+				const body = sections[expandedKey]?.sec?.querySelector(".qq-gp-body");
+				const bodyH = body?.offsetHeight || BODY_H;
+				// contentHeight() 里用的是 BODY_H 常数，这里换成实测的 body 高度
+				target = (contentHeight() - BODY_H + bodyH + MARGIN * 2) / scale;
+			} else {
+				applyGridHeight();
+				target = Math.max(target, current);
+			}
+		}
 		if (Math.abs(target - current) > 1) {
 			node.setSize?.([node.size?.[0] ?? 340, target]);
 			node.graph?.setDirtyCanvas(true, true);
