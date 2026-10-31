@@ -390,14 +390,28 @@ function setup(node) {
 	const PAD = 4; // .qq-gp 的内边距（上下各 4）
 	const BODY_H = 190; // 展开区块的 body 高度
 
-	let contentNeed = 0;
 
 	// DOM 控件四周留一点边距，否则它会把节点的圆角边框盖住（看起来像「外框没了」）。
 	const MARGIN = 6;
 
+	// 分组标题（子目录）会额外占高度，直接实测它们的总高：
+	// 没有子目录时返回 0，高度与原来完全一致。
+	function headerExtraHeight() {
+		if (!expandedKey) return 0;
+		const grid = sections[expandedKey]?.grid;
+		if (!grid) return 0;
+		const gap = parseFloat(getComputedStyle(grid).rowGap) || 5;
+		let extra = 0;
+		grid.querySelectorAll(".qq-gp-group").forEach((head) => {
+			extra += head.offsetHeight + gap;
+		});
+		return extra;
+	}
+
 	function contentHeight() {
 		const open = expandedKey ? 1 : 0;
-		return PAD * 2 + LIBS.length * ROW_H + (LIBS.length - 1) * GAP + open * BODY_H;
+		return PAD * 2 + LIBS.length * ROW_H + (LIBS.length - 1) * GAP + open * BODY_H
+			+ headerExtraHeight();
 	}
 
 	const gallery = node.addDOMWidget("qq_gp_gallery", "qq_gp_gallery", root, {
@@ -407,18 +421,14 @@ function setup(node) {
 		getMinHeight: () => contentHeight(),
 	});
 
-	// 收起时的「最小高度」直接问节点自己：把节点拖到最小时停住的那个尺寸，
-	// 就是 ComfyUI 按控件算出来的 computeSize，比我们猜常数准。
-	// 展开时在此基础上加展开区高度。
-	let baseHeight = 0;
-
-	function measureBase() {
-		const size = node.computeSize?.();
-		if (!Array.isArray(size) || !size[1]) return 0;
-		// computeSize 偶尔会带出异常值，用常数估个范围做保护
-		const guess = (contentHeight() + MARGIN * 2) / (app.canvas?.ds?.scale || 1);
-		if (size[1] < guess * 0.5 || size[1] > guess * 2 + 80) return 0;
-		return size[1];
+	// 节点高度直接用 ComfyUI 算的 computeSize：它由控件 getMinHeight 决定，
+	// 也就是「手动把节点拖到最小」停住的那个值；分组标题已经算进 contentHeight()。
+	function minNodeHeight() {
+		const cs = node.computeSize?.();
+		const min = Array.isArray(cs) ? cs[1] : 0;
+		const scale = app.canvas?.ds?.scale || 1;
+		if (min > 60 && min < 5000) return min;
+		return (contentHeight() + MARGIN * 2) / scale;
 	}
 
 	function fitToContent(attempt = 0) {
@@ -427,12 +437,7 @@ function setup(node) {
 			if (attempt < 40) requestAnimationFrame(() => fitToContent(attempt + 1));
 			return;
 		}
-		// 只在收起状态校准基准：展开时 computeSize 会把展开区也算进去
-		if (!baseHeight && !expandedKey) baseHeight = measureBase();
-		const scale = app.canvas?.ds?.scale || 1;
-		const target = baseHeight
-			? baseHeight + (expandedKey ? BODY_H / scale : 0)
-			: (contentHeight() + MARGIN * 2) / scale;
+		const target = minNodeHeight();
 		const current = node.size?.[1] ?? 0;
 		if (Math.abs(target - current) > 1) {
 			node.setSize?.([node.size?.[0] ?? 340, target]);
@@ -447,10 +452,7 @@ function setup(node) {
 			if (attempt < 40) requestAnimationFrame(() => growToContent(attempt + 1));
 			return;
 		}
-		if (!baseHeight && !expandedKey) baseHeight = measureBase();
-		if (!baseHeight) return;
-		const scale = app.canvas?.ds?.scale || 1;
-		const target = baseHeight + (expandedKey ? BODY_H / scale : 0);
+		const target = minNodeHeight();
 		if ((node.size?.[1] ?? 0) < target - 1) {
 			node.setSize?.([node.size?.[0] ?? 340, target]);
 			node.graph?.setDirtyCanvas(true, true);
@@ -857,6 +859,7 @@ function setup(node) {
 			? `已选 ${names.length} 张（按点击顺序输出）`
 			: "还没选";
 		state.hint.title = names.join("\n");
+		requestAnimationFrame(() => fitToContent());
 	}
 
 	function syncAll() {
