@@ -47,7 +47,7 @@ const CSS = `
 .qq-gp-caret{flex:0 0 auto;color:var(--descrip-text,#96a0b0);transition:transform .12s}
 .qq-gp-sec[data-open="1"] .qq-gp-caret{transform:rotate(90deg)}
 .qq-gp-body{display:none;flex:1 1 auto;min-height:0;flex-direction:column;gap:5px;padding:0 5px 5px}
-.qq-gp-sec[data-open="1"] .qq-gp-body{height:210px;min-height:210px;flex:0 0 auto}
+.qq-gp-sec[data-open="1"] .qq-gp-body{height:190px;min-height:190px;flex:0 0 auto}
 .qq-gp-sec[data-open="1"] .qq-gp-body{display:flex}
 .qq-gp-tools{display:flex;gap:5px;align-items:center;flex:0 0 auto}
 .qq-gp-tools input{flex:1 1 0;min-width:0;height:22px;padding:0 6px;border-radius:4px;
@@ -388,7 +388,7 @@ function setup(node) {
 	const ROW_H = 42; // 行头 40 + 上下 1px 边框
 	const GAP = 4; // .qq-gp 的 gap
 	const PAD = 4; // .qq-gp 的内边距（上下各 4）
-	const BODY_H = 210; // 展开区块的 body 高度（实测：网格 158px，两排需 149px）
+	const BODY_H = 190; // 展开区块的 body 高度
 
 	let contentNeed = 0;
 
@@ -407,8 +407,19 @@ function setup(node) {
 		getMinHeight: () => contentHeight(),
 	});
 
-	// 节点高度直接用 ComfyUI 自己算的 computeSize：它就是「手动把节点拖到最小」
-	// 停住的那个值，收起/展开都会跟着控件的 minHeight 变，不需要我们再猜常数。
+	// 收起时的「最小高度」直接问节点自己：把节点拖到最小时停住的那个尺寸，
+	// 就是 ComfyUI 按控件算出来的 computeSize，比我们猜常数准。
+	// 展开时在此基础上加展开区高度。
+	let baseHeight = 0;
+
+	function measureBase() {
+		const size = node.computeSize?.();
+		if (!Array.isArray(size) || !size[1]) return 0;
+		// computeSize 偶尔会带出异常值，用常数估个范围做保护
+		const guess = (contentHeight() + MARGIN * 2) / (app.canvas?.ds?.scale || 1);
+		if (size[1] < guess * 0.5 || size[1] > guess * 2 + 80) return 0;
+		return size[1];
+	}
 
 	function fitToContent(attempt = 0) {
 		// 刚创建的节点还没挂进 DOM，量不到尺寸；等几帧再试
@@ -416,11 +427,12 @@ function setup(node) {
 			if (attempt < 40) requestAnimationFrame(() => fitToContent(attempt + 1));
 			return;
 		}
+		// 只在收起状态校准基准：展开时 computeSize 会把展开区也算进去
+		if (!baseHeight && !expandedKey) baseHeight = measureBase();
 		const scale = app.canvas?.ds?.scale || 1;
-		const guess = (contentHeight() + MARGIN * 2) / scale;
-		const min = node.computeSize?.()?.[1] ?? 0;
-		// computeSize 就是「手动拖到最小」的那个高度，直接用它最稳
-		const target = min > guess * 0.5 && min < guess * 2 + 120 ? min : guess;
+		const target = baseHeight
+			? baseHeight + (expandedKey ? BODY_H / scale : 0)
+			: (contentHeight() + MARGIN * 2) / scale;
 		const current = node.size?.[1] ?? 0;
 		if (Math.abs(target - current) > 1) {
 			node.setSize?.([node.size?.[0] ?? 340, target]);
@@ -435,10 +447,10 @@ function setup(node) {
 			if (attempt < 40) requestAnimationFrame(() => growToContent(attempt + 1));
 			return;
 		}
+		if (!baseHeight && !expandedKey) baseHeight = measureBase();
+		if (!baseHeight) return;
 		const scale = app.canvas?.ds?.scale || 1;
-		const guess = (contentHeight() + MARGIN * 2) / scale;
-		const min = node.computeSize?.()?.[1] ?? 0;
-		const target = min > guess * 0.5 && min < guess * 2 + 120 ? min : guess;
+		const target = baseHeight + (expandedKey ? BODY_H / scale : 0);
 		if ((node.size?.[1] ?? 0) < target - 1) {
 			node.setSize?.([node.size?.[0] ?? 340, target]);
 			node.graph?.setDirtyCanvas(true, true);
