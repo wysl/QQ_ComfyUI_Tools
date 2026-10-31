@@ -152,6 +152,81 @@ main {
 .multi-fold:not([open]) > .multi-body { display: none; }
 .multi-fold:not([open]) { margin-bottom: 14px; }
 
+/* ---------- QQ-预制图像参考 ---------- */
+/* 一个节点展开成三段（姿态/脸模/服装），点「选择」进入图片选择层。 */
+.guli-lane {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--line, rgba(255,255,255,.07));
+}
+.guli-lane:last-child { border-bottom: 0; }
+.guli-lane-title { flex: none; width: 40px; font-weight: 600; }
+.guli-lane-value {
+    flex: 1 1 auto; min-width: 0;
+    color: var(--muted); font-size: 13px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.guli-pick-btn {
+    flex: none; padding: 7px 13px; border-radius: 9px;
+    border: 1px solid var(--line, rgba(255,255,255,.16));
+    background: var(--btn, #242a35); color: inherit; font: inherit;
+}
+.guli-pick-btn:active { transform: scale(.97); }
+.guli-overlay {
+    position: fixed; inset: 0; z-index: 80;
+    display: flex; flex-direction: column;
+    background: #12151b; color: #e7ebf2;
+}
+.guli-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; padding-top: max(10px, env(safe-area-inset-top));
+    border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.guli-head-title { flex: 1 1 auto; font-weight: 600; }
+.guli-head-btn {
+    padding: 7px 13px; border-radius: 9px;
+    border: 1px solid rgba(255,255,255,.16);
+    background: #242a35; color: inherit; font: inherit;
+}
+.guli-head-btn.primary { background: #3b6fd4; border-color: #3b6fd4; }
+.guli-grid {
+    flex: 1 1 auto; overflow: auto; -webkit-overflow-scrolling: touch;
+    padding: 10px; display: grid; gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    align-content: start;
+}
+.guli-tile {
+    position: relative; padding: 0; border: 2px solid transparent;
+    border-radius: 10px; overflow: hidden; background: #0d1015;
+}
+.guli-tile img { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover; }
+.guli-tile[data-on="1"] { border-color: #4f8cff; }
+.guli-tile .guli-cap {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 2px 4px; font-size: 10px;
+    background: rgba(8,10,14,.74); color: #fff;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.guli-tile .guli-badge {
+    position: absolute; right: 4px; top: 4px;
+    min-width: 17px; height: 17px; padding: 0 3px;
+    border-radius: 9px; background: #4f8cff; color: #fff;
+    font-size: 10px; line-height: 17px; text-align: center;
+}
+.guli-tile .guli-zoom {
+    position: absolute; left: 4px; top: 4px;
+    width: 22px; height: 22px; border-radius: 11px;
+    border: 0; background: rgba(8,10,14,.7); color: #fff;
+    font-size: 12px; line-height: 22px; text-align: center;
+}
+.guli-empty { grid-column: 1 / -1; padding: 26px 10px; text-align: center; color: #8b95a5; }
+.guli-view {
+    position: fixed; inset: 0; z-index: 90; background: #000;
+    display: flex; align-items: center; justify-content: center;
+    overflow: auto;
+}
+.guli-view img { max-width: 100%; max-height: 100%; }
+
 /* ---------- pipeline picker ---------- */
 /* Folder headings mirror the editor's workflow sidebar. */
 .folder-head {
@@ -3536,11 +3611,31 @@ function render(parameters) {
     const stored = loadStoredValues();
     const seen = new Set();
 
+    // QQ-预制图像参考: one image picker section per node instead of three text rows.
+    const guliGroups = new Map();
+    for (const parameter of parameters) {
+        if (!parameter.guli) continue;
+        seen.add(parameter.key);
+        if (stored[parameter.key] !== undefined) {
+            state.values[parameter.key] = stored[parameter.key];
+        } else if (state.values[parameter.key] === undefined) {
+            state.values[parameter.key] = parameter.value;
+        }
+        const nodeKey = String(parameter.guli.node ?? parameter.key);
+        if (!guliGroups.has(nodeKey)) {
+            guliGroups.set(nodeKey, {
+                title: parameter.guli.title || "预制图像参考",
+                lanes: {},
+            });
+        }
+        guliGroups.get(nodeKey).lanes[parameter.guli.lane] = parameter;
+    }
+
     // Preserve first-seen order of group names.
     const order = [];
     const sections = new Map();
     for (const parameter of parameters) {
-        if (parameter.hidden) continue;
+        if (parameter.hidden || parameter.guli) continue;
         seen.add(parameter.key);
         if (stored[parameter.key] !== undefined) {
             state.values[parameter.key] = stored[parameter.key];
@@ -3586,6 +3681,8 @@ function render(parameters) {
             form.appendChild(advancedBlock(advanced, showHeadings ? name : ""));
         }
     }
+
+    for (const entry of guliGroups.values()) form.appendChild(guliSection(entry));
 
     // Drop remembered values for parameters that no longer exist.
     for (const key of Object.keys(state.values)) {
@@ -3668,6 +3765,216 @@ function multiSection(name, primary, advanced, open) {
 
     group.append(summary, body);
     return group;
+}
+
+/* ---------- QQ-预制图像参考 ---------- */
+
+/** "3 张：A、B" style summary of one lane's current picks. */
+function guliSummary(parameter) {
+    const tokens = String(state.values[parameter.key] ?? parameter.value ?? "")
+        .split("|")
+        .map((piece) => piece.trim())
+        .filter(Boolean);
+    if (!tokens.length) return "未使用";
+    const names = tokens.map((token) => token.split("::")[0]);
+    const head = names.slice(0, 2).join("、");
+    return `${tokens.length} 张：${head}${tokens.length > 2 ? "…" : ""}`;
+}
+
+/** One foldable section holding the 姿态 / 脸模 / 服装 pickers of one node. */
+function guliSection(entry) {
+    const group = document.createElement("details");
+    group.className = "multi-fold guli-fold";
+    group.open = true;
+
+    const summary = document.createElement("summary");
+    summary.className = "multi-head";
+    const title = document.createElement("span");
+    title.className = "multi-title";
+    title.textContent = entry.title || "预制图像参考";
+    const count = document.createElement("span");
+    count.className = "count";
+    count.textContent = String(Object.keys(entry.lanes).length);
+    const chevron = document.createElement("span");
+    chevron.className = "multi-chevron";
+    chevron.innerHTML = iconSvg("down", 17);
+    summary.append(title, count, chevron);
+
+    const body = document.createElement("div");
+    body.className = "multi-body";
+    for (const [lane, label] of [["pose", "姿态"], ["face", "脸模"], ["cloth", "服装"]]) {
+        const parameter = entry.lanes[lane];
+        if (!parameter) continue;
+        body.appendChild(guliLaneRow(parameter, label));
+    }
+
+    group.append(summary, body);
+    return group;
+}
+
+/** One lane: label, current picks, and the button that opens the picker. */
+function guliLaneRow(parameter, label) {
+    const row = document.createElement("div");
+    row.className = "guli-lane";
+    const title = document.createElement("span");
+    title.className = "guli-lane-title";
+    title.textContent = label;
+    const value = document.createElement("span");
+    value.className = "guli-lane-value";
+    value.textContent = guliSummary(parameter);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "guli-pick-btn";
+    button.textContent = "选择";
+    button.addEventListener("click", () => {
+        openGuliPicker(parameter, label, () => {
+            value.textContent = guliSummary(parameter);
+        });
+    });
+    row.append(title, value, button);
+    return row;
+}
+
+/** Full-screen picker for one lane; writes back ``条目::视角|...``. */
+async function openGuliPicker(parameter, label, onChange) {
+    const lib = parameter.guli?.lane || "pose";
+    const tokens = new Set(
+        String(state.values[parameter.key] ?? "")
+            .split("|")
+            .map((piece) => piece.trim())
+            .filter(Boolean),
+    );
+
+    const overlay = document.createElement("div");
+    overlay.className = "guli-overlay";
+    overlay.innerHTML = `
+        <div class="guli-head">
+            <button type="button" class="guli-head-btn" data-role="close">关闭</button>
+            <span class="guli-head-title">${label}</span>
+            <button type="button" class="guli-head-btn primary" data-role="done">完成</button>
+        </div>
+        <div class="guli-grid"><div class="guli-empty">载入图库…</div></div>`;
+
+    const grid = overlay.querySelector(".guli-grid");
+    const close = () => {
+        overlay.remove();
+        document.body.style.overflow = "";
+    };
+    overlay.querySelector('[data-role="close"]').addEventListener("click", close);
+    overlay.querySelector('[data-role="done"]').addEventListener("click", () => {
+        state.values[parameter.key] = [...tokens].join("|");
+        storeValues();
+        close();
+        onChange?.();
+        toast(`已选 ${tokens.size} 张`);
+    });
+
+    document.body.appendChild(overlay);
+    document.body.style.overflow = "hidden";
+
+    let data;
+    try {
+        const res = await fetch(`/qq_gulipose/${lib}/index.json`, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        data = await res.json();
+    } catch (err) {
+        grid.innerHTML = `<div class="guli-empty">读取图库失败：${err.message ?? err}</div>`;
+        return;
+    }
+
+    const angleName = (key) =>
+        (data.angles || []).find((angle) => angle.key === key)?.label || key;
+    const tiles = [];
+    for (const item of data.items || []) {
+        const angles = Object.entries(item.angles || {}).filter(([, entry]) => entry?.img);
+        if (!angles.length) continue;
+        const leaf = String(item.label).split("/").pop();
+        if (angles.length > 1) {
+            for (const [key, entry] of angles) {
+                tiles.push({
+                    token: `${item.label}::${key}`,
+                    img: entry.img,
+                    caption: `${leaf} · ${angleName(key)}`,
+                });
+            }
+        } else {
+            tiles.push({ token: item.label, img: angles[0][1].img, caption: leaf });
+        }
+    }
+
+    grid.replaceChildren();
+    if (!tiles.length) {
+        grid.innerHTML = `<div class="guli-empty">这个图库还没有图片</div>`;
+        return;
+    }
+
+    const thumbUrl = (name) =>
+        `/qq_gulipose/${lib}/thumb?name=${encodeURIComponent(name)}`;
+    const imageUrl = (name) =>
+        `/qq_gulipose/${lib}/img?name=${encodeURIComponent(name)}`;
+
+    const paint = () => {
+        let order = 0;
+        for (const tile of grid.querySelectorAll(".guli-tile")) {
+            const on = tokens.has(tile.dataset.token);
+            tile.dataset.on = on ? "1" : "0";
+            const badge = tile.querySelector(".guli-badge");
+            if (on) {
+                order += 1;
+                badge.textContent = String(order);
+                badge.hidden = false;
+            } else {
+                badge.hidden = true;
+            }
+        }
+    };
+
+    const frag = document.createDocumentFragment();
+    for (const tile of tiles) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "guli-tile";
+        button.dataset.token = tile.token;
+        const img = document.createElement("img");
+        img.loading = "lazy";
+        img.src = thumbUrl(tile.img);
+        img.alt = tile.caption;
+        const cap = document.createElement("span");
+        cap.className = "guli-cap";
+        cap.textContent = tile.caption;
+        const badge = document.createElement("span");
+        badge.className = "guli-badge";
+        badge.hidden = true;
+        const zoom = document.createElement("button");
+        zoom.type = "button";
+        zoom.className = "guli-zoom";
+        zoom.innerHTML = iconSvg("expand", 13);
+        zoom.addEventListener("click", (event) => {
+            event.stopPropagation();
+            openGuliViewer(imageUrl(tile.img));
+        });
+        button.append(img, cap, badge, zoom);
+        button.addEventListener("click", () => {
+            if (tokens.has(tile.token)) tokens.delete(tile.token);
+            else tokens.add(tile.token);
+            paint();
+        });
+        frag.appendChild(button);
+    }
+    grid.replaceChildren(frag);
+    paint();
+}
+
+/** Full-screen, pinch-zoomable preview of one reference image. */
+function openGuliViewer(src) {
+    const view = document.createElement("div");
+    view.className = "guli-view";
+    const img = document.createElement("img");
+    img.src = src;
+    img.alt = "";
+    view.appendChild(img);
+    view.addEventListener("click", () => view.remove());
+    document.body.appendChild(view);
 }
 
 /** Collapsed block of rarely-touched model and sampler settings. */

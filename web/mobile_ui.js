@@ -161,6 +161,60 @@ function mediaParameters(graph) {
 }
 
 /**
+ * Collect the settings of ``QQ-预制图像参考`` nodes (type QQGuliPosePicker).
+ *
+ * Its three widgets (姿态 / 脸模 / 服装) hold the picked references as
+ * ``条目::视角`` tokens joined by ``|``. They are ordinary writable inputs, so
+ * each one becomes a normal parameter; the ``guli`` marker only tells the phone
+ * to draw an image picker instead of a text box, and groups the three rows
+ * under one foldable section.
+ */
+function guliParameters(graph, instances) {
+    const found = [];
+    const LANES = [
+        ["姿态", "pose"],
+        ["脸模", "face"],
+        ["服装", "cloth"],
+    ];
+    const push = (node, execId, suffix) => {
+        for (const [label, lane] of LANES) {
+            const widget = (node.widgets ?? []).find((entry) => entry?.name === label);
+            if (!widget) continue;
+            found.push({
+                key: `guli:${execId}:${label}`,
+                name: label,
+                label,
+                type: "STRING",
+                value: widget.value ?? "",
+                targets: [[execId, label]],
+                group: "预制图像参考",
+                guli: {
+                    node: execId,
+                    lane,
+                    title: `预制图像参考${suffix}`,
+                },
+            });
+        }
+    };
+    for (const node of graph?._nodes ?? []) {
+        if (node?.type === "QQGuliPosePicker") push(node, String(node.id), "");
+    }
+    for (const instance of instances ?? []) {
+        for (const node of instance.subgraph?.nodes ?? []) {
+            if (node?.type !== "QQGuliPosePicker") continue;
+            const title = instance.title || `${instance.id}`;
+            push(node, `${instance.id}:${node.id}`, ` · ${title}`);
+        }
+    }
+    return found;
+}
+
+/** Whether the workflow carries a QQ-预制图像参考 node at all. */
+function hasGuliNode(graph, instances) {
+    return guliParameters(graph, instances).length > 0;
+}
+
+/**
  * Collect parameters from ``QQ-多值输入`` nodes.
  *
  * That node is a frontend virtual node: it never appears in the submitted
@@ -727,6 +781,7 @@ async function prepareTemplate(options = {}) {
     const { graph, instances } = subgraphInstances();
     if (!graph) throw new Error("没有打开的工作流");
 
+    const guli = guliParameters(graph, instances);
     const multi = multiPrimitiveParameters(graph);
     // A group switch the phone can flip decides which nodes exist in the
     // prompt, so the variants have to be built before the parameters are read.
@@ -753,6 +808,7 @@ async function prepareTemplate(options = {}) {
     for (const entry of switchableMedia) {
         if (!parameters.some((known) => known.key === entry.key)) parameters.push(entry);
     }
+    for (const entry of guli) parameters.push(entry);
     if (multi.length) {
         for (const entry of multi) {
             if (!entry.targets.length) unbound.push(entry.label || entry.name);

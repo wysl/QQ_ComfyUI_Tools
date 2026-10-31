@@ -324,6 +324,36 @@ class ApplyValuesTests(unittest.TestCase):
         self.assertEqual(normalised[0]["targets"], [["1", "steps"], ["2", "steps"]])
         self.assertEqual(normalised[0]["type"], "INT")
 
+    def test_guli_marker_survives_normalisation(self):
+        """The phone needs the marker to draw an image picker instead of a text box."""
+        raw = [
+            {
+                "key": "guli:42:姿态",
+                "name": "姿态",
+                "label": "姿态",
+                "type": "STRING",
+                "value": "P001::front",
+                "targets": [["42", "姿态"]],
+                "guli": {"node": "42", "lane": "pose", "title": "预制图像参考"},
+            },
+            {"key": "plain", "name": "plain", "type": "STRING", "targets": [["43", "text"]]},
+        ]
+        normalised = self.ui._normalise_parameters(raw)
+        self.assertEqual(normalised[0]["guli"], {"node": "42", "lane": "pose", "title": "预制图像参考"})
+        self.assertIsNone(normalised[1]["guli"])
+
+    def test_guli_values_are_written_to_the_node_inputs(self):
+        prompt = {"42": {"class_type": "QQGuliPosePicker", "inputs": {}}}
+        parameters = self.ui._normalise_parameters([
+            {"key": "p", "name": "姿态", "targets": [["42", "姿态"]]},
+            {"key": "f", "name": "脸模", "targets": [["42", "脸模"]]},
+        ])
+        updated, warnings = self.ui.apply_parameter_values(
+            prompt, parameters, {"p": "A::side|B::front", "f": ""}
+        )
+        self.assertEqual(warnings, [])
+        self.assertEqual(updated["42"]["inputs"]["姿态"], "A::side|B::front")
+
     def test_extract_media_flattens_outputs(self):
         entry = {
             "outputs": {
