@@ -430,10 +430,15 @@ function setup(node) {
 		// 只在收起状态校准基准：展开时 computeSize 会把展开区也算进去
 		if (!baseHeight && !expandedKey) baseHeight = measureBase();
 		const scale = app.canvas?.ds?.scale || 1;
-		const target = baseHeight
+		const current = node.size?.[1] ?? 0;
+		let target = baseHeight
 			? baseHeight + (expandedKey ? BODY_H / scale : 0)
 			: (contentHeight() + MARGIN * 2) / scale;
-		const current = node.size?.[1] ?? 0;
+		// 展开后如果内容还是被裁（常见于主题行高更大），按实测差值补高，只长不缩
+		if (expandedKey) {
+			const over = root.scrollHeight - root.clientHeight;
+			if (over > 2) target = Math.max(target, current + Math.min(over, 200) / scale);
+		}
 		if (Math.abs(target - current) > 1) {
 			node.setSize?.([node.size?.[0] ?? 340, target]);
 			node.graph?.setDirtyCanvas(true, true);
