@@ -61,14 +61,12 @@ const CSS = `
   color:inherit;font:inherit}
 .qq-gp-btn:hover{border-color:var(--qq-gp-ac,#4f8cff);color:var(--qq-gp-ac,#4f8cff)}
 .qq-gp-grid{flex:1 1 auto;min-height:0;overflow-y:auto;display:grid;gap:5px;
-  grid-template-columns:repeat(auto-fill,minmax(${CELL}px,1fr));
-  grid-auto-rows:auto;align-content:start;
-  /* 给滚动条留位置，最右一列不会被压在滚动条下面 */
-  scrollbar-gutter:stable;padding-right:2px}
+  grid-template-columns:repeat(auto-fill,${CELL}px);
+  grid-auto-rows:auto;align-content:start}
 .qq-gp-group{grid-column:1/-1;align-self:start;padding:4px 2px 2px;border-bottom:1px solid var(--border-color,#39404d);
   color:var(--descrip-text,#96a0b0);font-size:11px;letter-spacing:.02em}
 
-.qq-gp-cell{position:relative;width:100%;height:${CELL}px;padding:0;
+.qq-gp-cell{position:relative;width:${CELL}px;height:${CELL}px;padding:0;
   border:1px solid var(--border-color,#39404d);border-radius:5px;background:#0f1116;
   cursor:pointer;overflow:hidden}
 .qq-gp-cell img{width:100%;height:100%;object-fit:cover;display:block}
