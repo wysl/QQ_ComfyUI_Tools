@@ -47,7 +47,7 @@ const CSS = `
 .qq-gp-caret{flex:0 0 auto;color:var(--descrip-text,#96a0b0);transition:transform .12s}
 .qq-gp-sec[data-open="1"] .qq-gp-caret{transform:rotate(90deg)}
 .qq-gp-body{display:none;flex:1 1 auto;min-height:0;flex-direction:column;gap:5px;padding:0 5px 5px}
-.qq-gp-sec[data-open="1"] .qq-gp-body{height:210px;min-height:210px;flex:0 0 auto}
+.qq-gp-sec[data-open="1"] .qq-gp-body{height:auto;min-height:0;flex:0 0 auto}
 .qq-gp-sec[data-open="1"] .qq-gp-body{display:flex}
 .qq-gp-tools{display:flex;gap:5px;align-items:center;flex:0 0 auto}
 .qq-gp-tools input{flex:1 1 0;min-width:0;height:22px;padding:0 6px;border-radius:4px;
@@ -60,7 +60,7 @@ const CSS = `
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
   color:inherit;font:inherit}
 .qq-gp-btn:hover{border-color:var(--qq-gp-ac,#4f8cff);color:var(--qq-gp-ac,#4f8cff)}
-.qq-gp-grid{flex:1 1 auto;min-height:0;overflow-y:auto;display:grid;gap:5px;
+.qq-gp-grid{flex:0 0 auto;min-height:0;overflow-y:auto;display:grid;gap:5px;
   grid-template-columns:repeat(auto-fill,${CELL}px);
   grid-auto-rows:auto;align-content:start}
 .qq-gp-group{grid-column:1/-1;align-self:start;padding:4px 2px 2px;border-bottom:1px solid var(--border-color,#39404d);
@@ -383,33 +383,43 @@ function setup(node) {
 	let expandedKey = null;
 
 	// 布局常量：必须与下面 CSS 里的数值一致。
-	// 内容高度默认按布局常数算；一旦实测发现内容被裁（scrollHeight > clientHeight），
-	// 就改用实测值，直到装得下为止。这样既能在收起时缩回去，也能兜住主题差异。
-	const ROW_H = 42; // 行头 40 + 上下 1px 边框
-	const GAP = 4; // .qq-gp 的 gap
-	const PAD = 4; // .qq-gp 的内边距（上下各 4）
-	const BODY_H = 190; // 展开区块的 body 高度
+	// 网格高度 = 实测格子高度 × 可见排数；不再用常数猜
+	const VISIBLE_ROWS = 2;
 
-	let contentNeed = 0;
+	function syncGridHeight() {
+		const grid = sections.pose?.grid;
+		if (!grid) return;
+		const cell = grid.querySelector(".qq-gp-cell");
+		const cellH = cell?.offsetHeight || CELL;
+		const gap = parseFloat(getComputedStyle(grid).rowGap) || 5;
+		const height = VISIBLE_ROWS * cellH + (VISIBLE_ROWS - 1) * gap;
+		for (const lib of LIBS) {
+			const target = sections[lib.key]?.grid;
+			if (target) target.style.height = `${Math.round(height)}px`;
+		}
+	}
 
-	// DOM 控件四周留一点边距，否则它会把节点的圆角边框盖住（看起来像「外框没了」）。
-	const MARGIN = 6;
+	// 内容需要多高：直接把每段的高度加起来（收起/展开都准，且不受节点当前大小影响）
+	function needCss() {
+		const style = getComputedStyle(root);
+		const pad =
+			(parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+		const gap = parseFloat(style.rowGap) || 0;
+		const secs = [...root.querySelectorAll(".qq-gp-sec")];
+		let total = pad;
+		secs.forEach((sec, index) => {
+			total += sec.offsetHeight;
+			if (index) total += gap;
+		});
+		return total;
+	}
 
 	function contentHeight() {
+		const measured = needCss();
+		if (measured > 20) return measured;
 		const open = expandedKey ? 1 : 0;
 		return PAD * 2 + LIBS.length * ROW_H + (LIBS.length - 1) * GAP + open * BODY_H;
 	}
-
-	const gallery = node.addDOMWidget("qq_gp_gallery", "qq_gp_gallery", root, {
-		serialize: false,
-		hideOnZoom: false,
-		margin: MARGIN,
-		getMinHeight: () => contentHeight(),
-	});
-
-	// 收起时的「最小高度」直接问节点自己：把节点拖到最小时停住的那个尺寸，
-	// 就是 ComfyUI 按控件算出来的 computeSize，比我们猜常数准。
-	// 展开时在此基础上加展开区高度。
 
 	function fitToContent(attempt = 0) {
 		// 刚创建的节点还没挂进 DOM，量不到尺寸；等几帧再试
@@ -417,11 +427,9 @@ function setup(node) {
 			if (attempt < 40) requestAnimationFrame(() => fitToContent(attempt + 1));
 			return;
 		}
+		syncGridHeight();
 		const scale = app.canvas?.ds?.scale || 1;
-		// 内容被裁时以实测为准，否则用常数（否则拉高后的节点永远缩不回来）
-		const clipped = root.scrollHeight - root.clientHeight > 2;
-		const need = clipped ? root.scrollHeight : contentHeight();
-		const target = Math.max(120, (need + MARGIN * 2) / scale);
+		const target = Math.max(120, (contentHeight() + MARGIN * 2) / scale);
 		const current = node.size?.[1] ?? 0;
 		if (Math.abs(target - current) > 1) {
 			node.setSize?.([node.size?.[0] ?? 340, target]);
@@ -436,9 +444,8 @@ function setup(node) {
 			return;
 		}
 		const scale = app.canvas?.ds?.scale || 1;
-		const clipped = root.scrollHeight - root.clientHeight > 2;
-		const need = clipped ? root.scrollHeight : contentHeight();
-		const target = Math.max(120, (need + MARGIN * 2) / scale);
+		syncGridHeight();
+		const target = Math.max(120, (contentHeight() + MARGIN * 2) / scale);
 		if ((node.size?.[1] ?? 0) < target - 1) {
 			node.setSize?.([node.size?.[0] ?? 340, target]);
 			node.graph?.setDirtyCanvas(true, true);
