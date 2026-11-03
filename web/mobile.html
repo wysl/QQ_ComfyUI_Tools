@@ -193,13 +193,15 @@ main {
     flex: 1 1 auto; overflow: auto; -webkit-overflow-scrolling: touch;
     padding: 10px; display: grid; gap: 8px;
     grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    grid-auto-rows: 104px;
     align-content: start;
 }
 .guli-tile {
     position: relative; padding: 0; border: 2px solid transparent;
     border-radius: 10px; overflow: hidden; background: #0d1015;
 }
-.guli-tile img { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover; }
+.guli-tile { height: 104px; }
+.guli-tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .guli-tile[data-on="1"] { border-color: #4f8cff; }
 .guli-tile .guli-cap {
     position: absolute; left: 0; right: 0; bottom: 0;
