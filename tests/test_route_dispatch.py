@@ -181,7 +181,9 @@ class RouteDispatchFrontendTests(unittest.TestCase):
     def test_names_come_from_output_labels(self):
         self.assertIn("output.label", self.source)
         self.assertIn("function outputNames(node)", self.source)
-        self.assertIn("widget.options.values = names", self.source)
+        # 下拉里只放「已连接」的口，所以写入的是筛选后的列表
+        self.assertIn("widget.options.values = options", self.source)
+        self.assertIn("function selectOptionNames(node)", self.source)
 
     def test_never_overwrites_an_existing_label(self):
         # 只在 addOutput 之后写一次 label，之后同步不再赋值

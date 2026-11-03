@@ -130,19 +130,28 @@ console.log("== 2. 输出口数量 ==");
 
 console.log("== 3. 选择框内容 ==");
 {
-  const node = makeNode([makeOutput("输出1", "提示词优化A"), makeOutput("输出2", "提示词优化B")], "输出1");
+  const node = makeNode([
+    makeOutput("输出1", "提示词优化A", [1]),
+    makeOutput("输出2", "提示词优化B", [2]),
+  ], "输出1");
   const names = api.syncSelectWidget(node);
   check("下拉项是输出口名称", JSON.stringify(names) === JSON.stringify(["提示词优化A", "提示词优化B"]));
   check("widget.options.values 同步", JSON.stringify(node.widgets[0].options.values) === JSON.stringify(names));
   check("旧值有对应口时保留", node.widgets[0].value === "提示词优化A");
 }
 {
-  const node = makeNode([makeOutput("输出1", "输出1"), makeOutput("输出2", "输出2")], "2");
+  const node = makeNode([
+    makeOutput("输出1", "输出1", [1]),
+    makeOutput("输出2", "输出2", [2]),
+  ], "2");
   api.syncSelectWidget(node, ["输出1", "输出2"]);
   check("数字写法映射到同名口", node.widgets[0].value === "输出2");
 }
 {
-  const node = makeNode([makeOutput("输出1", "输出1"), makeOutput("输出2", "输出2")], "不存在");
+  const node = makeNode([
+    makeOutput("输出1", "输出1", [1]),
+    makeOutput("输出2", "输出2", [2]),
+  ], "不存在");
   api.syncSelectWidget(node, ["输出1", "输出2"]);
   check("对不上时退回第一个口", node.widgets[0].value === "输出1");
 }
@@ -152,6 +161,37 @@ console.log("== 3. 选择框内容 ==");
   const names = api.syncSelectWidget(node, ["输出1"]);
   check("远端下拉（函数）不被覆盖", typeof node.widgets[0].options.values === "function");
   check("仍返回当前名称", JSON.stringify(names) === JSON.stringify(["输出1"]));
+}
+
+console.log("== 3b. 只列出已连接的口 ==");
+{
+  const node = makeNode([
+    makeOutput("输出1", "提示词优化A", [1]),
+    makeOutput("输出2", "提示词优化B"),
+    makeOutput("输出3", "提示词优化C", [3]),
+  ], "提示词优化A");
+  api.syncSelectWidget(node);
+  check(
+    "未连接的口不出现在下拉里",
+    JSON.stringify(node.widgets[0].options.values) === JSON.stringify(["提示词优化A", "提示词优化C"]),
+  );
+  check("选中项仍然有效", node.widgets[0].value === "提示词优化A");
+}
+{
+  const node = makeNode([
+    makeOutput("输出1", "提示词优化A"),
+    makeOutput("输出2", "提示词优化B", [2]),
+  ], "提示词优化A");
+  api.syncSelectWidget(node);
+  check("选中的口被断开后切到已连接的口", node.widgets[0].value === "提示词优化B");
+}
+{
+  const node = makeNode([makeOutput("输出1", "输出1"), makeOutput("输出2", "输出2")], "输出1");
+  api.syncSelectWidget(node);
+  check(
+    "一个都没连时下拉至少保留当前值",
+    JSON.stringify(node.widgets[0].options.values) === JSON.stringify(["输出1"]),
+  );
 }
 
 console.log("== 4. 改名后选中项不丢 ==");

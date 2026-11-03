@@ -155,6 +155,15 @@ function writeSelectValue(node, index) {
     return true;
 }
 
+// 下拉框只列「已经连上线」的输出口：没接东西的口选了也没用，
+// 反而让人以为能往一个空口送数据。
+export function selectOptionNames(node) {
+    const names = outputNames(node);
+    return connectedIndexes(node)
+        .map((index) => names[index])
+        .filter(Boolean);
+}
+
 export function syncSelectWidget(node, previousNames = []) {
     const widget = selectWidget(node);
     if (!widget) return [];
@@ -162,9 +171,27 @@ export function syncSelectWidget(node, previousNames = []) {
     widget.options ||= {};
     // 远端下拉（options.values 是函数）由后端刷新，这里不覆盖
     if (typeof widget.options.values === "function") return names;
-    widget.value = remapValue(widget.value, names, previousNames);
-    widget.options.values = names;
+
+    const linked = selectOptionNames(node);
+    // 一个口都没连时保留当前值，避免下拉变成空列表（那会让控件显示异常）
+    const options = linked.length
+        ? linked
+        : [widget.value].filter((value) => names.includes(value));
+    if (!options.length) options.push(names[0]);
+
+    if (!options.includes(widget.value)) {
+        // 原来选的口被断开或改名了：先按位置平移，再按「输出N / 数字」解析，
+        // 都对不上就退回第一个可用项
+        const oldIndex = previousNames.indexOf(widget.value);
+        const renamed = oldIndex >= 0 ? names[oldIndex] : "";
+        const numeric = selectedIndex(widget.value, names);
+        const byNumber = numeric >= 0 ? names[numeric] : "";
+        const mapped = [renamed, byNumber].find((name) => name && options.includes(name));
+        widget.value = mapped || options[0];
+    }
+    widget.options.values = options;
     applyPollingState(node);
+    // 返回值仍是全部输出口名称：调用方用它记录「上一轮的名字」做改名平移
     return names;
 }
 
