@@ -69,6 +69,25 @@ function sourceState(sourceNode) {
     }
 }
 
+// loader 的「外部图片」不在 media_state 里，是运行时才接进来的，
+// 所以端口数要单独算：loader 跑过之后后端会用 ui.qq_external_images 给出张数；
+// 还没跑时只要 external_images 接了线，就先按 1 张算（最常见的情况）。
+function externalImageCount(sourceNode) {
+    if (!sourceNode) return 0;
+    const input = (sourceNode.inputs || []).find((entry) => entry?.name === "external_images");
+    if (input?.link == null) return 0;
+    const info = sourceNode.__wyslMediaLoaderExternalInfo;
+    const count = Number(info?.count);
+    // 跑过之后以后端张数为准，包括 0 张（上游这时没送来图）
+    if (info && Number.isFinite(count)) return Math.max(0, count);
+    return 1;
+}
+
+function imageCountForLoader(connection, state) {
+    const internal = state?.images?.length || 0;
+    return internal + externalImageCount(connection?.sourceNode);
+}
+
 function outputType(sourceSlot) {
     return String(sourceSlot?.type || "*").toUpperCase();
 }
@@ -95,15 +114,17 @@ function descriptorsForConnection(connection) {
     if (sourceIsKnownLoader(connection)) {
         if (isBundleConnection(connection)) {
             const descriptors = [];
+            const imageTotal = imageCountForLoader(connection, state);
             for (const group of GROUPS) {
-                const count = Math.min(MAX_OUTPUTS - descriptors.length, state[group.key].length);
+                const available = group.key === "images" ? imageTotal : state[group.key].length;
+                const count = Math.min(MAX_OUTPUTS - descriptors.length, available);
                 for (let index = 0; index < count; index += 1) {
                     descriptors.push({ type: group.type, name: `${group.label} ${index + 1}` });
                 }
             }
             if (descriptors.length) return descriptors;
         } else if (outputType(connection.sourceSlot) === "IMAGE") {
-            const count = Math.min(MAX_OUTPUTS, state.images.length);
+            const count = Math.min(MAX_OUTPUTS, imageCountForLoader(connection, state));
             if (count > 0) return Array.from({ length: count }, (_, index) => ({
                 type: "IMAGE",
                 name: `图片 ${index + 1}`,

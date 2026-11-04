@@ -1475,6 +1475,9 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('const NODE_TYPE = "QQMediaIndexOutput";', source)
         self.assertIn('const MEDIA_BUNDLE_TYPE = "MINIMAX_H3_MEDIA_BUNDLE";', source)
         self.assertIn("function descriptorsForConnection(connection)", source)
+        # 端口数量要把 external_images 接进来的外部图片算进去
+        self.assertIn("function externalImageCount(sourceNode)", source)
+        self.assertIn("function imageCountForLoader(connection, state)", source)
         self.assertIn("function syncOutputs(node, force = false)", source)
         self.assertIn('const SCALE_MODE_WIDGET = "缩放模式";', source)
         self.assertIn("function syncScaleWidgetVisibility(node)", source)
