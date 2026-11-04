@@ -6,10 +6,11 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const source = readFileSync(join(here, '..', 'web', 'media_loader.js'), 'utf8')
 const pathHelpers = source.slice(source.indexOf('function normalizePath('), source.indexOf('function readState('))
+const guliHelpers = source.slice(source.indexOf('const GULI_REF_PREFIX'), source.indexOf('function closeHoverPreview('))
 const urlHelpers = source.slice(source.indexOf('function mediaUrl('), source.indexOf('function closeHoverPreview('))
-const helpers = new Function(`${pathHelpers}\n${urlHelpers}\nreturn { splitReference, mediaReference, normalizeReference, mediaUrl, thumbnailUrl }`)()
+const helpers = new Function(`${pathHelpers}\n${urlHelpers}\nreturn { splitReference, mediaReference, normalizeReference, mediaUrl, thumbnailUrl, parseGuliRef }`)()
 const titleHelper = source.slice(source.indexOf('function cardTitle('), source.indexOf('function measurePanelHeight('))
-const { cardTitle } = new Function(`${pathHelpers}\n${titleHelper}\nreturn { cardTitle }`)()
+const { cardTitle } = new Function(`${pathHelpers}\n${guliHelpers}\n${titleHelper}\nreturn { cardTitle }`)()
 const hoverHelpers = source.slice(source.indexOf('function closeHoverPreview('), source.indexOf('function cancelHoverPreviewClose('))
 const { closeDetachedHoverPreview } = new Function(`${hoverHelpers}\nreturn { closeDetachedHoverPreview }`)()
 const previewSizing = source.slice(source.indexOf('function hoverPreviewDimensions('), source.indexOf('function attachImageHoverPreview('))
@@ -38,6 +39,17 @@ const thumbUrl = new URL(helpers.thumbnailUrl('output::sub/picture.png', 128), '
 assert.equal(thumbUrl.searchParams.get('filename'), 'output::sub/picture.png')
 assert.equal(thumbUrl.searchParams.get('size'), '128')
 assert.equal(cardTitle('output::sub/picture.png'), 'picture.png')
+
+// 参考图（guli::lib::编码路径）走图库的缩略图/原图地址，并且算作图片
+const guliRef = 'guli::pose::' + encodeURIComponent('站姿/a.png')
+assert.deepEqual(helpers.parseGuliRef(guliRef), { lib: 'pose', name: '站姿/a.png' })
+assert.equal(helpers.parseGuliRef('output::sub/picture.png'), null)
+const guliThumb = new URL(helpers.thumbnailUrl(guliRef, 128), 'http://localhost')
+assert.equal(guliThumb.pathname, '/qq_gulipose/pose/thumb')
+assert.equal(guliThumb.searchParams.get('name'), '站姿/a.png')
+const guliImage = new URL(helpers.mediaUrl(guliRef), 'http://localhost')
+assert.equal(guliImage.pathname, '/qq_gulipose/pose/img')
+assert.equal(cardTitle(guliRef), '姿态 · a.png')
 
 let removed = 0
 const detachedNode = {

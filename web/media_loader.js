@@ -202,6 +202,8 @@ function canReadClipboardDirectly() {
 }
 
 function mediaUrl(path) {
+    const guli = parseGuliRef(path);
+    if (guli) return guliImageUrl(guli.lib, guli.name);
     const reference = splitReference(path);
     const { filename, subfolder } = splitPath(reference.path);
     const params = new URLSearchParams({ filename, type: reference.source });
@@ -210,8 +212,54 @@ function mediaUrl(path) {
 }
 
 function thumbnailUrl(path, size) {
+    const guli = parseGuliRef(path);
+    if (guli) return guliThumbUrl(guli.lib, guli.name);
     const params = new URLSearchParams({ filename: normalizeReference(path), size: String(size) });
     return `/wysl/media-loader/thumbnail?${params.toString()}`;
+}
+
+/* ---------------- 预制图像参考（guli）引用 ---------------- */
+// 参考图和普通图片进同一个序列，只是文件在用户目录里，用前缀区分：
+//   guli::<lib>::<URL 编码后的相对图片路径>
+const GULI_REF_PREFIX = "guli::";
+const GULI_REF_LIBS = ["pose", "face", "cloth"];
+const GULI_LIB_LABELS = { pose: "姿态", face: "脸模", cloth: "服装" };
+
+function parseGuliRef(value) {
+    const text = String(value || "");
+    if (!text.startsWith(GULI_REF_PREFIX)) return null;
+    const rest = text.slice(GULI_REF_PREFIX.length);
+    const cut = rest.indexOf("::");
+    if (cut < 0) return null;
+    const lib = rest.slice(0, cut);
+    if (!GULI_REF_LIBS.includes(lib)) return null;
+    let name = rest.slice(cut + 2);
+    try {
+        name = decodeURIComponent(name);
+    } catch {
+        return null;
+    }
+    return name ? { lib, name } : null;
+}
+
+function guliReference(lib, name) {
+    return `${GULI_REF_PREFIX}${lib}::${encodeURIComponent(name)}`;
+}
+
+function guliThumbUrl(lib, name) {
+    return `/qq_gulipose/${lib}/thumb?name=${encodeURIComponent(name)}`;
+}
+
+function guliImageUrl(lib, name) {
+    return `/qq_gulipose/${lib}/img?name=${encodeURIComponent(name)}`;
+}
+
+/** 面板卡片上显示的名字：参考图用「姿态 · 文件名」。 */
+function guliTitle(path) {
+    const guli = parseGuliRef(path);
+    if (!guli) return "";
+    const leaf = guli.name.split("/").pop() || guli.name;
+    return `${GULI_LIB_LABELS[guli.lib] || guli.lib} · ${leaf}`;
 }
 
 function closeHoverPreview(node) {
@@ -618,6 +666,8 @@ function selectedCount(state) {
 }
 
 function cardTitle(path) {
+    const guli = parseGuliRef(path);
+    if (guli) return guliTitle(path);
     const filename = splitReference(path).path;
     return filename.split("/").pop() || filename;
 }
@@ -826,7 +876,8 @@ function createSelectedCard(node, group, path, index) {    const card = document
 
     // A painted layer per picture: the mask output of this node follows the
     // same order, so the badge also tells which images already have one.
-    if (group.type === "image") {
+    // 参考图在用户目录里，没有可画的遮罩层，所以不给遮罩按钮。
+    if (group.type === "image" && !parseGuliRef(path)) {
         const paint = makeButton("✎", "wysl-media-mask", (event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -1212,6 +1263,237 @@ function createFileRow(node, group, item, state, source, thumbSize) {
     return row;
 }
 
+/* ---------------- 弹窗里的「添加参考图」 ---------------- */
+
+/** 拉图库索引（按 lib 缓存在节点上，刷新按钮会强制重拉）。 */
+async function guliIndex(node, lib, force = false) {
+    node.__wyslMediaLoaderGuliIndex ||= {};
+    if (!force && node.__wyslMediaLoaderGuliIndex[lib]) {
+        return node.__wyslMediaLoaderGuliIndex[lib];
+    }
+    const res = await api.fetchApi(`/qq_gulipose/${lib}/index.json`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    node.__wyslMediaLoaderGuliIndex[lib] = data;
+    return data;
+}
+
+/** 把参考图加入 / 移出图片序列（位置就是点击顺序）。 */
+function toggleGuliReference(node, reference) {
+    const next = readState(node);
+    const images = next.images;
+    const at = images.indexOf(reference);
+    if (at >= 0) images.splice(at, 1);
+    else images.push(reference);
+    writeState(node, next);
+    render(node);
+}
+
+/**
+ * 把弹窗的预览区临时换成参考图图库。
+ *
+ * 选中的图和普通图片一样写进 state.images，因此 multi output / media_bundle /
+ * 序号输出都会带上它们；这里只是换了一种挑图的方式。
+ */
+function renderGuliPicker(node, modal) {
+    const body = modal.querySelector(".wysl-media-modal-body");
+    if (!body) return;
+    const view = node.__wyslMediaLoaderGuli || (node.__wyslMediaLoaderGuli = {
+        lib: "pose",
+        keyword: "",
+        cat: "/",
+    });
+    setModalStatus(node, "");
+
+    const state = readState(node);
+    const frame = document.createElement("div");
+    frame.className = "wysl-media-guli";
+
+    const tools = document.createElement("div");
+    tools.className = "wysl-media-guli-tools";
+    const lanes = document.createElement("div");
+    lanes.className = "wysl-media-guli-lanes";
+    for (const lib of GULI_REF_LIBS) {
+        const button = makeButton(GULI_LIB_LABELS[lib], "wysl-media-guli-lane", () => {
+            view.lib = lib;
+            view.keyword = "";
+            view.cat = "/";
+            refreshModal(node, modal);
+        });
+        if (lib === view.lib) button.classList.add("is-active");
+        lanes.append(button);
+    }
+    const search = document.createElement("input");
+    search.className = "wysl-media-guli-search";
+    search.type = "search";
+    search.placeholder = "搜索名称";
+    search.value = view.keyword;
+    const cat = document.createElement("select");
+    cat.className = "wysl-media-guli-cat";
+    const importButton = makeButton("导入", "wysl-media-guli-import", () => guliFileInput.click());
+    const refreshButton = makeButton("刷新", "wysl-media-guli-refresh", async () => {
+        try {
+            await guliIndex(node, view.lib, true);
+        } catch (error) {
+            setModalStatus(node, `刷新失败：${error?.message || error}`, true);
+            return;
+        }
+        refreshModal(node, modal);
+    });
+    const back = makeButton("返回媒体列表", "wysl-media-guli-back", () => {
+        node.__wyslMediaLoaderModalMode = "media";
+        refreshModal(node, modal);
+        syncModalChecks(node);
+    });
+    tools.append(lanes, search, cat, importButton, refreshButton, back);
+
+    const grid = document.createElement("div");
+    grid.className = "wysl-media-guli-grid";
+    const foot = document.createElement("div");
+    foot.className = "wysl-media-guli-foot";
+
+    const guliFileInput = document.createElement("input");
+    guliFileInput.type = "file";
+    guliFileInput.accept = "image/*";
+    guliFileInput.multiple = true;
+    guliFileInput.style.display = "none";
+    guliFileInput.addEventListener("change", async () => {
+        const files = [...(guliFileInput.files || [])];
+        guliFileInput.value = "";
+        if (!files.length) return;
+        for (const file of files) {
+            const form = new FormData();
+            form.append("file", file, file.name);
+            if (view.cat && view.cat !== "/") form.append("cat", view.cat);
+            try {
+                await api.fetchApi(`/qq_gulipose/${view.lib}/upload`, { method: "POST", body: form });
+            } catch (error) {
+                console.error("[QQ-多媒体加载] 参考图导入失败", error);
+            }
+        }
+        try {
+            await guliIndex(node, view.lib, true);
+        } catch { /* 索引读不到时下面会显示空态 */ }
+        refreshModal(node, modal);
+    });
+
+    frame.append(tools, grid, foot, guliFileInput);
+    body.replaceChildren(frame);
+
+    const paint = (data) => {
+        const current = readState(node);
+        cat.replaceChildren();
+        const allOption = document.createElement("option");
+        allOption.value = "/";
+        allOption.textContent = "/";
+        cat.append(allOption);
+        for (const name of data.cats || []) {
+            const option = document.createElement("option");
+            option.value = name;
+            option.textContent = name;
+            cat.append(option);
+        }
+        if (!(data.cats || []).includes(view.cat) && view.cat !== "/") view.cat = "/";
+        cat.value = view.cat;
+
+        const needle = view.keyword.trim().toLowerCase();
+        const tiles = [];
+        for (const item of data.items || []) {
+            if (view.cat !== "/" && (item.cat || "") !== view.cat) continue;
+            if (needle && !String(item.label || "").toLowerCase().includes(needle)) continue;
+            const angles = Object.entries(item.angles || {}).filter(([, entry]) => entry?.img);
+            if (!angles.length) continue;
+            const leaf = String(item.label || "").split("/").pop();
+            const angleName = (key) =>
+                (data.angles || []).find((entry) => entry.key === key)?.label || key;
+            if (angles.length > 1) {
+                for (const [key, entry] of angles) {
+                    tiles.push({
+                        reference: guliReference(view.lib, entry.img),
+                        caption: `${leaf} · ${angleName(key)}`,
+                        image: entry.img,
+                    });
+                }
+            } else {
+                tiles.push({
+                    reference: guliReference(view.lib, angles[0][1].img),
+                    caption: leaf,
+                    image: angles[0][1].img,
+                });
+            }
+        }
+
+        grid.replaceChildren();
+        if (!tiles.length) {
+            const empty = document.createElement("div");
+            empty.className = "wysl-media-modal-empty";
+            empty.textContent = (data.items || []).length
+                ? "没有匹配的参考图，换个分类或清空搜索。"
+                : "这个图库还没有图片，点「导入」或把图片放进 img/ 目录。";
+            grid.append(empty);
+        } else {
+            const frag = document.createDocumentFragment();
+            for (const tile of tiles) {
+                const added = current.images.indexOf(tile.reference);
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "wysl-media-guli-tile";
+                button.dataset.on = added >= 0 ? "1" : "0";
+                button.title = tile.caption;
+                const image = document.createElement("img");
+                image.loading = "lazy";
+                image.src = guliThumbUrl(view.lib, tile.image);
+                image.alt = tile.caption;
+                const caption = document.createElement("span");
+                caption.className = "wysl-media-guli-caption";
+                caption.textContent = tile.caption;
+                const badge = document.createElement("b");
+                badge.textContent = added >= 0 ? String(added + 1) : "";
+                badge.hidden = added < 0;
+                button.append(image, caption, badge);
+                button.addEventListener("click", () => {
+                    toggleGuliReference(node, tile.reference);
+                    paint(data);
+                });
+                frag.append(button);
+            }
+            grid.append(frag);
+        }
+
+        const added = current.images.filter((reference) => parseGuliRef(reference)).length;
+        foot.textContent = `图片序列里已有 ${added} 张参考图（${GULI_LIB_LABELS[view.lib]} 图库共 ${
+            (data.items || []).length
+        } 条）`;
+        setModalStatus(node, "");
+    };
+
+    search.addEventListener("input", () => {
+        view.keyword = search.value;
+        if (node.__wyslMediaLoaderGuliIndex?.[view.lib]) paint(node.__wyslMediaLoaderGuliIndex[view.lib]);
+    });
+    cat.addEventListener("change", () => {
+        view.cat = cat.value;
+        if (node.__wyslMediaLoaderGuliIndex?.[view.lib]) paint(node.__wyslMediaLoaderGuliIndex[view.lib]);
+    });
+
+    const loading = document.createElement("div");
+    loading.className = "wysl-media-modal-empty";
+    loading.textContent = "载入图库…";
+    grid.append(loading);
+    guliIndex(node, view.lib)
+        .then((data) => {
+            if (node.__wyslMediaLoaderModal !== modal) return;
+            paint(data);
+        })
+        .catch((error) => {
+            grid.replaceChildren();
+            const failed = document.createElement("div");
+            failed.className = "wysl-media-modal-empty is-error";
+            failed.textContent = `读取图库失败：${error?.message || error}`;
+            grid.append(failed);
+        });
+}
+
 function refreshModal(node, modal) {
     if (!modal?.isConnected) return;
     if (modal.__wyslRenderToken) {
@@ -1220,6 +1502,16 @@ function refreshModal(node, modal) {
     }
     const token = { cancelled: false };
     modal.__wyslRenderToken = token;
+
+    const mode = node.__wyslMediaLoaderModalMode || "media";
+    const modalOptions = modal.querySelector(".wysl-media-modal-options");
+    if (modalOptions) modalOptions.hidden = mode === "guli";
+    const heading = modal.querySelector(".wysl-media-modal-header strong");
+    if (heading) heading.textContent = mode === "guli" ? "添加参考图" : "添加媒体";
+    if (mode === "guli") {
+        renderGuliPicker(node, modal);
+        return;
+    }
 
     const data = node.__wyslMediaLoaderFolderData || { folder: "", parent: "", directories: [], files: [] };
     const state = readState(node);
@@ -1497,6 +1789,7 @@ function openModal(node) {
         return;
     }
     node.__wyslMediaLoaderModalReturnFocus = document.activeElement;
+    node.__wyslMediaLoaderModalMode = "media";
 
     const modal = document.createElement("div");
     modal.className = "wysl-media-modal-overlay qq-media-loader-modal-v2";
@@ -1525,7 +1818,14 @@ function openModal(node) {
     const inputRoot = makeButton("input 根目录", "wysl-media-modal-root", () => loadFolder(node, "", "input"));
     const selectAll = makeButton("当前目录全选", "wysl-media-modal-select-all", () => selectCurrentFolder(node));
     const clearSelected = makeButton("取消所选", "wysl-media-modal-clear-selection", () => clearCurrentFolder(node));
-    controls.append(path, outputRoot, inputRoot, up, choose, selectAll, clearSelected);
+    // 参考图入口：把预览区临时换成图库，选中的图和普通图片一样进序列
+    const addRefs = makeButton("添加参考图", "wysl-media-modal-refs", () => {
+        node.__wyslMediaLoaderGuli = node.__wyslMediaLoaderGuli || { lib: "pose", keyword: "", cat: "/" };
+        node.__wyslMediaLoaderModalMode = "guli";
+        refreshModal(node, modal);
+    });
+    addRefs.title = "从预制图像参考图库里挑图，选中的会加入图片序列";
+    controls.append(path, outputRoot, inputRoot, up, choose, selectAll, clearSelected, addRefs);
 
     const options = document.createElement("div");
     options.className = "wysl-media-modal-options";
@@ -1615,6 +1915,7 @@ function openModal(node) {
 function closeModal(node, restoreFocus = true) {
     const modal = node?.__wyslMediaLoaderModal;
     node.__wyslMediaLoaderModal = null;
+    node.__wyslMediaLoaderModalMode = "media";
     OPEN_MODALS.delete(node);
     if (!modal) return;
     if (modal.__wyslWatchTimer) clearInterval(modal.__wyslWatchTimer);
@@ -1718,6 +2019,24 @@ const CSS_TEXT = `
 .wysl-media-modal-controls{display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:8px 10px;border-bottom:1px solid var(--border-color,rgba(255,255,255,.08))}
 .wysl-media-modal-path{min-width:140px;flex:1 1 100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--content-fg,#aebbc4)}
 .wysl-media-modal-controls button{flex:0 0 auto;font-size:11px}
+/* 「添加参考图」固定在控件行最右边 */
+.wysl-media-modal-controls .wysl-media-modal-refs{margin-left:auto;border-color:var(--p-primary-color,#4b86b4)}
+.wysl-media-modal-options[hidden]{display:none}
+/* 参考图图库：三栏切换 + 搜索/分类 + 缩略图网格 */
+.wysl-media-guli{display:flex;flex-direction:column;gap:7px;min-height:0;height:100%;padding:8px 10px}
+.wysl-media-guli-tools{display:flex;flex-wrap:wrap;align-items:center;gap:5px;flex:0 0 auto}
+.wysl-media-guli-lanes{display:flex;gap:3px;flex:0 0 auto}
+.wysl-media-guli-lane{font-size:11px;height:24px;padding:0 9px}
+.wysl-media-guli-lane.is-active{border-color:var(--p-primary-color,#4b86b4);color:var(--p-primary-color,#8fb9d9)}
+.wysl-media-guli-search{flex:1 1 140px;min-width:0;height:24px;padding:0 6px;border-radius:5px;border:1px solid var(--border-color,#535d66);background:var(--comfy-input-bg,#22282d);color:var(--fg-color,#e3e7ea);font:inherit;font-size:11px}
+.wysl-media-guli-cat{flex:0 0 26%;min-width:0;height:24px;border-radius:5px;border:1px solid var(--border-color,#535d66);background:var(--comfy-input-bg,#22282d);color:var(--fg-color,#e3e7ea);font:inherit;font-size:11px}
+.wysl-media-guli-grid{flex:1 1 auto;min-height:0;overflow-y:auto;display:grid;gap:6px;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));grid-auto-rows:118px;align-content:start}
+.wysl-media-guli-tile{position:relative;height:118px;padding:0;border:2px solid transparent;border-radius:7px;overflow:hidden;background:#0d1015;cursor:pointer}
+.wysl-media-guli-tile img{display:block;width:100%;height:100%;object-fit:cover}
+.wysl-media-guli-tile[data-on="1"]{border-color:#4f8cff}
+.wysl-media-guli-tile b{position:absolute;right:4px;top:4px;min-width:17px;height:17px;border-radius:9px;background:#4f8cff;color:#fff;font-size:10px;line-height:17px;text-align:center;font-weight:600}
+.wysl-media-guli-caption{position:absolute;left:0;right:0;bottom:0;padding:2px 4px;font-size:10px;background:rgba(8,10,14,.74);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wysl-media-guli-foot{flex:0 0 auto;color:var(--content-fg,#8fa3b0);font-size:11px}
 .wysl-media-modal-options{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border-color,rgba(255,255,255,.08))}
 .wysl-media-layout{display:flex;align-items:center;gap:0;flex:0 0 auto}
 .wysl-media-layout button{border-radius:0;padding:4px 9px;font-size:11px}

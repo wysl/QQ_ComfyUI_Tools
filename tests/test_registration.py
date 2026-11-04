@@ -1249,6 +1249,15 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('externalInput.addEventListener("keydown"', source)
         self.assertIn('if (event.key !== "Enter") return;', source)
         self.assertIn('api.addEventListener("executed"', source)
+        # 参考图入口在「添加媒体」弹窗里，选中后进入图片序列
+        self.assertIn('const GULI_REF_PREFIX = "guli::";', source)
+        self.assertIn("function parseGuliRef(value)", source)
+        self.assertIn("function guliReference(lib, name)", source)
+        self.assertIn("function toggleGuliReference(node, reference)", source)
+        self.assertIn("function renderGuliPicker(node, modal)", source)
+        self.assertIn('makeButton("添加参考图", "wysl-media-modal-refs"', source)
+        self.assertIn('node.__wyslMediaLoaderModalMode = "guli";', source)
+        self.assertIn(".wysl-media-guli-grid{", source)
         self.assertIn("panel.append(toolbar, external, groups, status);", source)
         self.assertIn(".wysl-media-external-input{", source)
         self.assertIn('const layout = searching ? "4"', source)
@@ -1306,6 +1315,28 @@ class RegistrationTests(unittest.TestCase):
             self.assertEqual(join([a, c]).shape, (3, 4, 5, 3))
             # 中间夹着无效项也不影响
             self.assertEqual(join([a, None, b]).shape, (5, 4, 5, 3))
+
+    def test_guli_references_join_the_image_sequence(self):
+        """参考图也是图片序列的一项：前缀识别、按图片处理、取图走图库。"""
+        media = importlib.import_module("QQ_ComfyUI_Tools.node_modules.media")
+        from urllib.parse import quote
+
+        ref = media._media_loader_reference("guli::pose::" + quote("站姿/a.png", safe=""))
+        self.assertTrue(ref.startswith("guli::pose::"))
+        self.assertEqual(media._media_loader_guli_parts(ref), ("pose", "站姿/a.png"))
+        self.assertEqual(media._media_loader_kind(ref), "image")
+        # 越界、未知库名都不认
+        self.assertIsNone(media._media_loader_guli_parts("guli::pose::../x.png"))
+        self.assertIsNone(media._media_loader_guli_parts("guli::video::a.png"))
+        # 状态里被当作图片保留
+        state = media._media_loader_normalize_state(
+            json.dumps({"images": [ref], "audios": [], "videos": []})
+        )
+        self.assertEqual(state["images"], [ref])
+        # 取图交给图库实现
+        sentinel = object()
+        with patch.object(media.guli_pose_db, "load_pixels", lambda path: sentinel):
+            self.assertIs(media._media_loader_load_image(ref), sentinel)
 
     def test_media_loader_external_image_positions(self):
         media = importlib.import_module("QQ_ComfyUI_Tools.node_modules.media")
