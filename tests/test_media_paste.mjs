@@ -160,7 +160,11 @@ console.log('== 4. 源码结构约束 ==')
 
   check('粘贴按钮已定义', src.includes('wysl-media-paste'))
   // 显示在「添加媒体」左侧 —— 由 toolbar.append 的参数顺序决定
-  check('append 参数顺序为 paste,add,clear', /toolbar\.append\(\.\.\.\[title, count, paste, add, clear\]/.test(src))
+  // 「参考图」按钮插在「添加媒体」和「清空」之间
+  check(
+    'append 参数顺序为 paste,add,参考图,clear',
+    /toolbar\.append\(\.\.\.\[title, count, paste, add, refsToggle, clear\]/.test(src),
+  )
   check('按钮仅在安全上下文出现', src.includes('canReadClipboardDirectly()'))
 }
 

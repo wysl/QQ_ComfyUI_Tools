@@ -354,6 +354,20 @@ class ApplyValuesTests(unittest.TestCase):
         self.assertEqual(warnings, [])
         self.assertEqual(updated["42"]["inputs"]["姿态"], "A::side|B::front")
 
+    def test_the_loader_reference_widgets_are_collected_too(self):
+        """参考图内置进 QQ-多媒体加载 后，手机页仍要能找到这三个控件。"""
+        source = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
+        self.assertIn(
+            'const GULI_NODE_TYPES = new Set(["QQGuliPosePicker", "QQMediaLoader"]);',
+            source,
+        )
+        self.assertIn("function isReferenceNode(node)", source)
+        block = source.split("function isReferenceNode(node)")[1].split("\n}")[0]
+        for name in ("姿态", "脸模", "服装"):
+            self.assertIn(name, block)
+        scan = source.split("function guliParameters(graph, instances)")[1].split("\n}")[0]
+        self.assertIn("isReferenceNode(node)", scan)
+
     def test_extract_media_flattens_outputs(self):
         entry = {
             "outputs": {

@@ -1,11 +1,20 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { openMaskEditor, maskExists } from "./mask_editor.js";
+import {
+    LANES as REF_LANES,
+    parseTokens as refTokens,
+    summarize as summarizeRefs,
+    openGuliPicker,
+} from "./guli_refs.js";
 
 const NODE_TYPE = "QQMediaLoader";
 const STATE_WIDGET = "media_state";
 const EXTERNAL_WIDGET = "external_positions";
 const EXTERNAL_INPUT_NAME = "external_images";
+// 内置的「预制图像参考」：控件名与独立节点一致，令牌格式也一致
+const REF_WIDGETS = { pose: "姿态", face: "脸模", cloth: "服装" };
+const REF_OPEN_PROPERTY = "wysl_media_refs_open";
 const THUMB_TILE = 128;
 // 128px webp is already 2x a 56px tile at devicePixelRatio 2, and requesting a
 // larger tier for every row of a big folder would stall the picker.
@@ -479,7 +488,8 @@ function relativeFolder(file) {
 }
 
 function hideWidget(node) {
-    for (const name of [STATE_WIDGET, EXTERNAL_WIDGET]) {
+    const names = [STATE_WIDGET, EXTERNAL_WIDGET, ...Object.values(REF_WIDGETS)];
+    for (const name of names) {
         const target = widget(node, name);
         if (!target) continue;
         target.hidden = true;
@@ -488,6 +498,83 @@ function hideWidget(node) {
         target.options ||= {};
         target.options.hidden = true;
     }
+}
+
+/* ---------------- 内置的预制图像参考 ---------------- */
+
+/** 三类参考图当前选了多少张，工具条上的小计数用。 */
+function refCount(node) {
+    return REF_LANES.reduce(
+        (total, lane) => total + refTokens(widget(node, REF_WIDGETS[lane.lib])?.value).length,
+        0,
+    );
+}
+
+/** 把某一类的令牌写回隐藏控件；不碰 media_state。 */
+function writeRefTokens(node, lib, tokens) {
+    const target = widget(node, REF_WIDGETS[lib]);
+    if (!target) return;
+    const value = tokens.join("|");
+    if (target.value === value) return;
+    target.value = value;
+    target.callback?.(value);
+    node.graph?.setDirtyCanvas?.(true, true);
+    app.graph?.setDirtyCanvas?.(true, true);
+}
+
+/** 工具条上的「参考图 [n]」按钮文字与区块展开状态保持一致。 */
+function syncRefsChrome(node) {
+    const button = node?.__wyslMediaRefsToggle;
+    const block = node?.__wyslMediaRefsBlock;
+    if (!button || !block) return;
+    const count = refCount(node);
+    button.textContent = `参考图${count ? ` ${count}` : ""}`;
+    button.title = "选择姿态 / 脸模 / 服装参考图";
+    const open = Boolean(node.__wyslMediaRefsOpen);
+    block.hidden = !open;
+    button.classList.toggle("is-active", open);
+    button.setAttribute("aria-expanded", String(open));
+}
+
+/** 重建区块里的三行摘要。 */
+function renderRefs(node) {
+    const body = node?.__wyslMediaRefsRows;
+    if (!body) return;
+    body.replaceChildren();
+    for (const lane of REF_LANES) {
+        const target = widget(node, REF_WIDGETS[lane.lib]);
+        const tokens = refTokens(target?.value);
+        const row = document.createElement("div");
+        row.className = "wysl-media-ref-row";
+        const name = document.createElement("span");
+        name.className = "wysl-media-ref-name";
+        name.textContent = lane.label;
+        const value = document.createElement("span");
+        value.className = "wysl-media-ref-value";
+        value.textContent = summarizeRefs(tokens);
+        value.title = tokens.join("\n") || "未使用";
+        const pick = makeButton("选择", "wysl-media-ref-pick", () => {
+            openGuliPicker({
+                lib: lane.lib,
+                tokens,
+                title: `预制图像参考 · ${lane.label}`,
+                onChange: (value) => {
+                    writeRefTokens(node, lane.lib, refTokens(value));
+                    render(node);
+                },
+            });
+        });
+        row.append(name, value, pick);
+        body.append(row);
+    }
+    syncRefsChrome(node);
+}
+
+function setRefsOpen(node, open) {
+    node.__wyslMediaRefsOpen = Boolean(open);
+    node.properties ||= {};
+    node.properties[REF_OPEN_PROPERTY] = node.__wyslMediaRefsOpen;
+    syncRefsChrome(node);
 }
 
 function makeButton(text, className, handler) {
@@ -637,6 +724,9 @@ function measurePanelHeight(node) {
         visible += 1;
     }
     content += Math.max(0, visible - 1) * GROUP_GAP;
+    // 参考图区块（展开时）也要算进去，否则节点高度不会跟着长
+    const refs = panel.querySelector(".wysl-media-refs");
+    if (refs && !refs.hidden) content += refs.offsetHeight + GROUP_GAP;
     const total = (toolbar?.offsetHeight || 25)
         + (status?.offsetHeight || 22)
         + content
@@ -1105,6 +1195,7 @@ function render(node) {
     if (groups) groups.scrollTop = scrollTop;
     panel.classList.toggle("is-empty", selectedCount(state) === 0);
     syncExternalRow(node);
+    renderRefs(node);
     renderStatus(node);
     updatePanelHeight(node);
 }
@@ -1661,6 +1752,17 @@ const CSS_TEXT = `
 .wysl-media-external-input:focus-visible{outline:2px solid var(--p-primary-color,#4b86b4);outline-offset:1px}
 .wysl-media-external-status{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--content-fg,#8fa3b0)}
 .wysl-media-external-submit{flex:0 0 auto;font-size:11px}
+/* 内置的预制图像参考：收起时只有工具条上的按钮，展开后是三行摘要 */
+.wysl-media-refs-toggle.is-active{border-color:var(--p-primary-color,#4b86b4);color:var(--p-primary-color,#8fb9d9)}
+.wysl-media-refs{display:flex;flex-direction:column;gap:3px;flex:0 0 auto}
+.wysl-media-refs[hidden]{display:none}
+.wysl-media-refs-head{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:11px;color:var(--content-fg,#9eb7c9)}
+.wysl-media-refs-clear{font-size:10px;height:20px;padding:0 6px}
+.wysl-media-refs-rows{display:flex;flex-direction:column;gap:2px}
+.wysl-media-ref-row{display:flex;align-items:center;gap:6px;font-size:11px}
+.wysl-media-ref-name{flex:0 0 34px;color:var(--fg-color,#e3e7ea)}
+.wysl-media-ref-value{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--content-fg,#8fa3b0)}
+.wysl-media-ref-pick{flex:0 0 auto;font-size:11px;height:20px;padding:0 8px}
 .wysl-media-card.is-external{border-style:dashed;cursor:default;background:transparent}
 .wysl-media-card-external-body{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--content-fg,#8fa3b0);font-size:10px}
 .wysl-media-title{font-weight:650;color:var(--fg-color,#f1f3f5);margin-right:2px}
@@ -2048,7 +2150,12 @@ function setup(node) {
         writeState(node, emptyState());
         render(node);
     });
-    toolbar.append(...[title, count, paste, add, clear].filter(Boolean));
+    // 内置参考图入口：切换下方区块的展开/收起，带当前选择张数
+    const refsToggle = makeButton("参考图", "wysl-media-refs-toggle", () => {
+        setRefsOpen(node, !node.__wyslMediaRefsOpen);
+        updatePanelHeight(node);
+    });
+    toolbar.append(...[title, count, paste, add, refsToggle, clear].filter(Boolean));
 
     const external = document.createElement("div");
     external.className = "wysl-media-external";
@@ -2084,13 +2191,35 @@ function setup(node) {
     node.__wyslMediaLoaderExternalInput = externalInput;
     node.__wyslMediaLoaderExternalStatus = externalStatus;
 
+    // 参考图区块：默认收起，只占一行标题；展开后是三行摘要 + 选择按钮
+    const refs = document.createElement("div");
+    refs.className = "wysl-media-refs";
+    refs.hidden = true;
+    const refsHead = document.createElement("div");
+    refsHead.className = "wysl-media-refs-head";
+    const refsTitle = document.createElement("span");
+    refsTitle.className = "wysl-media-refs-title";
+    refsTitle.textContent = "预制图像参考";
+    const refsClear = makeButton("清空参考图", "wysl-media-refs-clear", () => {
+        for (const lane of REF_LANES) writeRefTokens(node, lane.lib, []);
+        render(node);
+    });
+    refsHead.append(refsTitle, refsClear);
+    const refsRows = document.createElement("div");
+    refsRows.className = "wysl-media-refs-rows";
+    refs.append(refsHead, refsRows);
+    node.__wyslMediaRefsBlock = refs;
+    node.__wyslMediaRefsRows = refsRows;
+    node.__wyslMediaRefsToggle = refsToggle;
+    node.__wyslMediaRefsOpen = Boolean(node.properties?.[REF_OPEN_PROPERTY]);
+
     const groups = document.createElement("div");
     groups.className = "wysl-media-groups";
     for (const group of GROUPS) groups.append(createGroupSection(group));
 
     const status = document.createElement("div");
     status.className = "wysl-media-status";
-    panel.append(toolbar, external, groups, status);
+    panel.append(toolbar, external, refs, groups, status);
 
     panel.addEventListener("wheel", (event) => {
         const deltaX = event.shiftKey ? event.deltaY : event.deltaX;
@@ -2181,6 +2310,8 @@ app.registerExtension({
             // shrink a box the user had arranged taller in the saved workflow.
             honorRestoredSize(this);
             setup(this);
+            // 参考图区块的展开状态存在节点属性里，读档后跟着恢复
+            this.__wyslMediaRefsOpen = Boolean(this.properties?.[REF_OPEN_PROPERTY]);
             render(this);
             return result;
         };
