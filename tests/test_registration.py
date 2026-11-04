@@ -1176,7 +1176,7 @@ class RegistrationTests(unittest.TestCase):
         loader = self.package.NODE_CLASS_MAPPINGS["QQMediaLoader"]
         self.assertEqual(
             loader.RETURN_TYPES,
-            ("IMAGE", "MASK", "AUDIO", "VIDEO", "MINIMAX_H3_MEDIA_BUNDLE", "IMAGE", "IMAGE"),
+            ("IMAGE", "MASK", "AUDIO", "VIDEO", "MINIMAX_H3_MEDIA_BUNDLE", "IMAGE"),
         )
         self.assertEqual(
             loader.RETURN_NAMES,
@@ -1187,18 +1187,9 @@ class RegistrationTests(unittest.TestCase):
                 "video output",
                 "media_bundle",
                 "video frames",
-                "参考图",
             ),
         )
-        self.assertEqual(
-            loader.OUTPUT_IS_LIST,
-            (True, True, True, True, False, False, False),
-        )
-        # 内置的参考图选择：三个隐藏控件，默认空
-        required = loader.INPUT_TYPES()["required"]
-        for name in ("姿态", "脸模", "服装"):
-            self.assertEqual(required[name][0], "STRING")
-            self.assertEqual(required[name][1]["default"], "")
+        self.assertEqual(loader.OUTPUT_IS_LIST, (True, True, True, True, False, False))
         empty_result = loader.load("")
         self.assertEqual(set(empty_result), {"ui", "result"})
         self.assertEqual(
@@ -1212,8 +1203,6 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(empty_outputs[4].items, ())
         # 没选视频时「视频帧」是阻塞值，而不是空张量
         self.assertFalse(hasattr(empty_outputs[5], "shape"))
-        # 没选参考图时同样阻塞
-        self.assertFalse(hasattr(empty_outputs[6], "shape"))
         splitter = self.package.NODE_CLASS_MAPPINGS["QQMediaAutoSplitter"]
         self.assertEqual(splitter.INPUT_TYPES()["optional"]["media_bundle"][0], loader.RETURN_TYPES[4])
         media = importlib.import_module("QQ_ComfyUI_Tools.node_modules.media")
@@ -1260,18 +1249,7 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn('externalInput.addEventListener("keydown"', source)
         self.assertIn('if (event.key !== "Enter") return;', source)
         self.assertIn('api.addEventListener("executed"', source)
-        # 内置的预制图像参考：工具条入口 + 三行区块 + 高度计算 + 共享模块
-        self.assertIn('import {', source)
-        self.assertIn('from "./guli_refs.js";', source)
-        self.assertIn('const REF_WIDGETS = { pose: "姿态", face: "脸模", cloth: "服装" };', source)
-        self.assertIn('makeButton("参考图", "wysl-media-refs-toggle"', source)
-        self.assertIn('refs.className = "wysl-media-refs";', source)
-        self.assertIn("function renderRefs(node)", source)
-        self.assertIn("function writeRefTokens(node, lib, tokens)", source)
-        self.assertIn("openGuliPicker({", source)
-        self.assertIn('const refs = panel.querySelector(".wysl-media-refs");', source)
-        self.assertIn("...Object.values(REF_WIDGETS)", source)
-        self.assertIn("panel.append(toolbar, external, refs, groups, status);", source)
+        self.assertIn("panel.append(toolbar, external, groups, status);", source)
         self.assertIn(".wysl-media-external-input{", source)
         self.assertIn('const layout = searching ? "4"', source)
         self.assertNotIn('input.webkitdirectory = true', source)
@@ -1328,26 +1306,6 @@ class RegistrationTests(unittest.TestCase):
             self.assertEqual(join([a, c]).shape, (3, 4, 5, 3))
             # 中间夹着无效项也不影响
             self.assertEqual(join([a, None, b]).shape, (5, 4, 5, 3))
-
-    def test_media_loader_hands_reference_selection_to_the_batch(self):
-        """内置参考图：三个令牌控件直接交给共享取图实现，结果走第七路。"""
-        media = importlib.import_module("QQ_ComfyUI_Tools.node_modules.media")
-        loader = self.package.NODE_CLASS_MAPPINGS["QQMediaLoader"]
-        sentinel = object()
-        calls = {}
-
-        def fake(lanes):
-            calls.update(lanes)
-            return sentinel
-
-        with patch.object(media.guli_pose_db, "collect_references", fake):
-            result = loader().load("", None, None, ["甲::front|乙"], [""], [""])
-        self.assertIs(result["result"][6], sentinel)
-        self.assertEqual(
-            calls, {"pose": "甲::front|乙", "face": "", "cloth": ""}
-        )
-        # 空选择时签名也是空的（不会因为签名把每次运行都当成变化）
-        self.assertEqual(media._media_loader_reference_signature("", "", ""), [])
 
     def test_media_loader_external_image_positions(self):
         media = importlib.import_module("QQ_ComfyUI_Tools.node_modules.media")

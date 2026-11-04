@@ -161,23 +161,14 @@ function mediaParameters(graph) {
 }
 
 /**
- * Collect the reference-image settings of a node.
+ * Collect the settings of ``QQ-预制图像参考`` nodes (type QQGuliPosePicker).
  *
- * Both ``QQ-预制图像参考`` (QQGuliPosePicker) and the built-in picker inside
- * ``QQ-多媒体加载`` (QQMediaLoader) keep them in the same three widgets
- * (姿态 / 脸模 / 服装): ``条目::视角`` tokens joined by ``|``. They are ordinary
- * writable inputs, so each one becomes a normal parameter; the ``guli`` marker
- * only tells the phone to draw an image picker instead of a text box, and
- * groups the three rows under one foldable section.
+ * Its three widgets (姿态 / 脸模 / 服装) hold the picked references as
+ * ``条目::视角`` tokens joined by ``|``. They are ordinary writable inputs, so
+ * each one becomes a normal parameter; the ``guli`` marker only tells the phone
+ * to draw an image picker instead of a text box, and groups the three rows
+ * under one foldable section.
  */
-const GULI_NODE_TYPES = new Set(["QQGuliPosePicker", "QQMediaLoader"]);
-
-function isReferenceNode(node) {
-    if (!GULI_NODE_TYPES.has(String(node?.type || ""))) return false;
-    const names = new Set((node.widgets ?? []).map((entry) => entry?.name));
-    return names.has("姿态") && names.has("脸模") && names.has("服装");
-}
-
 function guliParameters(graph, instances) {
     const found = [];
     const LANES = [
@@ -186,7 +177,6 @@ function guliParameters(graph, instances) {
         ["服装", "cloth"],
     ];
     const push = (node, execId, suffix) => {
-        if (!isReferenceNode(node)) return;
         for (const [label, lane] of LANES) {
             const widget = (node.widgets ?? []).find((entry) => entry?.name === label);
             if (!widget) continue;
@@ -207,16 +197,21 @@ function guliParameters(graph, instances) {
         }
     };
     for (const node of graph?._nodes ?? []) {
-        push(node, String(node.id), "");
+        if (node?.type === "QQGuliPosePicker") push(node, String(node.id), "");
     }
     for (const instance of instances ?? []) {
         for (const node of instance.subgraph?.nodes ?? []) {
-            if (!isReferenceNode(node)) continue;
+            if (node?.type !== "QQGuliPosePicker") continue;
             const title = instance.title || `${instance.id}`;
             push(node, `${instance.id}:${node.id}`, ` · ${title}`);
         }
     }
     return found;
+}
+
+/** Whether the workflow carries a QQ-预制图像参考 node at all. */
+function hasGuliNode(graph, instances) {
+    return guliParameters(graph, instances).length > 0;
 }
 
 /**
