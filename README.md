@@ -42,6 +42,9 @@
 | `audio output` | 音频列表 |
 | `video output` | 视频列表 |
 | `media_bundle` | 保留类型信息的混合媒体包 |
+| `video frames` | 所载视频解码出的图像批次（同尺寸视频会拼在一起） |
+
+`video frames` 是给**只吃图像**的节点准备的：MiniMax H3 的 `ref_video_N`、各种 `IMAGE` 参考口都只能接图像批次，接 `VIDEO` 类型的 `video output` 是接不上的。加载一个视频时它就是这个视频的全部帧；多个同尺寸视频会按顺序拼成一个批次，尺寸不一致时只保留第一个视频的帧。
 
 `external_images` 是一个可选输入，用来接入面板之外的外部图片（单张、batch 或列表输出都可以）。接上以后面板会出现「外部图片序号」行：
 

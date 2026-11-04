@@ -1176,13 +1176,20 @@ class RegistrationTests(unittest.TestCase):
         loader = self.package.NODE_CLASS_MAPPINGS["QQMediaLoader"]
         self.assertEqual(
             loader.RETURN_TYPES,
-            ("IMAGE", "MASK", "AUDIO", "VIDEO", "MINIMAX_H3_MEDIA_BUNDLE"),
+            ("IMAGE", "MASK", "AUDIO", "VIDEO", "MINIMAX_H3_MEDIA_BUNDLE", "IMAGE"),
         )
         self.assertEqual(
             loader.RETURN_NAMES,
-            ("multi output", "mask output", "audio output", "video output", "media_bundle"),
+            (
+                "multi output",
+                "mask output",
+                "audio output",
+                "video output",
+                "media_bundle",
+                "video frames",
+            ),
         )
-        self.assertEqual(loader.OUTPUT_IS_LIST, (True, True, True, True, False))
+        self.assertEqual(loader.OUTPUT_IS_LIST, (True, True, True, True, False, False))
         empty_result = loader.load("")
         self.assertEqual(set(empty_result), {"ui", "result"})
         self.assertEqual(
@@ -1194,6 +1201,8 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(empty_outputs[:2], ([], []))
         self.assertEqual(empty_outputs[2:4], ([], []))
         self.assertEqual(empty_outputs[4].items, ())
+        # 没选视频时「视频帧」是阻塞值，而不是空张量
+        self.assertFalse(hasattr(empty_outputs[5], "shape"))
         splitter = self.package.NODE_CLASS_MAPPINGS["QQMediaAutoSplitter"]
         self.assertEqual(splitter.INPUT_TYPES()["optional"]["media_bundle"][0], loader.RETURN_TYPES[4])
         media = importlib.import_module("QQ_ComfyUI_Tools.node_modules.media")
@@ -1270,6 +1279,33 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("pointer-events:auto", source)
         self.assertIn("section.hidden = group.type !== \"image\"", source)
         self.assertIn("wysl-media-hover-preview", source)
+
+    def test_video_frames_output_joins_same_size_videos(self):
+        """「视频帧」给只要图像的节点用：同尺寸拼接，尺寸不同只留第一个。"""
+        media = importlib.import_module("QQ_ComfyUI_Tools.node_modules.media")
+
+        class FakeFrames:
+            def __init__(self, shape):
+                self.shape = tuple(shape)
+                self.ndim = len(shape)
+
+        def fake_cat(tensors, dim=0):
+            total = sum(t.shape[0] for t in tensors)
+            return FakeFrames((total,) + tensors[0].shape[1:])
+
+        fake_torch = types.SimpleNamespace(Tensor=FakeFrames, cat=fake_cat)
+        join = media._media_loader_join_video_frames
+        a = FakeFrames((3, 4, 5, 3))
+        b = FakeFrames((2, 4, 5, 3))
+        c = FakeFrames((2, 8, 9, 3))
+        with patch.object(media, "torch", fake_torch):
+            self.assertIsNone(join([]))
+            self.assertIsNone(join([None, "x"]))
+            self.assertEqual(join([a, b]).shape, (5, 4, 5, 3))
+            # 尺寸不一样：不硬拼，保留第一个
+            self.assertEqual(join([a, c]).shape, (3, 4, 5, 3))
+            # 中间夹着无效项也不影响
+            self.assertEqual(join([a, None, b]).shape, (5, 4, 5, 3))
 
     def test_media_loader_external_image_positions(self):
         media = importlib.import_module("QQ_ComfyUI_Tools.node_modules.media")
