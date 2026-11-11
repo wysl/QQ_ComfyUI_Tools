@@ -188,23 +188,20 @@ class LoadTests(unittest.TestCase):
         self.assertEqual(self.node.load("model", False, data), ("model",))
         self.assertEqual(self.loaded, [])
 
-    def test_mirrored_external_values_are_used(self):
-        """虚拟节点（QQ-多值输入）的接线不会进 prompt，值走隐藏控件。"""
+    def test_widget_values_override_the_panel(self):
+        """多值输入写进「启用开关 / 生效分组」控件的值要被用上。"""
         data = _data(("写实", [("a.safetensors", 1)]), ("二次元", [("c.safetensors", 1)]), active=0)
-        # 隐藏控件说停用 → 透传
         self.assertEqual(self.node.load("model", True, data, "停用", ""), ("model",))
         self.assertEqual(self.loaded, [])
-        # 隐藏控件说启用 → 即使面板关着也生效
         self.node.load("model", False, data, "启用", "")
         self.assertEqual(self.loaded, ["a.safetensors"])
-        # 隐藏控件指定分组
         self.node.load("model", True, data, "", "二次元")
         self.assertEqual(self.loaded, ["a.safetensors", "c.safetensors"])
 
-    def test_real_wired_value_beats_the_mirrored_one(self):
-        """接的是真节点时，连线值优先于隐藏控件里的残值。"""
+    def test_empty_widgets_follow_the_panel(self):
         data = _data(("写实", [("a.safetensors", 1)]))
-        self.node.load("model", True, data, "停用", "", "启用")
+        self.assertEqual(self.node.load("model", False, data, "", ""), ("model",))
+        self.node.load("model", True, data, "", "")
         self.assertEqual(self.loaded, ["a.safetensors"])
 
     def test_external_switch_beats_the_panel(self):
@@ -239,10 +236,11 @@ class FrontendWiringTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('const EXTERNAL_INPUTS = [', source)
-        self.assertIn('{ input: "启用开关", widget: "外部开关" }', source)
-        self.assertIn('{ input: "生效分组", widget: "外部分组" }', source)
+        self.assertIn('widget: "启用开关"', source)
+        self.assertIn('widget: "生效分组"', source)
         self.assertIn("function syncExternalInputs(node)", source)
         self.assertIn("source.isVirtualNode", source)
+        self.assertIn("installPromptHook", source)
         self.assertIn("__h3MultiPrimitiveSlot", source)
         # 排队前统一抄一遍，子图也要覆盖
         self.assertIn("function installPromptHook()", source)
@@ -258,14 +256,14 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(node.CATEGORY, "QQ/工具")
         self.assertEqual(lora.NODE_DISPLAY_NAME_MAPPINGS["QQLoraGroupLoader"], "QQ-Lora分组加载")
         inputs = node.INPUT_TYPES()
+        # 外部控制做成普通控件：QQ-多值输入 只能写目标节点的控件
         self.assertEqual(
             list(inputs["required"]),
-            ["model", "启用", "分组数据", "外部开关", "外部分组"],
+            ["model", "启用", "分组数据", "启用开关", "生效分组"],
         )
-        # 两个可选口给 QQ-多值输入 用；值由前端抄进「外部开关 / 外部分组」
-        self.assertEqual(list(inputs["optional"]), ["启用开关", "生效分组"])
-        self.assertEqual(inputs["optional"]["启用开关"][0], "STRING")
-        self.assertEqual(inputs["optional"]["生效分组"][0], "STRING")
+        self.assertNotIn("optional", inputs)
+        self.assertEqual(inputs["required"]["启用开关"][0], "STRING")
+        self.assertEqual(inputs["required"]["生效分组"][0], "STRING")
 
 
 if __name__ == "__main__":

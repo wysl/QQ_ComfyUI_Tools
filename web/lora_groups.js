@@ -14,20 +14,28 @@ const DATA_WIDGET = "分组数据";
 const ENABLE_WIDGET = "启用";
 
 const ROW_H = 30;
-// 接线口 → 隐藏控件：虚拟节点不会进 prompt，前端把值抄进控件才能被后端读到
+// 外部控制用的两个控件（多值输入会往同名控件里写值；接线时再镜像一次）
 const EXTERNAL_INPUTS = [
-    { input: "启用开关", widget: "外部开关" },
-    { input: "生效分组", widget: "外部分组" },
+    {
+        input: "启用开关",
+        widget: "启用开关",
+        tooltip: "留空跟随面板；填 启用/停用（或 真/假、1/0）。可接 QQ-多值输入。",
+    },
+    {
+        input: "生效分组",
+        widget: "生效分组",
+        tooltip: "留空跟随面板；填分组名或 1 起的序号（如 2、第2组）。可接 QQ-多值输入。",
+    },
 ];
-const MIN_PANEL_HEIGHT = 250;
-const MIN_PANEL_WIDTH = 330;
+const MIN_PANEL_HEIGHT = 200;
+const MIN_PANEL_WIDTH = 258;
 const STRENGTH_STEP = 0.05;
 const MIN_POP_WIDTH = 220;
 const MAX_POP_HEIGHT = 280;
 
 const CSS = `
-.qq-lora{box-sizing:border-box;height:100%;display:flex;flex-direction:column;gap:6px;
-  padding:8px;background:var(--comfy-menu-bg,#1e2128);color:var(--input-text,#e6e8ee);
+.qq-lora{box-sizing:border-box;height:100%;display:flex;flex-direction:column;gap:5px;
+  padding:6px;background:var(--comfy-menu-bg,#1e2128);color:var(--input-text,#e6e8ee);
   border-radius:6px;overflow:hidden;font:12px/1.35 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
 .qq-lora *{box-sizing:border-box}
 .qq-lora-head{display:flex;align-items:center;gap:8px;flex:0 0 auto}
@@ -44,9 +52,9 @@ const CSS = `
 .qq-lora-switch input:checked + .qq-lora-track::after{transform:translateX(16px);background:#fff}
 .qq-lora-switch-label{font-size:11px;color:var(--descrip-text,#96a0b0)}
 .qq-lora-groups{display:flex;flex-wrap:wrap;align-items:center;gap:4px;flex:0 0 auto}
-.qq-lora-chip{display:flex;align-items:center;gap:4px;height:24px;padding:0 8px;border-radius:12px;
+.qq-lora-chip{display:flex;align-items:center;gap:3px;height:22px;padding:0 7px;border-radius:12px;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
-  color:inherit;font:inherit;cursor:pointer;max-width:180px}
+  color:inherit;font:inherit;cursor:pointer;max-width:132px}
 .qq-lora-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .qq-lora-chip:hover{border-color:#4f8cff}
 .qq-lora-chip[data-on="1"]{border-color:#4f8cff;color:#8fb9d9;background:rgba(79,140,255,.14)}
@@ -63,8 +71,8 @@ const CSS = `
 .qq-lora-rows{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:4px;
   padding:2px 0}
 .qq-lora-row{display:flex;align-items:center;gap:6px;height:${ROW_H - 4}px;flex:0 0 auto}
-.qq-lora-index{flex:0 0 16px;text-align:right;color:var(--descrip-text,#96a0b0);font-size:10px}
-.qq-lora-combo{position:relative;flex:1 1 auto;min-width:92px;display:flex}
+.qq-lora-index{flex:0 0 14px;text-align:right;color:var(--descrip-text,#96a0b0);font-size:10px}
+.qq-lora-combo{position:relative;flex:1 1 auto;min-width:70px;display:flex}
 .qq-lora-combo-btn{display:flex;align-items:center;gap:5px;width:100%;height:24px;padding:0 6px;
   border-radius:4px;border:1px solid var(--border-color,#39404d);
   background:var(--comfy-input-bg,#12141a);color:inherit;font:inherit;text-align:left;cursor:pointer}
@@ -75,11 +83,11 @@ const CSS = `
   border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;
   transform:rotate(45deg) translate(-1px,-1px)}
 .qq-lora-stepper{flex:0 0 auto;display:flex;align-items:center;gap:2px}
-.qq-lora-step{width:15px;height:22px;padding:0;border-radius:3px;display:grid;place-items:center;
+.qq-lora-step{width:14px;height:22px;padding:0;border-radius:3px;display:grid;place-items:center;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
   color:var(--descrip-text,#96a0b0);cursor:pointer}
 .qq-lora-step:hover{border-color:#4f8cff;color:#8fb9d9}
-.qq-lora-strength{width:42px;height:22px;padding:0 2px;border-radius:4px;text-align:center;
+.qq-lora-strength{width:38px;height:22px;padding:0 2px;border-radius:4px;text-align:center;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
   color:inherit;font:inherit;appearance:textfield;-moz-appearance:textfield}
 .qq-lora-strength::-webkit-outer-spin-button,.qq-lora-strength::-webkit-inner-spin-button{
@@ -360,7 +368,13 @@ function setup(node) {
 
     hideWidget(widgetOf(node, DATA_WIDGET));
     hideWidget(widgetOf(node, ENABLE_WIDGET));
-    for (const pair of EXTERNAL_INPUTS) hideWidget(widgetOf(node, pair.widget));
+    for (const pair of EXTERNAL_INPUTS) {
+        const widget = widgetOf(node, pair.widget);
+        if (!widget) continue;
+        widget.label = pair.widget;
+        widget.options ||= {};
+        widget.options.tooltip = pair.tooltip;
+    }
 
     if (!readData(node).groups.length) {
         writeData(node, { version: 1, active: 0, groups: [{ name: "默认", loras: [] }] });
@@ -415,9 +429,12 @@ function setup(node) {
             minWidth: MIN_PANEL_WIDTH,
         });
     }
-    const width = Math.max(MIN_PANEL_WIDTH, Number(node.size?.[0]) || MIN_PANEL_WIDTH);
-    const height = Math.max(MIN_PANEL_HEIGHT + 40, Number(node.size?.[1]) || 0);
-    node.setSize?.([width, height]);
+    const currentWidth = Number(node.size?.[0]) || 0;
+    if (currentWidth < MIN_PANEL_WIDTH) {
+        const width = MIN_PANEL_WIDTH;
+        const height = Math.max(MIN_PANEL_HEIGHT + 120, Number(node.size?.[1]) || 0);
+        node.setSize?.([width, height]);
+    }
 
     let names = [];
     const ensureNames = () => {
@@ -769,6 +786,12 @@ function setup(node) {
             else target.click();
         };
 
+        // 焦点落在列表行上时 Esc 也要能关
+        pop.addEventListener("keydown", (event) => {
+            if (event.key !== "Escape") return;
+            event.stopPropagation();
+            close();
+        });
         search.addEventListener("input", paint);
         search.addEventListener("keydown", (event) => {
             event.stopPropagation();
