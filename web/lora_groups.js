@@ -9,7 +9,7 @@ import { app } from "../../scripts/app.js";
 //   生效分组  COMBO   下拉选择哪一组生效；跟随面板 = 用面板里点亮的组
 //
 // 面板结构：分组条（点击切换 / 双击改名 / ×删除 / 右键复制 / +新增）→ 当前分组的
-// LoRA 列表（序号可点=临时停用，名称点开目录树选择，强度可微调，行可拖动排序、
+// LoRA 列表（左侧勾选框=本次是否参与叠加，名称点开目录树选择，强度可微调，行可拖动排序、
 // 右键换组）→ 底部状态。鼠标停在 LoRA 上会弹出缩略图。
 
 const NODE_TYPE = "QQLoraGroupLoader";
@@ -65,11 +65,13 @@ const CSS = `
 .qq-lora-row.is-dragging{opacity:.45}
 .qq-lora-row.drop-before{box-shadow:0 -2px 0 0 #4f8cff}
 .qq-lora-row.drop-after{box-shadow:0 2px 0 0 #4f8cff}
-.qq-lora-index{flex:0 0 16px;height:18px;padding:0;border:0;border-radius:4px;background:transparent;
-  color:var(--descrip-text,#96a0b0);font:inherit;font-size:10px;cursor:pointer;text-align:right}
-.qq-lora-index:hover{color:#8fb9d9}
-.qq-lora-row.is-off .qq-lora-combo,.qq-lora-row.is-off .qq-lora-stepper{opacity:.45}
-.qq-lora-row.is-off .qq-lora-index{color:#ff9a9a}
+.qq-lora-on{flex:0 0 13px;width:13px;height:13px;margin:0;padding:0;cursor:pointer;
+  accent-color:#4f8cff;border-radius:3px}
+.qq-lora-index{flex:0 0 12px;color:var(--descrip-text,#96a0b0);font-size:10px;text-align:right}
+.qq-lora-row.is-off .qq-lora-on{accent-color:#7d8798}
+.qq-lora-row.is-off .qq-lora-combo-btn span{text-decoration:line-through;color:#8b95a5}
+.qq-lora-row.is-off .qq-lora-combo,.qq-lora-row.is-off .qq-lora-stepper{opacity:.5}
+.qq-lora-row.is-off .qq-lora-index{color:#7d8798}
 .qq-lora-combo{position:relative;flex:1 1 auto;min-width:70px;display:flex}
 .qq-lora-combo-btn{display:flex;align-items:center;gap:5px;width:100%;height:24px;padding:0 6px;
   border-radius:4px;border:1px solid var(--border-color,#39404d);
@@ -818,21 +820,29 @@ function setup(node) {
             row.title = `找不到 ${lora.name}，运行时会跳过`;
         }
 
-        // 序号：点一下临时停用/启用
-        const order = document.createElement("button");
-        order.type = "button";
-        order.className = "qq-lora-index";
-        order.textContent = lora.off ? "○" : String(index + 1);
-        order.title = lora.off ? "已停用，点击启用" : "点击临时停用（保留配置）";
-        order.addEventListener("click", (event) => {
-            event.stopPropagation();
+        // 勾选框：这条 LoRA 本次是否参与叠加（取消勾选=临时停用，配置保留）
+        const enabledBox = document.createElement("input");
+        enabledBox.type = "checkbox";
+        enabledBox.className = "qq-lora-on";
+        enabledBox.checked = !lora.off;
+        enabledBox.title = lora.off
+            ? "已停用：这次不叠加（勾上恢复）"
+            : "勾选=参与本次叠加；取消勾选可临时停用，保留配置";
+        enabledBox.setAttribute("aria-label", `${lora.name || "这条 Lora"} 是否参与叠加`);
+        enabledBox.addEventListener("click", (event) => event.stopPropagation());
+        enabledBox.addEventListener("change", () => {
             const next = readData(node);
             const target = activeGroup(next);
             if (!target?.loras[index]) return;
-            target.loras[index].off = !target.loras[index].off;
+            target.loras[index].off = !enabledBox.checked;
             writeData(node, next);
             render();
         });
+
+        const order = document.createElement("span");
+        order.className = "qq-lora-index";
+        order.textContent = String(index + 1);
+        order.title = `第 ${index + 1} 个叠加`;
 
         // 名字：点开目录树
         const combo = document.createElement("div");
@@ -947,7 +957,7 @@ function setup(node) {
             render();
         });
 
-        row.append(order, combo, stepper, remove);
+        row.append(enabledBox, order, combo, stepper, remove);
         return row;
     }
 
