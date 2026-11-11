@@ -188,33 +188,49 @@ class LoadTests(unittest.TestCase):
         self.assertEqual(self.node.load("model", False, data), ("model",))
         self.assertEqual(self.loaded, [])
 
-    def test_widget_values_override_the_panel(self):
-        """多值输入写进「启用开关 / 生效分组」控件的值要被用上。"""
-        data = _data(("写实", [("a.safetensors", 1)]), ("二次元", [("c.safetensors", 1)]), active=0)
-        self.assertEqual(self.node.load("model", True, data, "停用", ""), ("model",))
-        self.assertEqual(self.loaded, [])
-        self.node.load("model", False, data, "启用", "")
-        self.assertEqual(self.loaded, ["a.safetensors"])
-        self.node.load("model", True, data, "", "二次元")
-        self.assertEqual(self.loaded, ["a.safetensors", "c.safetensors"])
-
-    def test_empty_widgets_follow_the_panel(self):
+    def test_switch_widget_turns_everything_off(self):
         data = _data(("写实", [("a.safetensors", 1)]))
-        self.assertEqual(self.node.load("model", False, data, "", ""), ("model",))
-        self.node.load("model", True, data, "", "")
-        self.assertEqual(self.loaded, ["a.safetensors"])
-
-    def test_external_switch_beats_the_panel(self):
-        data = _data(("A", [("a.safetensors", 1)]))
-        self.assertEqual(self.node.load("model", True, data, "停用"), ("model",))
+        self.assertEqual(self.node.load("model", False, data), ("model",))
         self.assertEqual(self.loaded, [])
-        self.node.load("model", False, data, "启用")
+        self.node.load("model", True, data)
         self.assertEqual(self.loaded, ["a.safetensors"])
 
-    def test_external_group_beats_the_panel(self):
+    def test_group_dropdown_picks_the_group(self):
+        """「生效分组」下拉选哪组就只跑哪组；默认跟随面板。"""
         data = _data(("写实", [("a.safetensors", 1)]), ("二次元", [("c.safetensors", 1)]), active=0)
-        self.node.load("model", True, data, None, "二次元")
+        self.node.load("model", True, data, "二次元")
         self.assertEqual(self.loaded, ["c.safetensors"])
+        self.loaded.clear()
+        self.node.load("model", True, data, lora.FOLLOW_PANEL)
+        self.assertEqual(self.loaded, ["a.safetensors"])
+        self.loaded.clear()
+        self.node.load("model", True, data, "")
+        self.assertEqual(self.loaded, ["a.safetensors"])
+
+    def test_saved_choice_is_used_when_the_dropdown_resets(self):
+        """动态下拉读档时可能被重置成「跟随面板」，数据里存的选择要顶上来。"""
+        data = json.loads(
+            _data(("写实", [("a.safetensors", 1)]), ("二次元", [("c.safetensors", 1)]), active=0)
+        )
+        data["select"] = "二次元"
+        payload = json.dumps(data)
+        self.node.load("model", True, payload, lora.FOLLOW_PANEL)
+        self.assertEqual(self.loaded, ["c.safetensors"])
+        # 下拉明确选了别的组时以控件为准
+        self.loaded.clear()
+        self.node.load("model", True, payload, "写实")
+        self.assertEqual(self.loaded, ["a.safetensors"])
+
+    def test_unknown_group_choice_falls_back_to_the_panel(self):
+        data = _data(("写实", [("a.safetensors", 1)]), ("二次元", [("c.safetensors", 1)]), active=0)
+        self.node.load("model", True, data, "已经删掉的组")
+        self.assertEqual(self.loaded, ["a.safetensors"])
+
+    def test_switch_accepts_text_values_from_the_phone_or_api(self):
+        data = _data(("A", [("a.safetensors", 1)]))
+        self.assertEqual(self.node.load("model", "停用", data), ("model",))
+        self.node.load("model", "启用", data)
+        self.assertEqual(self.loaded, ["a.safetensors"])
 
     def test_empty_group_or_broken_lora_is_safe(self):
         data = _data(("空组", []))
@@ -238,6 +254,8 @@ class FrontendWiringTests(unittest.TestCase):
         self.assertIn('const EXTERNAL_INPUTS = [', source)
         self.assertIn('widget: "启用开关"', source)
         self.assertIn('widget: "生效分组"', source)
+        self.assertIn("function syncGroupChoices(node, data)", source)
+        self.assertIn("widget.options.values = values", source)
         self.assertIn("function syncExternalInputs(node)", source)
         self.assertIn("source.isVirtualNode", source)
         self.assertIn("installPromptHook", source)
@@ -256,14 +274,15 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(node.CATEGORY, "QQ/工具")
         self.assertEqual(lora.NODE_DISPLAY_NAME_MAPPINGS["QQLoraGroupLoader"], "QQ-Lora分组加载")
         inputs = node.INPUT_TYPES()
-        # 外部控制做成普通控件：QQ-多值输入 只能写目标节点的控件
+        # 启用是开关控件，生效分组是下拉；都做成控件，多值输入才能写入
         self.assertEqual(
             list(inputs["required"]),
-            ["model", "启用", "分组数据", "启用开关", "生效分组"],
+            ["model", "启用开关", "分组数据", "生效分组"],
         )
         self.assertNotIn("optional", inputs)
-        self.assertEqual(inputs["required"]["启用开关"][0], "STRING")
-        self.assertEqual(inputs["required"]["生效分组"][0], "STRING")
+        self.assertEqual(inputs["required"]["启用开关"][0], "BOOLEAN")
+        self.assertEqual(inputs["required"]["启用开关"][1]["default"], True)
+        self.assertEqual(inputs["required"]["生效分组"][0], [lora.FOLLOW_PANEL])
 
 
 if __name__ == "__main__":

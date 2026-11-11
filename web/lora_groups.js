@@ -11,21 +11,15 @@ import { app } from "../../scripts/app.js";
 
 const NODE_TYPE = "QQLoraGroupLoader";
 const DATA_WIDGET = "分组数据";
-const ENABLE_WIDGET = "启用";
+const ENABLE_WIDGET = "启用开关";
+const GROUP_WIDGET = "生效分组";
+const FOLLOW_PANEL = "跟随面板";
 
 const ROW_H = 30;
 // 外部控制用的两个控件（多值输入会往同名控件里写值；接线时再镜像一次）
 const EXTERNAL_INPUTS = [
-    {
-        input: "启用开关",
-        widget: "启用开关",
-        tooltip: "留空跟随面板；填 启用/停用（或 真/假、1/0）。可接 QQ-多值输入。",
-    },
-    {
-        input: "生效分组",
-        widget: "生效分组",
-        tooltip: "留空跟随面板；填分组名或 1 起的序号（如 2、第2组）。可接 QQ-多值输入。",
-    },
+    { input: "启用开关", widget: "启用开关" },
+    { input: "生效分组", widget: "生效分组" },
 ];
 const MIN_PANEL_HEIGHT = 200;
 const MIN_PANEL_WIDTH = 258;
@@ -42,15 +36,6 @@ const CSS = `
 .qq-lora-title{font-weight:600}
 .qq-lora-hint{flex:1 1 auto;min-width:0;color:var(--descrip-text,#96a0b0);font-size:11px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.qq-lora-switch{display:flex;align-items:center;gap:6px;flex:0 0 auto;cursor:pointer;user-select:none}
-.qq-lora-switch input{position:absolute;opacity:0;width:0;height:0}
-.qq-lora-track{position:relative;width:34px;height:18px;border-radius:9px;background:#3a4250;
-  border:1px solid var(--border-color,#39404d);transition:background .16s ease}
-.qq-lora-track::after{content:"";position:absolute;top:1px;left:1px;width:14px;height:14px;
-  border-radius:50%;background:#cfd6e4;transition:transform .16s ease}
-.qq-lora-switch input:checked + .qq-lora-track{background:#3d6fd0;border-color:#4f8cff}
-.qq-lora-switch input:checked + .qq-lora-track::after{transform:translateX(16px);background:#fff}
-.qq-lora-switch-label{font-size:11px;color:var(--descrip-text,#96a0b0)}
 .qq-lora-groups{display:flex;flex-wrap:wrap;align-items:center;gap:4px;flex:0 0 auto}
 .qq-lora-chip{display:flex;align-items:center;gap:3px;height:22px;padding:0 7px;border-radius:12px;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
@@ -58,6 +43,8 @@ const CSS = `
 .qq-lora-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .qq-lora-chip:hover{border-color:#4f8cff}
 .qq-lora-chip[data-on="1"]{border-color:#4f8cff;color:#8fb9d9;background:rgba(79,140,255,.14)}
+/* 由「生效分组」下拉指定的组：描边提示，和面板当前组区分 */
+.qq-lora-chip[data-eff="1"]{box-shadow:inset 0 0 0 1px rgba(143,185,217,.85)}
 .qq-lora-chip .qq-lora-del{flex:0 0 auto;width:14px;height:14px;line-height:12px;padding:0;
   border:0;border-radius:7px;background:transparent;color:inherit;cursor:pointer;opacity:0;
   font-size:12px}
@@ -152,7 +139,7 @@ function hideWidget(widget) {
 /* ---------------- 数据 ---------------- */
 
 function emptyData() {
-    return { version: 1, active: 0, groups: [] };
+    return { version: 1, active: 0, groups: [], select: "" };
 }
 
 export function normaliseData(raw) {
@@ -184,7 +171,8 @@ export function normaliseData(raw) {
     }
     let active = Number(value.active);
     if (!Number.isFinite(active) || active < 0 || active >= groups.length) active = 0;
-    return { version: 1, active: groups.length ? Math.trunc(active) : 0, groups };
+    const select = String(value.select || "").trim().slice(0, 60);
+    return { version: 1, active: groups.length ? Math.trunc(active) : 0, groups, select };
 }
 
 export function activeGroup(data) {
@@ -272,15 +260,6 @@ function writeData(node, data) {
     app.graph?.setDirtyCanvas?.(true, true);
 }
 
-function setEnabled(node, enabled) {
-    const widget = widgetOf(node, ENABLE_WIDGET);
-    if (!widget || widget.value === enabled) return;
-    widget.value = enabled;
-    widget.callback?.(enabled);
-    node.graph?.setDirtyCanvas?.(true, true);
-    app.graph?.setDirtyCanvas?.(true, true);
-}
-
 /* ---------------- Lora 名称列表 ---------------- */
 
 let loraNamesPromise = null;
@@ -304,31 +283,39 @@ function isExternallyControlled(node, inputName) {
     return Boolean(node?.inputs?.find((input) => input?.name === inputName)?.link);
 }
 
-/** 读连线另一端（虚拟节点 / PrimitiveNode）当前的值。 */
+/**
+ * 读连线另一端（虚拟节点 / PrimitiveNode）当前的值。
+ * 没接线、或接的是真节点时返回 null——那种情况不该动控件本身的值。
+ */
 function linkedValue(node, pair) {
     const input = node?.inputs?.find((entry) => entry?.name === pair.input);
     const link = input?.link != null ? node?.graph?.links?.[input.link] : null;
-    if (!link) return "";
+    if (!link) return null;
     const source = node?.graph?.getNodeById?.(link.origin_id);
-    if (!source) return "";
-    if (!source.isVirtualNode && source.type !== "PrimitiveNode") return "";
+    if (!source) return null;
+    if (!source.isVirtualNode && source.type !== "PrimitiveNode") return null;
     const widget = source.type === "PrimitiveNode"
         ? source.widgets?.[0]
         : source.widgets?.find((entry) => entry?.__h3MultiPrimitiveSlot === link.origin_slot);
-    const value = widget?.value;
-    return value == null ? "" : String(value);
+    if (!widget) return null;
+    return widget.value ?? "";
 }
 
-/** 把连线上的值写进隐藏控件；虚拟节点的值只有这样才到得了后端。 */
+/** 把连线上的值写进同名控件；虚拟节点的值只有这样才到得了后端。 */
 export function syncExternalInputs(node) {
     let changed = false;
     for (const pair of EXTERNAL_INPUTS) {
         const target = widgetOf(node, pair.widget);
         if (!target) continue;
         const value = linkedValue(node, pair);
-        if (String(target.value ?? "") === value) continue;
-        target.value = value;
-        if (target._state) target._state.value = value;
+        if (value === null) continue;
+        // 开关控件要布尔值，别的控件统一成字符串
+        const next = target.type === "toggle" || target.type === "BOOLEAN"
+            ? Boolean(value === true || value === "true" || value === 1 || value === "1")
+            : String(value);
+        if (target.value === next) continue;
+        target.value = next;
+        if (target._state) target._state.value = next;
         changed = true;
     }
     return changed;
@@ -356,6 +343,31 @@ function installPromptHook() {
     };
 }
 
+/** 「生效分组」下拉的选项跟着分组走；当前值失效时回到跟随面板。 */
+function syncGroupChoices(node, data) {
+    const widget = widgetOf(node, GROUP_WIDGET);
+    if (!widget) return;
+    const values = [FOLLOW_PANEL, ...data.groups.map((group) => group.name)];
+    const current = String(widget.value ?? FOLLOW_PANEL);
+    widget.options ||= {};
+    widget.options.values = values;
+    if (!values.includes(current)) {
+        widget.value = FOLLOW_PANEL;
+        if (widget._state) widget._state.value = FOLLOW_PANEL;
+        widget.callback?.(FOLLOW_PANEL);
+    }
+}
+
+/** 读档后用数据里保存的选择覆盖动态下拉可能被重置的值。 */
+function restoreGroupChoice(node) {
+    const widget = widgetOf(node, GROUP_WIDGET);
+    if (!widget) return;
+    const saved = String(readData(node).select || "");
+    if (!saved || String(widget.value ?? "") === saved) return;
+    widget.value = saved;
+    if (widget._state) widget._state.value = saved;
+}
+
 function closeLoraPops(node) {
     for (const pop of node?.__qqLoraPops || []) pop.remove();
     if (node) node.__qqLoraPops = [];
@@ -367,14 +379,6 @@ function setup(node) {
     injectCSS();
 
     hideWidget(widgetOf(node, DATA_WIDGET));
-    hideWidget(widgetOf(node, ENABLE_WIDGET));
-    for (const pair of EXTERNAL_INPUTS) {
-        const widget = widgetOf(node, pair.widget);
-        if (!widget) continue;
-        widget.label = pair.widget;
-        widget.options ||= {};
-        widget.options.tooltip = pair.tooltip;
-    }
 
     if (!readData(node).groups.length) {
         writeData(node, { version: 1, active: 0, groups: [{ name: "默认", loras: [] }] });
@@ -390,17 +394,7 @@ function setup(node) {
     title.textContent = "Lora 分组";
     const hint = document.createElement("span");
     hint.className = "qq-lora-hint";
-    const toggle = document.createElement("label");
-    toggle.className = "qq-lora-switch";
-    toggle.title = "关掉后模型原样透传，所有分组都不生效";
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    const track = document.createElement("span");
-    track.className = "qq-lora-track";
-    const toggleLabel = document.createElement("span");
-    toggleLabel.className = "qq-lora-switch-label";
-    toggle.append(checkbox, track, toggleLabel);
-    head.append(title, hint, toggle);
+    head.append(title, hint);
 
     const groups = document.createElement("div");
     groups.className = "qq-lora-groups";
@@ -450,28 +444,25 @@ function setup(node) {
         closeLoraPops(node);
         const data = readData(node);
         const enabled = Boolean(widgetOf(node, ENABLE_WIDGET)?.value ?? true);
-        checkbox.checked = enabled;
-        toggleLabel.textContent = enabled ? "启用" : "停用";
+        syncGroupChoices(node, data);
         root.classList.toggle("is-off", !enabled);
 
-        const external = [];
-        for (const pair of EXTERNAL_INPUTS) {
-            if (!isExternallyControlled(node, pair.input)) continue;
-            const value = widgetOf(node, pair.widget)?.value;
-            external.push(`${pair.input}=${value === "" ? "空" : value}`);
-        }
-        hint.textContent = external.length
-            ? `外部控制：${external.join("、")}`
-            : `共 ${data.groups.length} 组`;
+        const linked = EXTERNAL_INPUTS.filter((pair) => isExternallyControlled(node, pair.input));
+        const chosen = String(widgetOf(node, GROUP_WIDGET)?.value ?? FOLLOW_PANEL) || FOLLOW_PANEL;
+        hint.textContent = linked.length
+            ? `外部控制：${linked.map((pair) => pair.input).join("、")}（生效分组=${chosen}）`
+            : `${enabled ? "" : "已停用 · "}共 ${data.groups.length} 组`;
         hint.title = hint.textContent;
 
         // 分组条
         groups.replaceChildren();
+        const chosenNow = String(widgetOf(node, GROUP_WIDGET)?.value ?? FOLLOW_PANEL);
         data.groups.forEach((group, index) => {
             const chip = document.createElement("button");
             chip.type = "button";
             chip.className = "qq-lora-chip";
             chip.dataset.on = index === data.active ? "1" : "0";
+            chip.dataset.eff = chosenNow !== FOLLOW_PANEL && chosenNow === group.name ? "1" : "0";
             chip.title = `${group.name}（${group.loras.length} 个 Lora）\n单击切换生效分组，双击改名`;
             const label = document.createElement("span");
             label.textContent = group.name;
@@ -564,10 +555,16 @@ function setup(node) {
         rows.append(addRow);
 
         // 底部说明
-        if (group) {
+        const chosenName = String(widgetOf(node, GROUP_WIDGET)?.value ?? FOLLOW_PANEL);
+        const effective = enabled
+            ? (chosenName === FOLLOW_PANEL
+                ? group
+                : data.groups.find((entry) => entry.name === chosenName) || group)
+            : null;
+        if (group && effective) {
             footText.textContent = enabled
-                ? `当前生效：${group.name} · ${group.loras.length} 个 Lora（按顺序叠加）`
-                : `已停用：模型原样透传（当前分组 ${group.name}）`;
+                ? `当前生效：${effective.name} · ${effective.loras.length} 个 Lora（按顺序叠加）`
+                : `已停用：模型原样透传（当前分组 ${effective.name}）`;
         } else {
             footText.textContent = enabled ? "没有分组，模型原样透传" : "已停用";
         }
@@ -881,11 +878,6 @@ function setup(node) {
         input.addEventListener("blur", () => finish(true));
     }
 
-    checkbox.addEventListener("change", () => {
-        setEnabled(node, checkbox.checked);
-        render();
-    });
-
     function toast(text) {
         const manager = app?.extensionManager;
         if (manager?.toast?.add) {
@@ -907,7 +899,28 @@ function setup(node) {
         return result;
     };
 
+/** 「生效分组」的选择同步进分组数据，避免读档时被动态下拉重置。 */
+// 「生效分组」的选择同步进分组数据，避免读档时被动态下拉重置
+    function hookGroupWidget() {
+    const widget = widgetOf(node, GROUP_WIDGET);
+    if (!widget || widget.__qqLoraHooked) return;
+    widget.__qqLoraHooked = true;
+    const original = widget.callback;
+    widget.callback = function qqLoraGroupCallback(...args) {
+        const result = original?.apply(this, args);
+        const value = String(this.value ?? "");
+        const data = readData(node);
+        if (String(data.select || "") !== value) {
+            data.select = value;
+            writeData(node, data);
+        }
+        render();
+        return result;
+    };
+}
+
     syncExternalInputs(node);
+    hookGroupWidget();
     installPromptHook();
 }
 
@@ -934,6 +947,7 @@ app.registerExtension({
         nodeType.prototype.onConfigure = function onConfigureLoraGroup() {
             const result = originalConfigured?.apply(this, arguments);
             setup(this);
+            restoreGroupChoice(this);
             this.__qqLoraRender?.();
             return result;
         };
