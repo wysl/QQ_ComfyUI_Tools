@@ -67,11 +67,9 @@ const CSS = `
 .qq-lora-row.drop-after{box-shadow:0 2px 0 0 #4f8cff}
 .qq-lora-on{flex:0 0 13px;width:13px;height:13px;margin:0;padding:0;cursor:pointer;
   accent-color:#4f8cff;border-radius:3px}
-.qq-lora-index{flex:0 0 12px;color:var(--descrip-text,#96a0b0);font-size:10px;text-align:right}
 .qq-lora-row.is-off .qq-lora-on{accent-color:#7d8798}
 .qq-lora-row.is-off .qq-lora-combo-btn span{text-decoration:line-through;color:#8b95a5}
 .qq-lora-row.is-off .qq-lora-combo,.qq-lora-row.is-off .qq-lora-stepper{opacity:.5}
-.qq-lora-row.is-off .qq-lora-index{color:#7d8798}
 .qq-lora-combo{position:relative;flex:1 1 auto;min-width:70px;display:flex}
 .qq-lora-combo-btn{display:flex;align-items:center;gap:5px;width:100%;height:24px;padding:0 6px;
   border-radius:4px;border:1px solid var(--border-color,#39404d);
@@ -814,6 +812,7 @@ function setup(node) {
         row.className = "qq-lora-row";
         row.draggable = true;
         row.dataset.index = String(index);
+        row.title = `第 ${index + 1} 个叠加（拖动行可调整顺序）`;
         if (lora.off) row.classList.add("is-off");
         if (missing) {
             row.classList.add("is-missing");
@@ -838,11 +837,6 @@ function setup(node) {
             writeData(node, next);
             render();
         });
-
-        const order = document.createElement("span");
-        order.className = "qq-lora-index";
-        order.textContent = String(index + 1);
-        order.title = `第 ${index + 1} 个叠加`;
 
         // 名字：点开目录树
         const combo = document.createElement("div");
@@ -957,7 +951,7 @@ function setup(node) {
             render();
         });
 
-        row.append(enabledBox, order, combo, stepper, remove);
+        row.append(enabledBox, combo, stepper, remove);
         return row;
     }
 
