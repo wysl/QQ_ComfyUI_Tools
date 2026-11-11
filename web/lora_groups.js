@@ -12,11 +12,13 @@ import { app } from "../../scripts/app.js";
 const NODE_TYPE = "QQLoraGroupLoader";
 const DATA_WIDGET = "分组数据";
 const ENABLE_WIDGET = "启用";
-const LORA_LIST_ID = "qq-lora-group-names";
 
 const ROW_H = 30;
 const MIN_PANEL_HEIGHT = 250;
 const MIN_PANEL_WIDTH = 330;
+const STRENGTH_STEP = 0.05;
+const MIN_POP_WIDTH = 220;
+const MAX_POP_HEIGHT = 280;
 
 const CSS = `
 .qq-lora{box-sizing:border-box;height:100%;display:flex;flex-direction:column;gap:6px;
@@ -57,12 +59,42 @@ const CSS = `
   padding:2px 0}
 .qq-lora-row{display:flex;align-items:center;gap:6px;height:${ROW_H - 4}px;flex:0 0 auto}
 .qq-lora-index{flex:0 0 16px;text-align:right;color:var(--descrip-text,#96a0b0);font-size:10px}
-.qq-lora-name{flex:1 1 auto;min-width:92px;height:24px;padding:0 6px;border-radius:4px;
+.qq-lora-combo{position:relative;flex:1 1 auto;min-width:92px;display:flex}
+.qq-lora-combo-btn{display:flex;align-items:center;gap:5px;width:100%;height:24px;padding:0 6px;
+  border-radius:4px;border:1px solid var(--border-color,#39404d);
+  background:var(--comfy-input-bg,#12141a);color:inherit;font:inherit;text-align:left;cursor:pointer}
+.qq-lora-combo-btn:hover{border-color:#4f8cff}
+.qq-lora-combo-btn span{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qq-lora-combo-btn.is-empty span{color:#7d8798}
+.qq-lora-caret{flex:0 0 auto;width:6px;height:6px;margin-right:2px;opacity:.7;
+  border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;
+  transform:rotate(45deg) translate(-1px,-1px)}
+.qq-lora-stepper{flex:0 0 auto;display:flex;align-items:center;gap:2px}
+.qq-lora-step{width:15px;height:22px;padding:0;border-radius:3px;display:grid;place-items:center;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
-  color:inherit;font:inherit}
-.qq-lora-strength{flex:0 0 66px;height:24px;padding:0 4px;border-radius:4px;text-align:right;
+  color:var(--descrip-text,#96a0b0);cursor:pointer}
+.qq-lora-step:hover{border-color:#4f8cff;color:#8fb9d9}
+.qq-lora-strength{width:42px;height:22px;padding:0 2px;border-radius:4px;text-align:center;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
-  color:inherit;font:inherit}
+  color:inherit;font:inherit;appearance:textfield;-moz-appearance:textfield}
+.qq-lora-strength::-webkit-outer-spin-button,.qq-lora-strength::-webkit-inner-spin-button{
+  -webkit-appearance:none;margin:0}
+/* LoRA 下拉：贴着按钮弹出的搜索面板 */
+.qq-lora-pop{position:fixed;z-index:11000;display:flex;flex-direction:column;min-width:200px;
+  border:1px solid var(--border-color,#4b545b);border-radius:6px;overflow:hidden;
+  background:var(--comfy-menu-bg,#25292d);color:var(--input-text,#e6e8ee);
+  box-shadow:0 14px 34px rgba(0,0,0,.55);
+  font:12px/1.35 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+.qq-lora-pop-search{height:26px;margin:5px;padding:0 7px;border-radius:4px;font:inherit;
+  border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);color:inherit}
+.qq-lora-pop-search:focus{outline:1px solid #4f8cff;outline-offset:-1px}
+.qq-lora-pop-list{flex:1 1 auto;min-height:0;overflow-y:auto;padding:0 0 4px}
+.qq-lora-pop-item{display:block;width:100%;padding:4px 8px;border:0;background:transparent;
+  color:inherit;font:inherit;text-align:left;cursor:pointer;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.qq-lora-pop-item:hover,.qq-lora-pop-item.is-active{background:rgba(79,140,255,.24)}
+.qq-lora-pop-item.is-current{color:#8fb9d9}
+.qq-lora-pop-empty{padding:12px 8px;text-align:center;color:var(--descrip-text,#96a0b0)}
 .qq-lora-del-row{flex:0 0 auto;width:20px;height:20px;padding:0;border-radius:4px;border:0;
   background:transparent;color:var(--descrip-text,#96a0b0);cursor:pointer;font-size:14px;line-height:1}
 .qq-lora-del-row:hover{background:rgba(255,255,255,.1);color:#ff8f8f}
@@ -182,28 +214,15 @@ function fetchLoraNames() {
     return loraNamesPromise;
 }
 
-function ensureDatalist(names) {
-    let list = document.getElementById(LORA_LIST_ID);
-    if (!list) {
-        list = document.createElement("datalist");
-        list.id = LORA_LIST_ID;
-        document.body.append(list);
-    }
-    if (list.dataset.count === String(names.length)) return list;
-    list.replaceChildren();
-    for (const name of names) {
-        const option = document.createElement("option");
-        option.value = name;
-        list.append(option);
-    }
-    list.dataset.count = String(names.length);
-    return list;
-}
-
 /* ---------------- 面板 ---------------- */
 
 function isExternallyControlled(node, inputName) {
     return Boolean(node?.inputs?.find((input) => input?.name === inputName)?.link);
+}
+
+function closeLoraPops(node) {
+    for (const pop of node?.__qqLoraPops || []) pop.remove();
+    if (node) node.__qqLoraPops = [];
 }
 
 function setup(node) {
@@ -272,13 +291,17 @@ function setup(node) {
     node.setSize?.([width, height]);
 
     let names = [];
-    fetchLoraNames().then((fetched) => {
-        names = fetched;
-        ensureDatalist(names);
-        render();
-    });
+    const ensureNames = () => {
+        if (names.length) return Promise.resolve(names);
+        return fetchLoraNames().then((fetched) => {
+            names = fetched;
+            return names;
+        });
+    };
+    ensureNames().then(() => render());
 
     function render() {
+        closeLoraPops(node);
         const data = readData(node);
         const enabled = Boolean(widgetOf(node, ENABLE_WIDGET)?.value ?? true);
         checkbox.checked = enabled;
@@ -410,34 +433,35 @@ function setup(node) {
         order.className = "qq-lora-index";
         order.textContent = String(index + 1);
 
-        const name = document.createElement("input");
-        name.className = "qq-lora-name";
-        name.type = "text";
-        name.setAttribute("list", LORA_LIST_ID);
-        name.placeholder = "搜索或选择 LoRA";
-        name.value = lora.name;
-        name.title = lora.name || "搜索或选择 LoRA";
-        const commitName = () => {
-            const value = name.value.trim();
-            if (value === lora.name) return;
-            const next = readData(node);
-            const target = activeGroup(next);
-            if (!target?.loras[index]) return;
-            target.loras[index].name = value;
-            writeData(node, next);
-            if (!value) render();
-        };
-        name.addEventListener("change", commitName);
-        name.addEventListener("blur", commitName);
+        // 名字用下拉框选，样子对齐 ComfyUI 的 LoRA 加载器（点击才弹出搜索列表）
+        const combo = document.createElement("div");
+        combo.className = "qq-lora-combo";
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "qq-lora-combo-btn";
+        if (!lora.name) button.classList.add("is-empty");
+        const label = document.createElement("span");
+        label.textContent = lora.name || "选择 LoRA";
+        label.title = lora.name || "选择 LoRA";
+        const caret = document.createElement("i");
+        caret.className = "qq-lora-caret";
+        button.append(label, caret);
+        combo.append(button);
+        button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            openLoraCombo(index, button, label, lora);
+        });
 
+        const stepper = document.createElement("div");
+        stepper.className = "qq-lora-stepper";
         const strength = document.createElement("input");
         strength.className = "qq-lora-strength";
         strength.type = "number";
-        strength.step = "0.05";
+        strength.step = String(STRENGTH_STEP);
         strength.min = "-100";
         strength.max = "100";
         strength.value = String(round2(lora.strength));
-        strength.title = "强度";
+        strength.title = "强度（可直接输入，或用两侧箭头微调）";
         const commitStrength = (value) => {
             let number = Number(value);
             if (!Number.isFinite(number)) number = 1;
@@ -450,6 +474,16 @@ function setup(node) {
             strength.value = String(round2(number));
         };
         strength.addEventListener("change", () => commitStrength(strength.value));
+        strength.addEventListener("keydown", (event) => {
+            event.stopPropagation();
+            if (event.key === "Enter") commitStrength(strength.value);
+        });
+        const nudge = (delta) => {
+            commitStrength(round2((Number(strength.value) || 0) + delta));
+        };
+        const decrease = stepButton(-1, () => nudge(-STRENGTH_STEP));
+        const increase = stepButton(1, () => nudge(STRENGTH_STEP));
+        stepper.append(decrease, strength, increase);
 
         const remove = document.createElement("button");
         remove.type = "button";
@@ -465,8 +499,169 @@ function setup(node) {
             render();
         });
 
-        row.append(order, name, strength, remove);
+        row.append(order, combo, stepper, remove);
         return row;
+    }
+
+    function stepButton(direction, onClick) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "qq-lora-step";
+        button.title = direction < 0 ? `减 ${STRENGTH_STEP}` : `加 ${STRENGTH_STEP}`;
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("width", "9");
+        svg.setAttribute("height", "9");
+        svg.setAttribute("fill", "none");
+        svg.setAttribute("stroke", "currentColor");
+        svg.setAttribute("stroke-width", "2.6");
+        svg.setAttribute("stroke-linecap", "round");
+        svg.setAttribute("stroke-linejoin", "round");
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", direction < 0 ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7");
+        svg.append(path);
+        button.append(svg);
+        button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            onClick();
+        });
+        return button;
+    }
+
+    // 贴着按钮弹出的 LoRA 列表：搜索 + 点选 + 上下键/回车
+    function openLoraCombo(index, button, label, lora) {
+        closeLoraPops(node);
+        const pop = document.createElement("div");
+        pop.className = "qq-lora-pop";
+        const search = document.createElement("input");
+        search.className = "qq-lora-pop-search";
+        search.type = "search";
+        search.placeholder = "搜索 LoRA";
+        const list = document.createElement("div");
+        list.className = "qq-lora-pop-list";
+        pop.append(search, list);
+
+        const close = () => {
+            document.removeEventListener("pointerdown", onOutside, true);
+            window.removeEventListener("resize", close);
+            pop.remove();
+            node.__qqLoraPops = (node.__qqLoraPops || []).filter((item) => item !== pop);
+        };
+        const onOutside = (event) => {
+            if (!pop.contains(event.target) && !button.contains(event.target)) close();
+        };
+
+        const commit = (value) => {
+            const next = readData(node);
+            const target = activeGroup(next);
+            if (!target?.loras[index]) {
+                close();
+                return;
+            }
+            target.loras[index].name = String(value || "").trim();
+            writeData(node, next);
+            label.textContent = target.loras[index].name || "选择 LoRA";
+            label.title = label.textContent;
+            button.classList.toggle("is-empty", !target.loras[index].name);
+            close();
+        };
+
+        let active = -1;
+        const paint = () => {
+            const needle = search.value.trim().toLowerCase();
+            const matches = names.filter((name) => name.toLowerCase().includes(needle));
+            list.replaceChildren();
+            active = -1;
+            if (!matches.length) {
+                const empty = document.createElement("div");
+                empty.className = "qq-lora-pop-empty";
+                empty.textContent = names.length
+                    ? "没有匹配的 LoRA"
+                    : "读不到 LoRA 列表，可直接输入名字后回车";
+                list.append(empty);
+                return;
+            }
+            for (const name of matches) {
+                const item = document.createElement("button");
+                item.type = "button";
+                item.className = "qq-lora-pop-item";
+                if (name === lora.name) item.classList.add("is-current");
+                item.textContent = name;
+                item.title = name;
+                item.addEventListener("click", () => commit(name));
+                list.append(item);
+            }
+            const current = list.querySelector(".qq-lora-pop-item.is-current");
+            if (current) {
+                current.classList.add("is-active");
+                active = [...list.children].indexOf(current);
+                current.scrollIntoView({ block: "nearest" });
+            }
+        };
+        const move = (delta) => {
+            const items = [...list.querySelectorAll(".qq-lora-pop-item")];
+            if (!items.length) return;
+            active = (active + delta + items.length) % items.length;
+            items.forEach((item, index) => item.classList.toggle("is-active", index === active));
+            items[active]?.scrollIntoView({ block: "nearest" });
+        };
+        const pickActive = () => {
+            const items = [...list.querySelectorAll(".qq-lora-pop-item")];
+            const target = items[active] || items[0];
+            if (target) commit(target.textContent);
+        };
+
+        search.addEventListener("input", paint);
+        search.addEventListener("keydown", (event) => {
+            event.stopPropagation();
+            if (event.key === "ArrowDown") {
+                event.preventDefault();
+                move(1);
+            } else if (event.key === "ArrowUp") {
+                event.preventDefault();
+                move(-1);
+            } else if (event.key === "Enter") {
+                event.preventDefault();
+                const typed = search.value.trim();
+                const items = [...list.querySelectorAll(".qq-lora-pop-item")];
+                // 手输的名字即使不在列表里也认
+                if (typed && !items.some((item) => item.textContent === typed)) {
+                    commit(typed);
+                    return;
+                }
+                pickActive();
+            } else if (event.key === "Escape") {
+                close();
+            }
+        });
+
+        document.body.append(pop);
+        node.__qqLoraPops = node.__qqLoraPops || [];
+        node.__qqLoraPops.push(pop);
+        positionPop(pop, button);
+        paint();
+        search.focus();
+        document.addEventListener("pointerdown", onOutside, true);
+        window.addEventListener("resize", close);
+
+        ensureNames().then(() => {
+            if (pop.isConnected) paint();
+        });
+    }
+
+    function positionPop(pop, button) {
+        const rect = button.getBoundingClientRect();
+        const width = Math.max(rect.width, MIN_POP_WIDTH);
+        pop.style.width = `${width}px`;
+        pop.style.left = `${Math.max(6, Math.min(window.innerWidth - width - 6, rect.left))}px`;
+        const roomBelow = window.innerHeight - rect.bottom - 10;
+        const height = Math.min(MAX_POP_HEIGHT, Math.max(140, roomBelow));
+        pop.style.maxHeight = `${height}px`;
+        if (roomBelow >= 150) {
+            pop.style.top = `${rect.bottom + 2}px`;
+        } else {
+            pop.style.top = `${Math.max(6, rect.top - height - 2)}px`;
+        }
     }
 
     function startRename(index) {
