@@ -344,6 +344,11 @@ class FrontendWiringTests(unittest.TestCase):
         self.assertIn("function attachLoraPreview(node, anchor, name)", source)
         self.assertIn('const LORA_PREVIEW_URL = "/qq_lora/preview";', source)
         self.assertIn("strength.addEventListener(\"dblclick\", () => commitStrength(1));", source)
+        # 行尾没有删除键，改成底部垃圾桶拖放删除
+        self.assertIn('trash.className = "qq-lora-trash"', source)
+        self.assertIn("trash.addEventListener(\"drop\"", source)
+        self.assertNotIn("qq-lora-del-row", source)
+        self.assertIn("删除这一条", source)
 
 
 class ContractTests(unittest.TestCase):

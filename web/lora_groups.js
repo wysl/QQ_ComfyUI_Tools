@@ -73,8 +73,10 @@ const CSS = `
 .qq-lora-on:hover{border-color:#4f8cff}
 .qq-lora-on[data-on="1"]{color:#8fb9d9;border-color:rgba(79,140,255,.65);background:rgba(79,140,255,.14)}
 .qq-lora-row.is-off .qq-lora-on{color:transparent}
+.qq-lora-row.is-off .qq-lora-combo-btn span{text-decoration:line-through;color:#8b95a5}
+.qq-lora-row.is-off .qq-lora-combo,.qq-lora-row.is-off .qq-lora-stepper{opacity:.5}
 .qq-lora-combo{position:relative;flex:1 1 auto;min-width:70px;display:flex}
-.qq-lora-combo-btn{display:flex;align-items:center;gap:5px;width:100%;height:22px;padding:0 6px;
+.qq-lora-combo-btn{display:flex;align-items:center;gap:5px;width:100%;height:24px;padding:0 6px;
   border-radius:4px;border:1px solid var(--border-color,#39404d);
   background:var(--comfy-input-bg,#12141a);color:inherit;font:inherit;text-align:left;cursor:pointer}
 .qq-lora-combo-btn:hover{border-color:#4f8cff}
@@ -84,25 +86,27 @@ const CSS = `
 .qq-lora-caret{flex:0 0 auto;width:6px;height:6px;margin-right:2px;opacity:.7;
   border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;
   transform:rotate(45deg) translate(-1px,-1px)}
-.qq-lora-row.is-off .qq-lora-combo-btn span{text-decoration:line-through;color:#8b95a5}
-.qq-lora-row.is-off .qq-lora-combo,.qq-lora-row.is-off .qq-lora-stepper{opacity:.5}
-.qq-lora-stepper{flex:0 0 40px;width:40px;height:22px;display:flex;align-items:center;
-  overflow:hidden;border:1px solid var(--border-color,#39404d);border-radius:4px;
+.qq-lora-stepper{flex:0 0 auto;display:flex;align-items:center;height:22px;overflow:hidden;
+  border:1px solid var(--border-color,#39404d);border-radius:4px;
   background:var(--comfy-input-bg,#12141a)}
-.qq-lora-stepper:hover,.qq-lora-stepper:focus-within{border-color:#4f8cff}
-.qq-lora-stepper:focus-within{box-shadow:0 0 0 1px rgba(79,140,255,.35)}
-.qq-lora-strength{width:100%;height:20px;padding:0 2px;border:0;border-radius:4px;text-align:center;
-  background:transparent;color:inherit;font:inherit;font-size:10.5px;
-  font-variant-numeric:tabular-nums;appearance:textfield;-moz-appearance:textfield}
+.qq-lora-stepper:hover{border-color:#4f8cff}
+.qq-lora-stepper:focus-within{border-color:#4f8cff;box-shadow:0 0 0 1px rgba(79,140,255,.35)}
+.qq-lora-step{width:11px;height:20px;padding:0;border:0;border-radius:0;display:grid;place-items:center;
+  background:transparent;color:var(--descrip-text,#96a0b0);cursor:pointer}
+.qq-lora-step:hover{background:rgba(79,140,255,.18);color:#8fb9d9}
+.qq-lora-strength{width:30px;height:20px;padding:0;font-size:11px;font-variant-numeric:tabular-nums;border:0;border-radius:0;text-align:center;
+  background:transparent;color:inherit;font:inherit;appearance:textfield;-moz-appearance:textfield}
 .qq-lora-strength:focus{outline:none}
 .qq-lora-strength::-webkit-outer-spin-button,.qq-lora-strength::-webkit-inner-spin-button{
   -webkit-appearance:none;margin:0}
-.qq-lora-del-row{flex:0 0 22px;width:22px;height:22px;padding:0;display:grid;place-items:center;
-  border:1px solid var(--border-color,#39404d);border-radius:4px;
-  background:var(--comfy-input-bg,#12141a);color:var(--descrip-text,#96a0b0);cursor:pointer}
-.qq-lora-del-row svg{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:2.6;
-  stroke-linecap:round}
-.qq-lora-del-row:hover{border-color:#c95555;color:#ff8f8f;background:rgba(201,85,85,.14)}
+.qq-lora-trash{flex:0 0 22px;width:22px;height:22px;margin-left:auto;padding:0;
+  display:grid;place-items:center;border:1px dashed var(--border-color,#39404d);border-radius:4px;
+  background:transparent;color:var(--descrip-text,#96a0b0);cursor:pointer}
+.qq-lora-trash svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round}
+.qq-lora-trash:hover{border-color:#c95555;color:#ff8f8f}
+.qq-lora-trash.is-armed{border-style:solid;border-color:#c95555;color:#ff8f8f;
+  background:rgba(201,85,85,.18)}
 .qq-lora-empty{flex:1 1 auto;display:flex;align-items:center;justify-content:center;text-align:center;
   color:var(--descrip-text,#96a0b0);line-height:1.7;padding:8px}
 .qq-lora-foot{flex:0 0 auto;display:flex;align-items:center;gap:6px;color:var(--descrip-text,#96a0b0);
@@ -580,7 +584,15 @@ function setup(node) {
     const foot = document.createElement("div");
     foot.className = "qq-lora-foot";
     const footText = document.createElement("span");
-    foot.append(footText);
+    const trash = document.createElement("div");
+    trash.className = "qq-lora-trash";
+    trash.title = "把 LoRA 行拖到这里删除";
+    trash.innerHTML =
+        '<svg viewBox="0 0 24 24" aria-hidden="true">'
+        + '<path d="M4 7h16"/><path d="M9 7V5h6v2"/>'
+        + '<path d="M6 7l1 13h10l1-13"/>'
+        + '</svg>';
+    foot.append(footText, trash);
 
     root.append(groups, rows, foot);
 
@@ -881,7 +893,7 @@ function setup(node) {
         strength.min = "-100";
         strength.max = "100";
         strength.value = String(round2(lora.strength));
-        strength.title = "强度：滚轮或 ↑↓ 微调（Shift 大步），双击归 1，也可直接输入";
+        strength.title = "强度（可直接输入，或用两侧箭头微调；双击归 1）";
         const commitStrength = (value) => {
             let number = Number(value);
             if (!Number.isFinite(number)) number = 1;
@@ -899,33 +911,12 @@ function setup(node) {
             event.stopPropagation();
             if (event.key === "Enter") commitStrength(strength.value);
         });
-        // 滚轮微调（Shift 大步）
-        strength.addEventListener(
-            "wheel",
-            (event) => {
-                event.preventDefault();
-                const step = event.shiftKey ? STRENGTH_STEP_BIG : STRENGTH_STEP;
-                commitStrength(round2((Number(strength.value) || 0) + (event.deltaY < 0 ? step : -step)));
-            },
-            { passive: false },
-        );
-        stepper.append(strength);
-
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.className = "qq-lora-del-row";
-        remove.innerHTML =
-            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
-        remove.title = "移除这个 Lora";
-        remove.addEventListener("click", (event) => {
-            event.stopPropagation();
-            const next = readData(node);
-            const target = activeGroup(next);
-            if (!target) return;
-            target.loras.splice(index, 1);
-            writeData(node, next);
-            render();
-        });
+        const nudge = (delta) => {
+            commitStrength(round2((Number(strength.value) || 0) + delta));
+        };
+        const decrease = stepButton(-1, (event) => nudge(event?.shiftKey ? -STRENGTH_STEP_BIG : -STRENGTH_STEP));
+        const increase = stepButton(1, (event) => nudge(event?.shiftKey ? STRENGTH_STEP_BIG : STRENGTH_STEP));
+        stepper.append(decrease, strength, increase);
 
         row.addEventListener("contextmenu", (event) => {
             event.preventDefault();
@@ -935,11 +926,13 @@ function setup(node) {
         // 拖动排序
         row.addEventListener("dragstart", (event) => {
             row.classList.add("is-dragging");
+            trash.classList.add("is-armed");
             event.dataTransfer?.setData("text/plain", String(index));
             if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
         });
         row.addEventListener("dragend", () => {
             row.classList.remove("is-dragging");
+            trash.classList.remove("is-armed");
             for (const other of rows.querySelectorAll(".qq-lora-row")) {
                 other.classList.remove("drop-before", "drop-after");
             }
@@ -970,8 +963,53 @@ function setup(node) {
             render();
         });
 
-        row.append(enabledBox, combo, stepper, remove);
+        row.append(enabledBox, combo, stepper);
         return row;
+    }
+
+    // 垃圾桶：把行拖进来就删除这一条
+    trash.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        trash.classList.add("is-armed");
+    });
+    trash.addEventListener("dragleave", () => trash.classList.remove("is-armed"));
+    trash.addEventListener("drop", (event) => {
+        event.preventDefault();
+        trash.classList.remove("is-armed");
+        const from = Number(event.dataTransfer?.getData("text/plain"));
+        if (!Number.isInteger(from)) return;
+        const next = readData(node);
+        const target = activeGroup(next);
+        if (!target || from < 0 || from >= target.loras.length) return;
+        target.loras.splice(from, 1);
+        writeData(node, next);
+        render();
+    });
+
+    function stepButton(direction, onClick) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "qq-lora-step";
+        button.title = direction < 0 ? `减 ${STRENGTH_STEP}（Shift 大步）` : `加 ${STRENGTH_STEP}（Shift 大步）`;
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("width", "9");
+        svg.setAttribute("height", "9");
+        svg.setAttribute("fill", "none");
+        svg.setAttribute("stroke", "currentColor");
+        svg.setAttribute("stroke-width", "2.6");
+        svg.setAttribute("stroke-linecap", "round");
+        svg.setAttribute("stroke-linejoin", "round");
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", direction < 0 ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7");
+        svg.append(path);
+        button.append(svg);
+        button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            onClick(event);
+        });
+        return button;
     }
 
     /* ---- 右键菜单：换组 / 分组操作 ---- */
@@ -1002,7 +1040,7 @@ function setup(node) {
         menu.className = "qq-lora-menu";
         const title = document.createElement("div");
         title.className = "qq-lora-menu-title";
-        title.textContent = `「${lora.name || "未命名"}」移到：`;
+        title.textContent = `「${lora.name || "未命名"}」`;
         menu.append(title);
         data.groups.forEach((target, targetIndex) => {
             if (targetIndex === data.active) return;
@@ -1018,6 +1056,20 @@ function setup(node) {
             });
             menu.append(button);
         });
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "删除这一条";
+        remove.style.color = "#ff8f8f";
+        remove.addEventListener("click", () => {
+            closeLoraMenu(node);
+            const next = readData(node);
+            const target = activeGroup(next);
+            if (!target) return;
+            target.loras.splice(index, 1);
+            writeData(node, next);
+            render();
+        });
+        menu.append(remove);
         placeMenu(menu, event);
     }
 
