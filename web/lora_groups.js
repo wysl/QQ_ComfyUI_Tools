@@ -65,9 +65,14 @@ const CSS = `
 .qq-lora-row.is-dragging{opacity:.45}
 .qq-lora-row.drop-before{box-shadow:0 -2px 0 0 #4f8cff}
 .qq-lora-row.drop-after{box-shadow:0 2px 0 0 #4f8cff}
-.qq-lora-on{flex:0 0 13px;width:13px;height:13px;margin:0;padding:0;cursor:pointer;
-  accent-color:#4f8cff;border-radius:3px}
-.qq-lora-row.is-off .qq-lora-on{accent-color:#7d8798}
+.qq-lora-on{flex:0 0 22px;width:22px;height:22px;padding:0;display:grid;place-items:center;
+  border:1px solid var(--border-color,#39404d);border-radius:4px;
+  background:var(--comfy-input-bg,#12141a);color:transparent;cursor:pointer}
+.qq-lora-on svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2.8;
+  stroke-linecap:round;stroke-linejoin:round}
+.qq-lora-on:hover{border-color:#4f8cff}
+.qq-lora-on[data-on="1"]{color:#8fb9d9;border-color:rgba(79,140,255,.65);background:rgba(79,140,255,.14)}
+.qq-lora-row.is-off .qq-lora-on{color:transparent}
 .qq-lora-row.is-off .qq-lora-combo-btn span{text-decoration:line-through;color:#8b95a5}
 .qq-lora-row.is-off .qq-lora-combo,.qq-lora-row.is-off .qq-lora-stepper{opacity:.5}
 .qq-lora-combo{position:relative;flex:1 1 auto;min-width:70px;display:flex}
@@ -91,7 +96,7 @@ const CSS = `
   color:inherit;font:inherit;appearance:textfield;-moz-appearance:textfield}
 .qq-lora-strength::-webkit-outer-spin-button,.qq-lora-strength::-webkit-inner-spin-button{
   -webkit-appearance:none;margin:0}
-.qq-lora-del-row{flex:0 0 auto;width:18px;height:20px;padding:0;border-radius:4px;border:0;
+.qq-lora-del-row{flex:0 0 auto;width:22px;height:22px;padding:0;border-radius:4px;border:0;
   background:transparent;color:var(--descrip-text,#96a0b0);cursor:pointer;font-size:14px;line-height:1}
 .qq-lora-del-row:hover{background:rgba(255,255,255,.1);color:#ff8f8f}
 .qq-lora-empty{flex:1 1 auto;display:flex;align-items:center;justify-content:center;text-align:center;
@@ -820,20 +825,24 @@ function setup(node) {
         }
 
         // 勾选框：这条 LoRA 本次是否参与叠加（取消勾选=临时停用，配置保留）
-        const enabledBox = document.createElement("input");
-        enabledBox.type = "checkbox";
+        const enabledBox = document.createElement("button");
+        enabledBox.type = "button";
         enabledBox.className = "qq-lora-on";
-        enabledBox.checked = !lora.off;
+        enabledBox.dataset.on = lora.off ? "0" : "1";
+        enabledBox.setAttribute("role", "checkbox");
+        enabledBox.setAttribute("aria-checked", String(!lora.off));
         enabledBox.title = lora.off
-            ? "已停用：这次不叠加（勾上恢复）"
-            : "勾选=参与本次叠加；取消勾选可临时停用，保留配置";
+            ? "已停用：这次不叠加（点一下恢复）"
+            : "勾选=参与本次叠加；点一下可临时停用，保留配置";
         enabledBox.setAttribute("aria-label", `${lora.name || "这条 Lora"} 是否参与叠加`);
-        enabledBox.addEventListener("click", (event) => event.stopPropagation());
-        enabledBox.addEventListener("change", () => {
+        enabledBox.innerHTML =
+            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5l5 5 11-12"/></svg>';
+        enabledBox.addEventListener("click", (event) => {
+            event.stopPropagation();
             const next = readData(node);
             const target = activeGroup(next);
             if (!target?.loras[index]) return;
-            target.loras[index].off = !enabledBox.checked;
+            target.loras[index].off = !target.loras[index].off;
             writeData(node, next);
             render();
         });
