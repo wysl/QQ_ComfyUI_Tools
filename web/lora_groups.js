@@ -96,9 +96,12 @@ const CSS = `
   color:inherit;font:inherit;appearance:textfield;-moz-appearance:textfield}
 .qq-lora-strength::-webkit-outer-spin-button,.qq-lora-strength::-webkit-inner-spin-button{
   -webkit-appearance:none;margin:0}
-.qq-lora-del-row{flex:0 0 auto;width:22px;height:22px;padding:0;border-radius:4px;border:0;
-  background:transparent;color:var(--descrip-text,#96a0b0);cursor:pointer;font-size:14px;line-height:1}
-.qq-lora-del-row:hover{background:rgba(255,255,255,.1);color:#ff8f8f}
+.qq-lora-del-row{flex:0 0 22px;width:22px;height:22px;padding:0;display:grid;place-items:center;
+  border:1px solid var(--border-color,#39404d);border-radius:4px;
+  background:var(--comfy-input-bg,#12141a);color:var(--descrip-text,#96a0b0);cursor:pointer}
+.qq-lora-del-row svg{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:2.6;
+  stroke-linecap:round}
+.qq-lora-del-row:hover{border-color:#c95555;color:#ff8f8f;background:rgba(201,85,85,.14)}
 .qq-lora-empty{flex:1 1 auto;display:flex;align-items:center;justify-content:center;text-align:center;
   color:var(--descrip-text,#96a0b0);line-height:1.7;padding:8px}
 .qq-lora-foot{flex:0 0 auto;display:flex;align-items:center;gap:6px;color:var(--descrip-text,#96a0b0);
@@ -905,7 +908,8 @@ function setup(node) {
         const remove = document.createElement("button");
         remove.type = "button";
         remove.className = "qq-lora-del-row";
-        remove.textContent = "×";
+        remove.innerHTML =
+            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
         remove.title = "移除这个 Lora";
         remove.addEventListener("click", (event) => {
             event.stopPropagation();
