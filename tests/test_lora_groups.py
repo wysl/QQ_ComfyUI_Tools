@@ -274,8 +274,10 @@ class FrontendWiringTests(unittest.TestCase):
         self.assertIn("const MIN_NODE_WIDTH = 262;", source)
         self.assertIn("node.computeSize = function qqLoraComputeSize", source)
         self.assertIn("return [MIN_NODE_WIDTH, height];", source)
-        # 标题旁不再显示「外部控制…」提示
+        # 标题栏整行都不要（既无提示也无「Lora 分组」标题）
         self.assertNotIn("qq-lora-hint", source)
+        self.assertNotIn("qq-lora-title", source)
+        self.assertIn("root.append(groups, rows, foot);", source)
         # 输入口 model 与输出口 模型 统一显示
         self.assertIn('modelInput.label = "模型";', source)
 

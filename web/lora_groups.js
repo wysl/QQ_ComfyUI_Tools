@@ -34,8 +34,6 @@ const CSS = `
   padding:6px;background:var(--comfy-menu-bg,#1e2128);color:var(--input-text,#e6e8ee);
   border-radius:6px;overflow:hidden;font:12px/1.35 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
 .qq-lora *{box-sizing:border-box}
-.qq-lora-head{display:flex;align-items:center;gap:8px;flex:0 0 auto}
-.qq-lora-title{font-weight:600}
 .qq-lora-groups{display:flex;flex-wrap:wrap;align-items:center;gap:4px;flex:0 0 auto}
 .qq-lora-chip{display:flex;align-items:center;gap:3px;height:22px;padding:0 7px;border-radius:12px;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
@@ -111,7 +109,6 @@ const CSS = `
 .qq-lora-foot span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 停用时把可编辑区压暗，状态一眼可见 */
 .qq-lora.is-off .qq-lora-groups,.qq-lora.is-off .qq-lora-rows{opacity:.5}
-.qq-lora.is-off .qq-lora-title{color:var(--descrip-text,#96a0b0)}
 `;
 
 function injectCSS() {
@@ -385,13 +382,6 @@ function setup(node) {
     const root = document.createElement("div");
     root.className = "qq-lora";
 
-    const head = document.createElement("div");
-    head.className = "qq-lora-head";
-    const title = document.createElement("span");
-    title.className = "qq-lora-title";
-    title.textContent = "Lora 分组";
-    head.append(title);
-
     const groups = document.createElement("div");
     groups.className = "qq-lora-groups";
 
@@ -403,7 +393,7 @@ function setup(node) {
     const footText = document.createElement("span");
     foot.append(footText);
 
-    root.append(head, groups, rows, foot);
+    root.append(groups, rows, foot);
 
     const gallery = node.addDOMWidget("qq_lora_groups", "qq_lora_groups", root, {
         serialize: false,
