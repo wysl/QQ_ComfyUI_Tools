@@ -3,11 +3,14 @@ import { app } from "../../scripts/app.js";
 // QQ-Lora分组加载（仅模型）的面板。
 //
 // 数据都放在节点的隐藏控件里（工作流随存随读）：
-//   启用      BOOLEAN  面板右上角的开关
-//   分组数据  STRING   {"version":1,"active":0,"groups":[{"name":"…","loras":[…]}]}
+//   分组数据  STRING  {"version":1,"active":0,"select":"","groups":[
+//                        {"name":"…","loras":[{"name":"…","strength":1,"off":false}]}]}
+//   启用开关  BOOLEAN 节点总开关（画布控件）
+//   生效分组  COMBO   下拉选择哪一组生效；跟随面板 = 用面板里点亮的组
 //
-// 面板结构：标题栏（开关）→ 分组条（点击切换 / 双击改名 / ×删除 / +新增）
-// → 当前分组的 LoRA 列表（名称 + 强度 + 删除）→ 底部说明。
+// 面板结构：分组条（点击切换 / 双击改名 / ×删除 / 右键复制 / +新增）→ 当前分组的
+// LoRA 列表（序号可点=临时停用，名称点开目录树选择，强度可微调，行可拖动排序、
+// 右键换组）→ 底部状态。鼠标停在 LoRA 上会弹出缩略图。
 
 const NODE_TYPE = "QQLoraGroupLoader";
 const DATA_WIDGET = "分组数据";
@@ -15,19 +18,24 @@ const ENABLE_WIDGET = "启用开关";
 const GROUP_WIDGET = "生效分组";
 const FOLLOW_PANEL = "跟随面板";
 
-const ROW_H = 30;
-// 外部控制用的两个控件（多值输入会往同名控件里写值；接线时再镜像一次）
-const EXTERNAL_INPUTS = [
-    { input: "启用开关", widget: "启用开关" },
-    { input: "生效分组", widget: "生效分组" },
-];
 const MIN_PANEL_HEIGHT = 200;
 const MIN_PANEL_WIDTH = 250;
 // 画布上的最小宽度：面板 250 + DOM 控件边距
 const MIN_NODE_WIDTH = 262;
 const STRENGTH_STEP = 0.05;
+const STRENGTH_STEP_BIG = 0.5;
 const MIN_POP_WIDTH = 220;
 const MAX_POP_HEIGHT = 280;
+const MAX_POPUP_ROWS = 400;
+const ROW_HEIGHT_PX = 30;
+const PREVIEW_DELAY = 320;
+const PREVIEW_SIZE = 190;
+const LORA_PREVIEW_URL = "/qq_lora/preview";
+
+const EXTERNAL_INPUTS = [
+    { input: "启用开关", widget: "启用开关" },
+    { input: "生效分组", widget: "生效分组" },
+];
 
 const CSS = `
 .qq-lora{box-sizing:border-box;height:100%;display:flex;flex-direction:column;gap:5px;
@@ -44,19 +52,24 @@ const CSS = `
 /* 由「生效分组」下拉指定的组：描边提示，和面板当前组区分 */
 .qq-lora-chip[data-eff="1"]{box-shadow:inset 0 0 0 1px rgba(143,185,217,.85)}
 .qq-lora-chip .qq-lora-del{flex:0 0 auto;width:14px;height:14px;line-height:12px;padding:0;
-  border:0;border-radius:7px;background:transparent;color:inherit;cursor:pointer;opacity:0;
-  font-size:12px}
+  border:0;border-radius:7px;background:transparent;color:inherit;cursor:pointer;opacity:0;font-size:12px}
 .qq-lora-chip:hover .qq-lora-del{opacity:.6}
 .qq-lora-chip .qq-lora-del:hover{opacity:1;background:rgba(255,255,255,.12)}
-.qq-lora-chip input{width:110px;height:18px;padding:0 4px;border-radius:6px;font:inherit;
+.qq-lora-chip input{width:96px;height:18px;padding:0 4px;border-radius:6px;font:inherit;
   border:1px solid #4f8cff;background:var(--comfy-input-bg,#12141a);color:inherit}
-.qq-lora-add{height:24px;padding:0 9px;border-radius:12px;border:1px dashed var(--border-color,#39404d);
+.qq-lora-add{height:22px;padding:0 9px;border-radius:12px;border:1px dashed var(--border-color,#39404d);
   background:transparent;color:var(--descrip-text,#96a0b0);font:inherit;cursor:pointer}
 .qq-lora-add:hover{border-color:#4f8cff;color:#8fb9d9}
-.qq-lora-rows{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:4px;
-  padding:2px 0}
-.qq-lora-row{display:flex;align-items:center;gap:6px;height:${ROW_H - 4}px;flex:0 0 auto}
-.qq-lora-index{flex:0 0 14px;text-align:right;color:var(--descrip-text,#96a0b0);font-size:10px}
+.qq-lora-rows{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:4px;padding:2px 0}
+.qq-lora-row{display:flex;align-items:center;gap:5px;height:${ROW_HEIGHT_PX - 4}px;flex:0 0 auto}
+.qq-lora-row.is-dragging{opacity:.45}
+.qq-lora-row.drop-before{box-shadow:0 -2px 0 0 #4f8cff}
+.qq-lora-row.drop-after{box-shadow:0 2px 0 0 #4f8cff}
+.qq-lora-index{flex:0 0 16px;height:18px;padding:0;border:0;border-radius:4px;background:transparent;
+  color:var(--descrip-text,#96a0b0);font:inherit;font-size:10px;cursor:pointer;text-align:right}
+.qq-lora-index:hover{color:#8fb9d9}
+.qq-lora-row.is-off .qq-lora-combo,.qq-lora-row.is-off .qq-lora-stepper{opacity:.45}
+.qq-lora-row.is-off .qq-lora-index{color:#ff9a9a}
 .qq-lora-combo{position:relative;flex:1 1 auto;min-width:70px;display:flex}
 .qq-lora-combo-btn{display:flex;align-items:center;gap:5px;width:100%;height:24px;padding:0 6px;
   border-radius:4px;border:1px solid var(--border-color,#39404d);
@@ -64,6 +77,7 @@ const CSS = `
 .qq-lora-combo-btn:hover{border-color:#4f8cff}
 .qq-lora-combo-btn span{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .qq-lora-combo-btn.is-empty span{color:#7d8798}
+.qq-lora-row.is-missing .qq-lora-combo-btn{border-color:#c95555;color:#ffb3b3}
 .qq-lora-caret{flex:0 0 auto;width:6px;height:6px;margin-right:2px;opacity:.7;
   border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;
   transform:rotate(45deg) translate(-1px,-1px)}
@@ -77,16 +91,28 @@ const CSS = `
   color:inherit;font:inherit;appearance:textfield;-moz-appearance:textfield}
 .qq-lora-strength::-webkit-outer-spin-button,.qq-lora-strength::-webkit-inner-spin-button{
   -webkit-appearance:none;margin:0}
-/* LoRA 下拉：贴着按钮弹出的搜索面板 */
+.qq-lora-del-row{flex:0 0 auto;width:18px;height:20px;padding:0;border-radius:4px;border:0;
+  background:transparent;color:var(--descrip-text,#96a0b0);cursor:pointer;font-size:14px;line-height:1}
+.qq-lora-del-row:hover{background:rgba(255,255,255,.1);color:#ff8f8f}
+.qq-lora-empty{flex:1 1 auto;display:flex;align-items:center;justify-content:center;text-align:center;
+  color:var(--descrip-text,#96a0b0);line-height:1.7;padding:8px}
+.qq-lora-foot{flex:0 0 auto;display:flex;align-items:center;gap:6px;color:var(--descrip-text,#96a0b0);
+  font-size:11px;padding-top:2px}
+.qq-lora-foot span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* LoRA 下拉：贴着按钮弹出的目录树 */
 .qq-lora-pop{position:fixed;z-index:11000;display:flex;flex-direction:column;min-width:200px;
   border:1px solid var(--border-color,#4b545b);border-radius:6px;overflow:hidden;
   background:var(--comfy-menu-bg,#25292d);color:var(--input-text,#e6e8ee);
   box-shadow:0 14px 34px rgba(0,0,0,.55);
   font:12px/1.35 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
-.qq-lora-pop-search{height:26px;margin:5px;padding:0 7px;border-radius:4px;font:inherit;
+.qq-lora-pop-tools{display:flex;gap:4px;align-items:center;margin:5px 5px 0}
+.qq-lora-pop-search{flex:1 1 auto;min-width:0;height:26px;padding:0 7px;border-radius:4px;font:inherit;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);color:inherit}
 .qq-lora-pop-search:focus{outline:1px solid #4f8cff;outline-offset:-1px}
-.qq-lora-pop-list{flex:1 1 auto;min-height:0;overflow-y:auto;padding:0 0 4px}
+.qq-lora-pop-refresh{flex:0 0 auto;height:26px;padding:0 7px;border-radius:4px;font:inherit;cursor:pointer;
+  border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);color:inherit}
+.qq-lora-pop-refresh:hover{border-color:#4f8cff;color:#8fb9d9}
+.qq-lora-pop-list{flex:1 1 auto;min-height:0;overflow-y:auto;padding:2px 0 4px}
 .qq-lora-pop-item{display:block;width:100%;padding:4px 8px;border:0;background:transparent;
   color:inherit;font:inherit;text-align:left;cursor:pointer;white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis}
@@ -99,14 +125,24 @@ const CSS = `
   transform:rotate(-45deg);transition:transform .12s ease;opacity:.75}
 .qq-lora-chevron[data-open="1"]{transform:rotate(45deg)}
 .qq-lora-pop-empty{padding:12px 8px;text-align:center;color:var(--descrip-text,#96a0b0)}
-.qq-lora-del-row{flex:0 0 auto;width:20px;height:20px;padding:0;border-radius:4px;border:0;
-  background:transparent;color:var(--descrip-text,#96a0b0);cursor:pointer;font-size:14px;line-height:1}
-.qq-lora-del-row:hover{background:rgba(255,255,255,.1);color:#ff8f8f}
-.qq-lora-empty{flex:1 1 auto;display:flex;align-items:center;justify-content:center;text-align:center;
-  color:var(--descrip-text,#96a0b0);line-height:1.7;padding:10px}
-.qq-lora-foot{flex:0 0 auto;display:flex;align-items:center;gap:6px;color:var(--descrip-text,#96a0b0);
-  font-size:11px;padding-top:2px}
-.qq-lora-foot span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qq-lora-pop-more{padding:4px 8px;color:var(--descrip-text,#96a0b0);font-size:11px}
+/* 右键「移到分组」/ 分组菜单 */
+.qq-lora-menu{position:fixed;z-index:11100;min-width:140px;max-height:260px;overflow-y:auto;padding:4px;
+  border:1px solid var(--border-color,#4b545b);border-radius:6px;background:var(--comfy-menu-bg,#25292d);
+  color:var(--input-text,#e6e8ee);box-shadow:0 12px 28px rgba(0,0,0,.55);
+  font:12px/1.35 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+.qq-lora-menu button{display:block;width:100%;padding:4px 8px;border:0;border-radius:4px;background:transparent;
+  color:inherit;font:inherit;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qq-lora-menu button:hover{background:rgba(79,140,255,.24)}
+.qq-lora-menu .qq-lora-menu-title{padding:2px 8px 4px;color:var(--descrip-text,#96a0b0);font-size:11px}
+/* 缩略图预览 */
+.qq-lora-preview{position:fixed;z-index:11200;padding:3px;border-radius:6px;
+  border:1px solid var(--p-primary-color,#85a8c4);background:var(--comfy-menu-bg,#25292d);
+  box-shadow:0 10px 28px rgba(0,0,0,.6);pointer-events:none}
+.qq-lora-preview img{display:block;width:${PREVIEW_SIZE}px;height:auto;max-height:${PREVIEW_SIZE}px;
+  object-fit:contain;border-radius:4px}
+.qq-lora-preview span{display:block;max-width:${PREVIEW_SIZE}px;padding:2px 3px 0;font-size:10px;
+  color:var(--descrip-text,#96a0b0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 停用时把可编辑区压暗，状态一眼可见 */
 .qq-lora.is-off .qq-lora-groups,.qq-lora.is-off .qq-lora-rows{opacity:.5}
 `;
@@ -162,6 +198,7 @@ export function normaliseData(raw) {
             loras.push({
                 name: loraName,
                 strength: Number.isFinite(strength) ? Math.max(-100, Math.min(100, strength)) : 1,
+                off: Boolean(item.off),
             });
         }
         groups.push({ name, loras });
@@ -176,6 +213,73 @@ export function activeGroup(data) {
     if (!data?.groups?.length) return null;
     return data.groups[data.active] || data.groups[0];
 }
+
+/** 同名分组会互相覆盖选择，新增/改名时补一个序号。 */
+export function uniqueGroupName(data, desired, ignoreIndex = -1) {
+    const base = String(desired || "").trim().slice(0, 60) || "分组";
+    const taken = new Set(
+        (data?.groups || []).filter((_group, index) => index !== ignoreIndex).map((group) => group.name),
+    );
+    if (!taken.has(base)) return base;
+    let index = 2;
+    while (taken.has(`${base} ${index}`)) index += 1;
+    return `${base} ${index}`;
+}
+
+/** 把一条 LoRA 移到另一个分组（不存在或就是本组时返回原数据）。 */
+export function moveLoraToGroup(data, groupIndex, loraIndex, targetIndex) {
+    const source = data?.groups?.[groupIndex];
+    const target = data?.groups?.[targetIndex];
+    if (!source || !target || source === target) return data;
+    const [entry] = source.loras.splice(loraIndex, 1);
+    if (!entry) return data;
+    target.loras.push(entry);
+    return data;
+}
+
+/** 拖动排序：把 from 位置的项插到 to 位置。 */
+export function reorderLora(list, from, to) {
+    if (!Array.isArray(list) || from === to) return list;
+    if (from < 0 || from >= list.length || to < 0 || to >= list.length) return list;
+    const [entry] = list.splice(from, 1);
+    list.splice(to, 0, entry);
+    return list;
+}
+
+/** LoRA 文件不在本地列表里（被删/改名）。 */
+export function isMissingLora(name, names) {
+    if (!name || !names?.length) return false;
+    return !names.includes(name);
+}
+
+export function loraPreviewUrl(name) {
+    return `${LORA_PREVIEW_URL}?name=${encodeURIComponent(String(name || ""))}`;
+}
+
+function readData(node) {
+    return normaliseData(widgetOf(node, DATA_WIDGET)?.value ?? "{}");
+}
+
+let changeTimer = null;
+
+function writeData(node, data) {
+    const widget = widgetOf(node, DATA_WIDGET);
+    if (!widget) return;
+    const value = JSON.stringify(data);
+    if (widget.value === value) return;
+    widget.value = value;
+    widget.callback?.(value);
+    node.graph?.setDirtyCanvas?.(true, true);
+    app.graph?.setDirtyCanvas?.(true, true);
+    // 连续调强度时别每次都标脏整个工作流
+    if (changeTimer) clearTimeout(changeTimer);
+    changeTimer = setTimeout(() => {
+        changeTimer = null;
+        node.graph?.change?.();
+    }, 150);
+}
+
+/* ---------------- 目录树 ---------------- */
 
 /**
  * 把 LoRA 名单整理成目录树：目录可以展开/收起，文件是叶子。
@@ -242,24 +346,10 @@ function loraTreeRows(tree, expanded, needle) {
     return rows;
 }
 
-function readData(node) {
-    return normaliseData(widgetOf(node, DATA_WIDGET)?.value ?? "{}");
-}
-
-function writeData(node, data) {
-    const widget = widgetOf(node, DATA_WIDGET);
-    if (!widget) return;
-    const value = JSON.stringify(data);
-    if (widget.value === value) return;
-    widget.value = value;
-    widget.callback?.(value);
-    node.graph?.setDirtyCanvas?.(true, true);
-    app.graph?.setDirtyCanvas?.(true, true);
-}
-
-/* ---------------- Lora 名称列表 ---------------- */
+/* ---------------- LoRA 列表 ---------------- */
 
 let loraNamesPromise = null;
+let loraNames = [];
 
 function fetchLoraNames() {
     if (!loraNamesPromise) {
@@ -274,8 +364,30 @@ function fetchLoraNames() {
     return loraNamesPromise;
 }
 
-/* ---------------- 面板 ---------------- */
+/** 运行中新增的 LoRA 需要刷新才能看到。 */
+function refreshLoraNames() {
+    loraNamesPromise = null;
+    loraNames = [];
+    return fetchLoraNames().then((names) => {
+        loraNames = names;
+        return names;
+    });
+}
 
+function ensureNames() {
+    if (loraNames.length) return Promise.resolve(loraNames);
+    return fetchLoraNames().then((names) => {
+        loraNames = names;
+        return names;
+    });
+}
+
+/* ---------------- 外部控制 ---------------- */
+
+/**
+ * 读连线另一端（虚拟节点 / PrimitiveNode）当前的值。
+ * 没接线、或接的是真节点时返回 null——那种情况不该动控件本身的值。
+ */
 function linkedValue(node, pair) {
     const input = node?.inputs?.find((entry) => entry?.name === pair.input);
     const link = input?.link != null ? node?.graph?.links?.[input.link] : null;
@@ -360,7 +472,79 @@ function restoreGroupChoice(node) {
 function closeLoraPops(node) {
     for (const pop of node?.__qqLoraPops || []) pop.remove();
     if (node) node.__qqLoraPops = [];
+    closeLoraMenu(node);
+    hideLoraPreview(node);
 }
+
+function closeLoraMenu(node) {
+    const menu = node?.__qqLoraMenu;
+    if (!menu) return;
+    menu.remove();
+    node.__qqLoraMenu = null;
+}
+
+/* ---------------- 缩略图 ---------------- */
+
+function hideLoraPreview(node) {
+    if (node?.__qqLoraPreviewTimer) {
+        clearTimeout(node.__qqLoraPreviewTimer);
+        node.__qqLoraPreviewTimer = null;
+    }
+    const preview = node?.__qqLoraPreview;
+    if (!preview) return;
+    preview.remove();
+    node.__qqLoraPreview = null;
+}
+
+function positionLoraPreview(preview, anchor) {
+    const rect = anchor.getBoundingClientRect();
+    const width = preview.offsetWidth || PREVIEW_SIZE + 8;
+    const height = preview.offsetHeight || PREVIEW_SIZE;
+    const margin = 8;
+    let left = rect.right + margin;
+    if (left + width > window.innerWidth - margin) left = Math.max(margin, rect.left - width - margin);
+    let top = rect.top + rect.height / 2 - height / 2;
+    top = Math.max(margin, Math.min(window.innerHeight - height - margin, top));
+    preview.style.left = `${left}px`;
+    preview.style.top = `${top}px`;
+}
+
+/** 鼠标停在 LoRA 上时显示同名预览图（没有就不显示）。 */
+function attachLoraPreview(node, anchor, name) {
+    if (!anchor || !name) return;
+    const show = () => {
+        hideLoraPreview(node);
+        node.__qqLoraPreviewTimer = setTimeout(() => {
+            node.__qqLoraPreviewTimer = null;
+            const preview = document.createElement("div");
+            preview.className = "qq-lora-preview";
+            const image = document.createElement("img");
+            image.alt = "";
+            image.loading = "eager";
+            image.src = loraPreviewUrl(name);
+            const caption = document.createElement("span");
+            caption.textContent = String(name).split(/[\\/]/).pop();
+            preview.append(image, caption);
+            preview.hidden = true;
+            image.addEventListener("load", () => {
+                if (!preview.isConnected) return;
+                preview.hidden = false;
+                positionLoraPreview(preview, anchor);
+            });
+            image.addEventListener("error", () => {
+                preview.remove();
+                if (node.__qqLoraPreview === preview) node.__qqLoraPreview = null;
+            });
+            document.body.append(preview);
+            node.__qqLoraPreview = preview;
+        }, PREVIEW_DELAY);
+    };
+    anchor.addEventListener("pointerenter", show);
+    anchor.addEventListener("pointerleave", () => hideLoraPreview(node));
+    anchor.addEventListener("pointerdown", () => hideLoraPreview(node));
+}
+
+/* ---------------- 面板 ---------------- */
 
 function setup(node) {
     if (!node || node.__qqLoraSetup) return;
@@ -373,10 +557,6 @@ function setup(node) {
     if (modelInput) {
         modelInput.label = "模型";
         modelInput.localized_name = "模型";
-    }
-
-    if (!readData(node).groups.length) {
-        writeData(node, { version: 1, active: 0, groups: [{ name: "默认", loras: [] }] });
     }
 
     const root = document.createElement("div");
@@ -422,15 +602,69 @@ function setup(node) {
         node.setSize?.([MIN_NODE_WIDTH, height]);
     }
 
-    let names = [];
-    const ensureNames = () => {
-        if (names.length) return Promise.resolve(names);
-        return fetchLoraNames().then((fetched) => {
-            names = fetched;
-            return names;
-        });
-    };
+    // 第一次用：没有分组时给一个空的「默认」，面板不至于空着
+    if (!readData(node).groups.length) {
+        writeData(node, { version: 1, active: 0, groups: [{ name: "默认", loras: [] }], select: "" });
+    }
+
     ensureNames().then(() => render());
+
+    /* ---- 分组操作 ---- */
+
+    function startRename(index) {
+        const chip = groups.children[index];
+        if (!chip) return;
+        const data = readData(node);
+        const group = data.groups[index];
+        if (!group) return;
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = group.name;
+        input.maxLength = 60;
+        chip.replaceChildren(input);
+        input.focus();
+        input.select();
+        let done = false;
+        const finish = (commit) => {
+            if (done) return;
+            done = true;
+            if (commit) {
+                const next = readData(node);
+                if (next.groups[index]) {
+                    const wanted = input.value.trim().slice(0, 60) || `分组 ${index + 1}`;
+                    const name = uniqueGroupName(next, wanted, index);
+                    const old = next.groups[index].name;
+                    next.groups[index].name = name;
+                    // 下拉选的是这一组时跟着改名
+                    if (next.select === old) next.select = name;
+                    writeData(node, next);
+                    const widget = widgetOf(node, GROUP_WIDGET);
+                    if (widget && widget.value === old) {
+                        widget.value = name;
+                        if (widget._state) widget._state.value = name;
+                    }
+                }
+            }
+            render();
+        };
+        input.addEventListener("keydown", (event) => {
+            event.stopPropagation();
+            if (event.key === "Enter") finish(true);
+            else if (event.key === "Escape") finish(false);
+        });
+        input.addEventListener("blur", () => finish(true));
+    }
+
+    function toast(text) {
+        const manager = app?.extensionManager;
+        if (manager?.toast?.add) {
+            manager.toast.add({ severity: "info", summary: text, life: 2000 });
+            return;
+        }
+        console.info("[QQ-Lora分组加载]", text);
+    }
+
+    /* ---- 面板渲染 ---- */
 
     function render() {
         closeLoraPops(node);
@@ -448,7 +682,7 @@ function setup(node) {
             chip.className = "qq-lora-chip";
             chip.dataset.on = index === data.active ? "1" : "0";
             chip.dataset.eff = chosenNow !== FOLLOW_PANEL && chosenNow === group.name ? "1" : "0";
-            chip.title = `${group.name}（${group.loras.length} 个 Lora）\n单击切换生效分组，双击改名`;
+            chip.title = `${group.name}（${group.loras.length} 个 Lora）\n单击切换生效分组，双击改名，右键复制`;
             const label = document.createElement("span");
             label.textContent = group.name;
             chip.append(label);
@@ -458,7 +692,7 @@ function setup(node) {
             remove.className = "qq-lora-del";
             remove.textContent = "×";
             remove.title = `删除分组「${group.name}」`;
-            if (data.groups.length <= 1) remove.disabled = true;
+            remove.disabled = data.groups.length <= 1;
             remove.addEventListener("click", (event) => {
                 event.stopPropagation();
                 if (data.groups.length <= 1) {
@@ -471,6 +705,7 @@ function setup(node) {
                 const next = readData(node);
                 next.groups.splice(index, 1);
                 if (next.active >= next.groups.length) next.active = next.groups.length - 1;
+                if (next.select === group.name) next.select = FOLLOW_PANEL;
                 writeData(node, next);
                 render();
             });
@@ -480,12 +715,23 @@ function setup(node) {
                 if (data.active === index) return;
                 const next = readData(node);
                 next.active = index;
+                // 让画布上的「生效分组」和点亮的芯片保持一致
+                next.select = group.name;
                 writeData(node, next);
+                const widget = widgetOf(node, GROUP_WIDGET);
+                if (widget) {
+                    widget.value = group.name;
+                    if (widget._state) widget._state.value = group.name;
+                }
                 render();
             });
             chip.addEventListener("dblclick", (event) => {
                 event.preventDefault();
                 startRename(index);
+            });
+            chip.addEventListener("contextmenu", (event) => {
+                event.preventDefault();
+                openGroupMenu(event, index);
             });
             groups.append(chip);
         });
@@ -497,7 +743,8 @@ function setup(node) {
         add.title = "新增一个分组并立即改名";
         add.addEventListener("click", () => {
             const next = readData(node);
-            next.groups.push({ name: `分组 ${next.groups.length + 1}`, loras: [] });
+            const name = uniqueGroupName(next, `分组 ${next.groups.length + 1}`);
+            next.groups.push({ name, loras: [] });
             next.active = next.groups.length - 1;
             writeData(node, next);
             render();
@@ -530,25 +777,28 @@ function setup(node) {
             const next = readData(node);
             const target = activeGroup(next);
             if (!target) return;
-            target.loras.push({ name: "", strength: 1 });
+            target.loras.push({ name: "", strength: 1, off: false });
             writeData(node, next);
             render();
-            const last = rows.querySelectorAll(".qq-lora-row .qq-lora-name");
-            last[last.length - 1]?.focus();
+            const buttons = rows.querySelectorAll(".qq-lora-row .qq-lora-combo-btn");
+            buttons[buttons.length - 1]?.click();
         });
         addRow.append(addLora);
         rows.append(addRow);
 
         // 底部说明
-        const chosenName = String(widgetOf(node, GROUP_WIDGET)?.value ?? FOLLOW_PANEL);
-        const effective = enabled
-            ? (chosenName === FOLLOW_PANEL
+        const chosen = String(widgetOf(node, GROUP_WIDGET)?.value ?? FOLLOW_PANEL);
+        const effective = !enabled
+            ? null
+            : (chosen === FOLLOW_PANEL
                 ? group
-                : data.groups.find((entry) => entry.name === chosenName) || group)
-            : null;
-        if (group && effective) {
+                : data.groups.find((entry) => entry.name === chosen) || group);
+        if (effective) {
+            const activeCount = effective.loras.filter((entry) => entry.name && !entry.off).length;
             footText.textContent = enabled
-                ? `当前生效：${effective.name} · ${effective.loras.length} 个 Lora（按顺序叠加）`
+                ? (activeCount
+                    ? `当前生效：${effective.name} · ${activeCount} 个 Lora（按顺序叠加）`
+                    : `当前生效：${effective.name} · 这一组为空，不会改变模型`)
                 : `已停用：模型原样透传（当前分组 ${effective.name}）`;
         } else {
             footText.textContent = enabled ? "没有分组，模型原样透传" : "已停用";
@@ -557,14 +807,34 @@ function setup(node) {
     }
 
     function loraRow(group, index, lora) {
+        const missing = isMissingLora(lora.name, loraNames);
         const row = document.createElement("div");
         row.className = "qq-lora-row";
+        row.draggable = true;
+        row.dataset.index = String(index);
+        if (lora.off) row.classList.add("is-off");
+        if (missing) {
+            row.classList.add("is-missing");
+            row.title = `找不到 ${lora.name}，运行时会跳过`;
+        }
 
-        const order = document.createElement("span");
+        // 序号：点一下临时停用/启用
+        const order = document.createElement("button");
+        order.type = "button";
         order.className = "qq-lora-index";
-        order.textContent = String(index + 1);
+        order.textContent = lora.off ? "○" : String(index + 1);
+        order.title = lora.off ? "已停用，点击启用" : "点击临时停用（保留配置）";
+        order.addEventListener("click", (event) => {
+            event.stopPropagation();
+            const next = readData(node);
+            const target = activeGroup(next);
+            if (!target?.loras[index]) return;
+            target.loras[index].off = !target.loras[index].off;
+            writeData(node, next);
+            render();
+        });
 
-        // 名字用下拉框选，样子对齐 ComfyUI 的 LoRA 加载器（点击才弹出搜索列表）
+        // 名字：点开目录树
         const combo = document.createElement("div");
         combo.className = "qq-lora-combo";
         const button = document.createElement("button");
@@ -582,7 +852,9 @@ function setup(node) {
             event.stopPropagation();
             openLoraCombo(index, button, label, lora);
         });
+        attachLoraPreview(node, button, lora.name);
 
+        // 强度
         const stepper = document.createElement("div");
         stepper.className = "qq-lora-stepper";
         const strength = document.createElement("input");
@@ -592,7 +864,7 @@ function setup(node) {
         strength.min = "-100";
         strength.max = "100";
         strength.value = String(round2(lora.strength));
-        strength.title = "强度（可直接输入，或用两侧箭头微调）";
+        strength.title = "强度（可直接输入，或用两侧箭头微调；双击归 1）";
         const commitStrength = (value) => {
             let number = Number(value);
             if (!Number.isFinite(number)) number = 1;
@@ -605,6 +877,7 @@ function setup(node) {
             strength.value = String(round2(number));
         };
         strength.addEventListener("change", () => commitStrength(strength.value));
+        strength.addEventListener("dblclick", () => commitStrength(1));
         strength.addEventListener("keydown", (event) => {
             event.stopPropagation();
             if (event.key === "Enter") commitStrength(strength.value);
@@ -612,8 +885,8 @@ function setup(node) {
         const nudge = (delta) => {
             commitStrength(round2((Number(strength.value) || 0) + delta));
         };
-        const decrease = stepButton(-1, () => nudge(-STRENGTH_STEP));
-        const increase = stepButton(1, () => nudge(STRENGTH_STEP));
+        const decrease = stepButton(-1, (event) => nudge(event?.shiftKey ? -STRENGTH_STEP_BIG : -STRENGTH_STEP));
+        const increase = stepButton(1, (event) => nudge(event?.shiftKey ? STRENGTH_STEP_BIG : STRENGTH_STEP));
         stepper.append(decrease, strength, increase);
 
         const remove = document.createElement("button");
@@ -621,11 +894,55 @@ function setup(node) {
         remove.className = "qq-lora-del-row";
         remove.textContent = "×";
         remove.title = "移除这个 Lora";
-        remove.addEventListener("click", () => {
+        remove.addEventListener("click", (event) => {
+            event.stopPropagation();
             const next = readData(node);
             const target = activeGroup(next);
             if (!target) return;
             target.loras.splice(index, 1);
+            writeData(node, next);
+            render();
+        });
+
+        row.addEventListener("contextmenu", (event) => {
+            event.preventDefault();
+            openRowMenu(event, index, lora);
+        });
+
+        // 拖动排序
+        row.addEventListener("dragstart", (event) => {
+            row.classList.add("is-dragging");
+            event.dataTransfer?.setData("text/plain", String(index));
+            if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+        });
+        row.addEventListener("dragend", () => {
+            row.classList.remove("is-dragging");
+            for (const other of rows.querySelectorAll(".qq-lora-row")) {
+                other.classList.remove("drop-before", "drop-after");
+            }
+        });
+        row.addEventListener("dragover", (event) => {
+            event.preventDefault();
+            const rect = row.getBoundingClientRect();
+            const after = event.clientY > rect.top + rect.height / 2;
+            row.classList.toggle("drop-after", after);
+            row.classList.toggle("drop-before", !after);
+        });
+        row.addEventListener("dragleave", () => {
+            row.classList.remove("drop-before", "drop-after");
+        });
+        row.addEventListener("drop", (event) => {
+            event.preventDefault();
+            const from = Number(event.dataTransfer?.getData("text/plain"));
+            if (!Number.isInteger(from)) return;
+            const rect = row.getBoundingClientRect();
+            const after = event.clientY > rect.top + rect.height / 2;
+            let to = index + (after ? 1 : 0);
+            if (from < to) to -= 1;
+            const next = readData(node);
+            const target = activeGroup(next);
+            if (!target) return;
+            reorderLora(target.loras, from, to);
             writeData(node, next);
             render();
         });
@@ -638,7 +955,7 @@ function setup(node) {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "qq-lora-step";
-        button.title = direction < 0 ? `减 ${STRENGTH_STEP}` : `加 ${STRENGTH_STEP}`;
+        button.title = direction < 0 ? `减 ${STRENGTH_STEP}（Shift 大步）` : `加 ${STRENGTH_STEP}（Shift 大步）`;
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
         svg.setAttribute("viewBox", "0 0 24 24");
         svg.setAttribute("width", "9");
@@ -654,29 +971,127 @@ function setup(node) {
         button.append(svg);
         button.addEventListener("click", (event) => {
             event.stopPropagation();
-            onClick();
+            onClick(event);
         });
         return button;
     }
 
-    // 贴着按钮弹出的 LoRA 列表：搜索 + 点选 + 上下键/回车
+    /* ---- 右键菜单：换组 / 分组操作 ---- */
+
+    function placeMenu(menu, event) {
+        document.body.append(menu);
+        const rect = menu.getBoundingClientRect();
+        menu.style.left = `${Math.min(event.clientX, window.innerWidth - rect.width - 6)}px`;
+        menu.style.top = `${Math.min(event.clientY, window.innerHeight - rect.height - 6)}px`;
+        node.__qqLoraMenu = menu;
+        const off = (ev) => {
+            if (!menu.contains(ev.target)) {
+                closeLoraMenu(node);
+                document.removeEventListener("pointerdown", off, true);
+            }
+        };
+        document.addEventListener("pointerdown", off, true);
+    }
+
+    function openRowMenu(event, index, lora) {
+        closeLoraMenu(node);
+        const data = readData(node);
+        if (data.groups.length <= 1) {
+            toast("只有一个分组，先加一个再移动");
+            return;
+        }
+        const menu = document.createElement("div");
+        menu.className = "qq-lora-menu";
+        const title = document.createElement("div");
+        title.className = "qq-lora-menu-title";
+        title.textContent = `「${lora.name || "未命名"}」移到：`;
+        menu.append(title);
+        data.groups.forEach((target, targetIndex) => {
+            if (targetIndex === data.active) return;
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = target.name;
+            button.addEventListener("click", () => {
+                closeLoraMenu(node);
+                const next = readData(node);
+                moveLoraToGroup(next, data.active, index, targetIndex);
+                writeData(node, next);
+                render();
+            });
+            menu.append(button);
+        });
+        placeMenu(menu, event);
+    }
+
+    function openGroupMenu(event, index) {
+        closeLoraMenu(node);
+        const data = readData(node);
+        const group = data.groups[index];
+        if (!group) return;
+        const menu = document.createElement("div");
+        menu.className = "qq-lora-menu";
+        const title = document.createElement("div");
+        title.className = "qq-lora-menu-title";
+        title.textContent = group.name;
+        menu.append(title);
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.textContent = "复制这一组";
+        copy.addEventListener("click", () => {
+            closeLoraMenu(node);
+            const next = readData(node);
+            const name = uniqueGroupName(next, `${group.name} 副本`);
+            next.groups.push({
+                name,
+                loras: next.groups[index].loras.map((entry) => ({ ...entry })),
+            });
+            next.active = next.groups.length - 1;
+            writeData(node, next);
+            render();
+        });
+        menu.append(copy);
+        placeMenu(menu, event);
+    }
+
+    /* ---- 目录树下拉 ---- */
+
     function openLoraCombo(index, button, label, lora) {
         closeLoraPops(node);
         const pop = document.createElement("div");
         pop.className = "qq-lora-pop";
+        const tools = document.createElement("div");
+        tools.className = "qq-lora-pop-tools";
         const search = document.createElement("input");
         search.className = "qq-lora-pop-search";
         search.type = "search";
         search.placeholder = "搜索 LoRA";
+        const refresh = document.createElement("button");
+        refresh.type = "button";
+        refresh.className = "qq-lora-pop-refresh";
+        refresh.textContent = "刷新";
+        refresh.title = "重新读取 loras 目录";
+        tools.append(search, refresh);
         const list = document.createElement("div");
         list.className = "qq-lora-pop-list";
-        pop.append(search, list);
+        pop.append(tools, list);
 
         const close = () => {
             document.removeEventListener("pointerdown", onOutside, true);
             window.removeEventListener("resize", close);
             pop.remove();
             node.__qqLoraPops = (node.__qqLoraPops || []).filter((item) => item !== pop);
+            hideLoraPreview(node);
+            // 没选到名字的空行直接收掉
+            if (!String(lora.name || "").trim()) {
+                const next = readData(node);
+                const target = activeGroup(next);
+                const row = target?.loras[index];
+                if (row && !row.name) {
+                    target.loras.splice(index, 1);
+                    writeData(node, next);
+                    render();
+                }
+            }
         };
         const onOutside = (event) => {
             if (!pop.contains(event.target) && !button.contains(event.target)) close();
@@ -695,25 +1110,28 @@ function setup(node) {
             label.title = label.textContent;
             button.classList.toggle("is-empty", !target.loras[index].name);
             close();
+            render();
         };
 
-        const tree = buildLoraTree(names);
-        const expanded = new Set();
         let active = -1;
+        let tree = buildLoraTree(loraNames);
+        const expanded = new Set();
+
         const paint = () => {
-            const rows = loraTreeRows(tree, expanded, search.value);
+            const treeRows = loraTreeRows(tree, expanded, search.value);
             list.replaceChildren();
             active = -1;
-            if (!rows.length) {
+            if (!treeRows.length) {
                 const empty = document.createElement("div");
                 empty.className = "qq-lora-pop-empty";
-                empty.textContent = names.length
+                empty.textContent = loraNames.length
                     ? "没有匹配的 LoRA"
-                    : "读不到 LoRA 列表，可直接输入名字后回车";
+                    : "读不到 LoRA 列表，点「刷新」重试";
                 list.append(empty);
                 return;
             }
-            for (const row of rows) {
+            const shown = treeRows.slice(0, MAX_POPUP_ROWS);
+            for (const row of shown) {
                 const item = document.createElement("button");
                 item.type = "button";
                 item.className = row.kind === "dir" ? "qq-lora-pop-item is-dir" : "qq-lora-pop-item is-file";
@@ -737,14 +1155,20 @@ function setup(node) {
                     item.title = row.full;
                     item.dataset.name = row.full;
                     item.addEventListener("click", () => commit(row.full));
+                    attachLoraPreview(node, item, row.full);
                 }
                 list.append(item);
             }
+            if (treeRows.length > shown.length) {
+                const more = document.createElement("div");
+                more.className = "qq-lora-pop-more";
+                more.textContent = `还有 ${treeRows.length - shown.length} 条，输入关键字继续筛选`;
+                list.append(more);
+            }
+
             const items = [...list.querySelectorAll(".qq-lora-pop-item")];
             const current = list.querySelector(".qq-lora-pop-item.is-current");
-            const fallback = search.value.trim()
-                ? items.find((item) => item.dataset.name)
-                : null;
+            const fallback = search.value.trim() ? items.find((item) => item.dataset.name) : null;
             const highlight = current || fallback;
             if (highlight) {
                 highlight.classList.add("is-active");
@@ -752,6 +1176,7 @@ function setup(node) {
                 highlight.scrollIntoView({ block: "nearest" });
             }
         };
+
         const move = (delta) => {
             const items = [...list.querySelectorAll(".qq-lora-pop-item")];
             if (!items.length) return;
@@ -759,16 +1184,25 @@ function setup(node) {
             items.forEach((item, index) => item.classList.toggle("is-active", index === active));
             items[active]?.scrollIntoView({ block: "nearest" });
         };
+
         const pickActive = () => {
             const items = [...list.querySelectorAll(".qq-lora-pop-item")];
             if (!items.length) return;
-            // 没选中时直接选第一个文件，别把目录行当成结果
             const target = items[active] || items.find((item) => item.dataset.name) || items[0];
             if (target.dataset.name) commit(target.dataset.name);
             else target.click();
         };
 
-        // 焦点落在列表行上时 Esc 也要能关
+        refresh.addEventListener("click", async () => {
+            refresh.disabled = true;
+            refresh.textContent = "…";
+            await refreshLoraNames();
+            tree = buildLoraTree(loraNames);
+            refresh.disabled = false;
+            refresh.textContent = "刷新";
+            paint();
+        });
+
         pop.addEventListener("keydown", (event) => {
             if (event.key !== "Escape") return;
             event.stopPropagation();
@@ -787,7 +1221,6 @@ function setup(node) {
                 event.preventDefault();
                 const typed = search.value.trim();
                 const items = [...list.querySelectorAll(".qq-lora-pop-item")];
-                // 有列表项时优先选中的那一条，只有完全没匹配才把手输的名字当作文件名
                 const exact = typed
                     ? items.find((item) => item.dataset.name === typed || item.textContent === typed)
                     : null;
@@ -809,7 +1242,9 @@ function setup(node) {
         window.addEventListener("resize", close);
 
         ensureNames().then(() => {
-            if (pop.isConnected) paint();
+            if (!pop.isConnected) return;
+            tree = buildLoraTree(loraNames);
+            paint();
         });
     }
 
@@ -828,54 +1263,37 @@ function setup(node) {
         }
     }
 
-    function startRename(index) {
-        const chip = groups.children[index];
-        if (!chip) return;
-        const data = readData(node);
-        const group = data.groups[index];
-        if (!group) return;
-        const input = document.createElement("input");
-        input.type = "text";
-        input.value = group.name;
-        input.maxLength = 60;
-        chip.replaceChildren(input);
-        input.focus();
-        input.select();
-        let done = false;
-        const finish = (commit) => {
-            if (done) return;
-            done = true;
-            if (commit) {
-                const next = readData(node);
-                if (next.groups[index]) {
-                    const name = input.value.trim().slice(0, 60);
-                    next.groups[index].name = name || `分组 ${index + 1}`;
-                    writeData(node, next);
-                }
+    /* ---- 外部控件联动 ---- */
+
+    function hookGroupWidget() {
+        const widget = widgetOf(node, GROUP_WIDGET);
+        if (!widget || widget.__qqLoraHooked) return;
+        widget.__qqLoraHooked = true;
+        const original = widget.callback;
+        widget.callback = function qqLoraGroupCallback(...args) {
+            const result = original?.apply(this, args);
+            const value = String(this.value ?? "");
+            const data = readData(node);
+            if (String(data.select || "") !== value) {
+                data.select = value;
+                // 下拉换组时把面板也切到同一组，两边一致
+                const at = data.groups.findIndex((group) => group.name === value);
+                if (at >= 0) data.active = at;
+                writeData(node, data);
             }
             render();
+            return result;
         };
-        input.addEventListener("keydown", (event) => {
-            event.stopPropagation();
-            if (event.key === "Enter") finish(true);
-            else if (event.key === "Escape") finish(false);
-        });
-        input.addEventListener("blur", () => finish(true));
     }
 
-    function toast(text) {
-        const manager = app?.extensionManager;
-        if (manager?.toast?.add) {
-            manager.toast.add({ severity: "info", summary: text, life: 2000 });
-            return;
-        }
-        console.info("[QQ-Lora分组加载]", text);
-    }
+    syncExternalInputs(node);
+    hookGroupWidget();
+    installPromptHook();
 
     node.__qqLoraRender = render;
     render();
 
-    // 连线变化时刷新「外部控制」提示
+    // 连线变化时刷新外部值
     const originalConnectionsChange = node.onConnectionsChange;
     node.onConnectionsChange = function onConnectionsChangeLoraGroup(...args) {
         const result = originalConnectionsChange?.apply(this, args);
@@ -883,30 +1301,6 @@ function setup(node) {
         render();
         return result;
     };
-
-/** 「生效分组」的选择同步进分组数据，避免读档时被动态下拉重置。 */
-// 「生效分组」的选择同步进分组数据，避免读档时被动态下拉重置
-    function hookGroupWidget() {
-    const widget = widgetOf(node, GROUP_WIDGET);
-    if (!widget || widget.__qqLoraHooked) return;
-    widget.__qqLoraHooked = true;
-    const original = widget.callback;
-    widget.callback = function qqLoraGroupCallback(...args) {
-        const result = original?.apply(this, args);
-        const value = String(this.value ?? "");
-        const data = readData(node);
-        if (String(data.select || "") !== value) {
-            data.select = value;
-            writeData(node, data);
-        }
-        render();
-        return result;
-    };
-}
-
-    syncExternalInputs(node);
-    hookGroupWidget();
-    installPromptHook();
 }
 
 function round2(value) {

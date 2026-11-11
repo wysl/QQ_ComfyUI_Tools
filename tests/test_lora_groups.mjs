@@ -1,7 +1,8 @@
 /**
  * QQ-Lora分组加载 面板的纯数据部分。
  *
- * 覆盖：分组 JSON 归一化、生效分组解析、强度的容错。
+ * 覆盖：分组 JSON 归一化、生效分组解析、目录树、唯一命名、换组、排序、
+ * 缺失判断、预览地址。
  *
  * 运行：node tests/test_lora_groups.mjs
  */
@@ -13,7 +14,7 @@ import { dirname, join } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, "..", "web", "lora_groups.js"), "utf8");
 
-const cut = src.indexOf("function readData(node)");
+const cut = src.indexOf("function fetchLoraNames()");
 const pure = src
     .slice(0, cut)
     .replace(/^import .*$/gm, "")
@@ -22,7 +23,10 @@ const pure = src
 const factory = new Function(`
   const app = { graph: null };
   ${pure}
-  return { normaliseData, activeGroup, emptyData, buildLoraTree, loraTreeRows };
+  return {
+    normaliseData, activeGroup, emptyData, buildLoraTree, loraTreeRows,
+    uniqueGroupName, moveLoraToGroup, reorderLora, isMissingLora, loraPreviewUrl,
+  };
 `);
 const api = factory();
 
@@ -49,6 +53,11 @@ console.log("== 1. 归一化 ==");
   check("Lora 保留", data.groups[0].loras[0].name === "a.safetensors");
   check("强度保留", data.groups[0].loras[0].strength === 0.8);
   check("生效分组保留", data.active === 1);
+  check("off 默认 false", data.groups[0].loras[0].off === false);
+  const offData = api.normaliseData(JSON.stringify({
+    groups: [{ name: "A", loras: [{ name: "x.safetensors", off: true }] }],
+  }));
+  check("off 读得出来", offData.groups[0].loras[0].off === true);
 }
 
 console.log("== 2. 容错 ==");
@@ -82,7 +91,7 @@ console.log("== 3. 生效分组 ==");
   check("active 越界时取第一组", api.activeGroup(fallback).name === "A");
 }
 
-console.log("== 4. 下拉目录树 ==");
+console.log("== 4. 目录树 ==");
 {
   const BS = String.fromCharCode(92);
   const names = [
@@ -119,6 +128,41 @@ console.log("== 4. 下拉目录树 ==");
   check("搜索自动展开并保留匹配", hit.map((r) => r.name).join("|") === "h3|h3-影视柔光.safetensors");
   check("搜索命中的目录是展开态", hit[0].open === true);
   check("空名单不炸", api.loraTreeRows(api.buildLoraTree([]), new Set(), "").length === 0);
+}
+
+console.log("== 5. 分组与 LoRA 操作 ==");
+{
+  const data = api.normaliseData(JSON.stringify({
+    active: 0,
+    groups: [
+      { name: "写实", loras: [{ name: "a.safetensors" }, { name: "b.safetensors" }] },
+      { name: "二次元", loras: [] },
+    ],
+  }));
+  check("重名自动加序号", api.uniqueGroupName(data, "写实") === "写实 2");
+  check("不重名原样返回", api.uniqueGroupName(data, "新组") === "新组");
+  check("改名时忽略自己", api.uniqueGroupName(data, "写实", 0) === "写实");
+
+  api.moveLoraToGroup(data, 0, 1, 1);
+  check("换组后原组少一条", data.groups[0].loras.length === 1);
+  check("换组后目标组拿到", data.groups[1].loras[0].name === "b.safetensors");
+
+  const list = [{ name: "1" }, { name: "2" }, { name: "3" }];
+  api.reorderLora(list, 0, 2);
+  check("拖动排序", list.map((x) => x.name).join("") === "231");
+  check("排序越界不动", api.reorderLora(list, 5, 0).map((x) => x.name).join("") === "231");
+}
+
+console.log("== 6. 缺失与预览 ==");
+{
+  check("在列表里不算缺失", api.isMissingLora("a.safetensors", ["a.safetensors"]) === false);
+  check("不在列表里算缺失", api.isMissingLora("gone.safetensors", ["a.safetensors"]) === true);
+  check("列表没加载时不误报", api.isMissingLora("x.safetensors", []) === false);
+  check("空名字不算缺失", api.isMissingLora("", ["a.safetensors"]) === false);
+  check(
+    "预览地址编码",
+    api.loraPreviewUrl("MOSS/x y.safetensors") === "/qq_lora/preview?name=MOSS%2Fx%20y.safetensors",
+  );
 }
 
 console.log("");

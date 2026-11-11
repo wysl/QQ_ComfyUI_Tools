@@ -49,7 +49,10 @@ class NormaliseTests(unittest.TestCase):
             _data(("写实", [("a.safetensors", 0.8), ("b.safetensors", 1.2)]), ("二次元", []), active=1)
         )
         self.assertEqual([group["name"] for group in data["groups"]], ["写实", "二次元"])
-        self.assertEqual(data["groups"][0]["loras"][0], {"name": "a.safetensors", "strength": 0.8})
+        self.assertEqual(
+            data["groups"][0]["loras"][0],
+            {"name": "a.safetensors", "strength": 0.8, "off": False},
+        )
         self.assertEqual(data["active"], 1)
 
     def test_active_is_clamped_into_range(self):
@@ -70,7 +73,10 @@ class NormaliseTests(unittest.TestCase):
         )
         data = lora.normalise_data(raw)
         self.assertEqual(data["groups"][0]["name"], "分组 1")
-        self.assertEqual(data["groups"][0]["loras"], [{"name": "keep.safetensors", "strength": 1.0}])
+        self.assertEqual(
+            data["groups"][0]["loras"],
+            [{"name": "keep.safetensors", "strength": 1.0, "off": False}],
+        )
         self.assertEqual(data["active"], 0)
 
     def test_strength_is_clamped_and_nan_rejected(self):
@@ -122,6 +128,16 @@ class PlanTests(unittest.TestCase):
     def test_disabled_means_no_lora(self):
         data = lora.normalise_data(_data(("A", [("a.safetensors", 1)])))
         self.assertEqual(lora.plan_loras(data, False), [])
+
+    def test_off_entries_and_tiny_strength_are_skipped(self):
+        data = lora.normalise_data(json.dumps({
+            "groups": [{"name": "A", "loras": [
+                {"name": "a.safetensors", "strength": 1},
+                {"name": "b.safetensors", "strength": 1, "off": True},
+                {"name": "c.safetensors", "strength": 0.0000001},
+            ]}],
+        }))
+        self.assertEqual(lora.plan_loras(data, True), [("a.safetensors", 1.0)])
 
     def test_zero_strength_is_dropped(self):
         data = lora.normalise_data(_data(("A", [("a.safetensors", 0), ("b.safetensors", 0.5)])))
@@ -232,6 +248,33 @@ class LoadTests(unittest.TestCase):
         self.node.load("model", "启用", data)
         self.assertEqual(self.loaded, ["a.safetensors"])
 
+    def test_lora_cache_keeps_a_few_entries(self):
+        self.assertEqual(lora.LORA_CACHE_SIZE, 3)
+        node = self.node
+        for name in ("a", "b", "c", "d"):
+            node._loaded[name] = (name, {})
+            while len(node._loaded) > lora.LORA_CACHE_SIZE:
+                node._loaded.pop(next(iter(node._loaded)))
+        self.assertEqual(list(node._loaded), ["b", "c", "d"])
+
+    def test_failures_are_reported_once(self, capsys=None):
+        import contextlib
+        import io
+
+        data = _data(("A", [("bad1.safetensors", 1), ("bad2.safetensors", 1)]))
+
+        def boom(name):
+            raise ValueError("坏文件")
+
+        self.node._load_lora = boom
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            self.node.load("model", True, data)
+        output = buffer.getvalue()
+        self.assertIn("2/2 个 LoRA 未加载", output)
+        self.assertIn("bad1.safetensors", output)
+        self.assertIn("bad2.safetensors", output)
+
     def test_empty_group_or_broken_lora_is_safe(self):
         data = _data(("空组", []))
         self.assertEqual(self.node.load("model", True, data), ("model",))
@@ -280,6 +323,24 @@ class FrontendWiringTests(unittest.TestCase):
         self.assertIn("root.append(groups, rows, foot);", source)
         # 输入口 model 与输出口 模型 统一显示
         self.assertIn('modelInput.label = "模型";', source)
+
+    def test_panel_features_are_wired(self):
+        source = (Path(__file__).resolve().parents[1] / "web" / "lora_groups.js").read_text(
+            encoding="utf-8"
+        )
+        # 拖拽排序、右键换组、复制分组、临时停用、缺失提示、刷新、缩略图、行数上限
+        self.assertIn('row.addEventListener("dragstart"', source)
+        self.assertIn("reorderLora(target.loras, from, to)", source)
+        self.assertIn("function openRowMenu(event, index, lora)", source)
+        self.assertIn("moveLoraToGroup(next, data.active, index, targetIndex)", source)
+        self.assertIn("复制这一组", source)
+        self.assertIn("target.loras[index].off = !target.loras[index].off", source)
+        self.assertIn("isMissingLora(lora.name, loraNames)", source)
+        self.assertIn("refreshLoraNames()", source)
+        self.assertIn("const MAX_POPUP_ROWS = 400;", source)
+        self.assertIn("function attachLoraPreview(node, anchor, name)", source)
+        self.assertIn('const LORA_PREVIEW_URL = "/qq_lora/preview";', source)
+        self.assertIn("strength.addEventListener(\"dblclick\", () => commitStrength(1));", source)
 
 
 class ContractTests(unittest.TestCase):
