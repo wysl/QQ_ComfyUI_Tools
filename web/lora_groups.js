@@ -73,10 +73,8 @@ const CSS = `
 .qq-lora-on:hover{border-color:#4f8cff}
 .qq-lora-on[data-on="1"]{color:#8fb9d9;border-color:rgba(79,140,255,.65);background:rgba(79,140,255,.14)}
 .qq-lora-row.is-off .qq-lora-on{color:transparent}
-.qq-lora-row.is-off .qq-lora-combo-btn span{text-decoration:line-through;color:#8b95a5}
-.qq-lora-row.is-off .qq-lora-combo,.qq-lora-row.is-off .qq-lora-stepper{opacity:.5}
 .qq-lora-combo{position:relative;flex:1 1 auto;min-width:70px;display:flex}
-.qq-lora-combo-btn{display:flex;align-items:center;gap:5px;width:100%;height:24px;padding:0 6px;
+.qq-lora-combo-btn{display:flex;align-items:center;gap:5px;width:100%;height:22px;padding:0 6px;
   border-radius:4px;border:1px solid var(--border-color,#39404d);
   background:var(--comfy-input-bg,#12141a);color:inherit;font:inherit;text-align:left;cursor:pointer}
 .qq-lora-combo-btn:hover{border-color:#4f8cff}
@@ -86,16 +84,16 @@ const CSS = `
 .qq-lora-caret{flex:0 0 auto;width:6px;height:6px;margin-right:2px;opacity:.7;
   border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;
   transform:rotate(45deg) translate(-1px,-1px)}
-.qq-lora-stepper{flex:0 0 auto;display:flex;align-items:center;height:22px;overflow:hidden;
-  border:1px solid var(--border-color,#39404d);border-radius:4px;
+.qq-lora-row.is-off .qq-lora-combo-btn span{text-decoration:line-through;color:#8b95a5}
+.qq-lora-row.is-off .qq-lora-combo,.qq-lora-row.is-off .qq-lora-stepper{opacity:.5}
+.qq-lora-stepper{flex:0 0 40px;width:40px;height:22px;display:flex;align-items:center;
+  overflow:hidden;border:1px solid var(--border-color,#39404d);border-radius:4px;
   background:var(--comfy-input-bg,#12141a)}
-.qq-lora-stepper:hover{border-color:#4f8cff}
-.qq-lora-stepper:focus-within{border-color:#4f8cff;box-shadow:0 0 0 1px rgba(79,140,255,.35)}
-.qq-lora-step{width:11px;height:20px;padding:0;border:0;border-radius:0;display:grid;place-items:center;
-  background:transparent;color:var(--descrip-text,#96a0b0);cursor:pointer}
-.qq-lora-step:hover{background:rgba(79,140,255,.18);color:#8fb9d9}
-.qq-lora-strength{width:30px;height:20px;padding:0;font-size:11px;font-variant-numeric:tabular-nums;border:0;border-radius:0;text-align:center;
-  background:transparent;color:inherit;font:inherit;appearance:textfield;-moz-appearance:textfield}
+.qq-lora-stepper:hover,.qq-lora-stepper:focus-within{border-color:#4f8cff}
+.qq-lora-stepper:focus-within{box-shadow:0 0 0 1px rgba(79,140,255,.35)}
+.qq-lora-strength{width:100%;height:20px;padding:0 2px;border:0;border-radius:4px;text-align:center;
+  background:transparent;color:inherit;font:inherit;font-size:10.5px;
+  font-variant-numeric:tabular-nums;appearance:textfield;-moz-appearance:textfield}
 .qq-lora-strength:focus{outline:none}
 .qq-lora-strength::-webkit-outer-spin-button,.qq-lora-strength::-webkit-inner-spin-button{
   -webkit-appearance:none;margin:0}
@@ -883,7 +881,7 @@ function setup(node) {
         strength.min = "-100";
         strength.max = "100";
         strength.value = String(round2(lora.strength));
-        strength.title = "强度（可直接输入，或用两侧箭头微调；双击归 1）";
+        strength.title = "强度：滚轮或 ↑↓ 微调（Shift 大步），双击归 1，也可直接输入";
         const commitStrength = (value) => {
             let number = Number(value);
             if (!Number.isFinite(number)) number = 1;
@@ -901,12 +899,17 @@ function setup(node) {
             event.stopPropagation();
             if (event.key === "Enter") commitStrength(strength.value);
         });
-        const nudge = (delta) => {
-            commitStrength(round2((Number(strength.value) || 0) + delta));
-        };
-        const decrease = stepButton(-1, (event) => nudge(event?.shiftKey ? -STRENGTH_STEP_BIG : -STRENGTH_STEP));
-        const increase = stepButton(1, (event) => nudge(event?.shiftKey ? STRENGTH_STEP_BIG : STRENGTH_STEP));
-        stepper.append(decrease, strength, increase);
+        // 滚轮微调（Shift 大步）
+        strength.addEventListener(
+            "wheel",
+            (event) => {
+                event.preventDefault();
+                const step = event.shiftKey ? STRENGTH_STEP_BIG : STRENGTH_STEP;
+                commitStrength(round2((Number(strength.value) || 0) + (event.deltaY < 0 ? step : -step)));
+            },
+            { passive: false },
+        );
+        stepper.append(strength);
 
         const remove = document.createElement("button");
         remove.type = "button";
@@ -969,31 +972,6 @@ function setup(node) {
 
         row.append(enabledBox, combo, stepper, remove);
         return row;
-    }
-
-    function stepButton(direction, onClick) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "qq-lora-step";
-        button.title = direction < 0 ? `减 ${STRENGTH_STEP}（Shift 大步）` : `加 ${STRENGTH_STEP}（Shift 大步）`;
-        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        svg.setAttribute("viewBox", "0 0 24 24");
-        svg.setAttribute("width", "9");
-        svg.setAttribute("height", "9");
-        svg.setAttribute("fill", "none");
-        svg.setAttribute("stroke", "currentColor");
-        svg.setAttribute("stroke-width", "2.6");
-        svg.setAttribute("stroke-linecap", "round");
-        svg.setAttribute("stroke-linejoin", "round");
-        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        path.setAttribute("d", direction < 0 ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7");
-        svg.append(path);
-        button.append(svg);
-        button.addEventListener("click", (event) => {
-            event.stopPropagation();
-            onClick(event);
-        });
-        return button;
     }
 
     /* ---- 右键菜单：换组 / 分组操作 ---- */
