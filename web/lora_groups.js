@@ -94,6 +94,9 @@ const CSS = `
   overflow:hidden;text-overflow:ellipsis}
 .qq-lora-pop-item:hover,.qq-lora-pop-item.is-active{background:rgba(79,140,255,.24)}
 .qq-lora-pop-item.is-current{color:#8fb9d9}
+.qq-lora-pop-group{padding:5px 8px 2px;font-size:10px;letter-spacing:.02em;color:#8fa3b0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qq-lora-pop-item.is-child{padding-left:18px}
 .qq-lora-pop-empty{padding:12px 8px;text-align:center;color:var(--descrip-text,#96a0b0)}
 .qq-lora-del-row{flex:0 0 auto;width:20px;height:20px;padding:0;border-radius:4px;border:0;
   background:transparent;color:var(--descrip-text,#96a0b0);cursor:pointer;font-size:14px;line-height:1}
@@ -171,6 +174,22 @@ export function normaliseData(raw) {
 export function activeGroup(data) {
     if (!data?.groups?.length) return null;
     return data.groups[data.active] || data.groups[0];
+}
+
+/** 把 LoRA 名单按子目录分组：根目录在 ""，其它按完整目录名。 */
+function groupLoras(names) {
+    const groups = new Map();
+    for (const name of names || []) {
+        const text = String(name || "");
+        if (!text) continue;
+        const cut = Math.max(text.lastIndexOf("/"), text.lastIndexOf("\\"));
+        const dir = cut > 0 ? text.slice(0, cut) : "";
+        const leaf = cut > 0 ? text.slice(cut + 1) : text;
+        if (!leaf) continue;
+        if (!groups.has(dir)) groups.set(dir, []);
+        groups.get(dir).push({ name: text, leaf });
+    }
+    return [...groups.entries()].map(([dir, items]) => ({ dir, items }));
 }
 
 function readData(node) {
@@ -581,20 +600,31 @@ function setup(node) {
                 list.append(empty);
                 return;
             }
-            for (const name of matches) {
-                const item = document.createElement("button");
-                item.type = "button";
-                item.className = "qq-lora-pop-item";
-                if (name === lora.name) item.classList.add("is-current");
-                item.textContent = name;
-                item.title = name;
-                item.addEventListener("click", () => commit(name));
-                list.append(item);
+            // 按子目录分组显示：目录名做小标题，文件缩进一级
+            for (const group of groupLoras(matches)) {
+                if (group.dir) {
+                    const header = document.createElement("div");
+                    header.className = "qq-lora-pop-group";
+                    header.textContent = group.dir;
+                    header.title = group.dir;
+                    list.append(header);
+                }
+                for (const entry of group.items) {
+                    const item = document.createElement("button");
+                    item.type = "button";
+                    item.className = group.dir ? "qq-lora-pop-item is-child" : "qq-lora-pop-item";
+                    if (entry.name === lora.name) item.classList.add("is-current");
+                    item.textContent = entry.leaf;
+                    item.title = entry.name;
+                    item.dataset.name = entry.name;
+                    item.addEventListener("click", () => commit(entry.name));
+                    list.append(item);
+                }
             }
             const current = list.querySelector(".qq-lora-pop-item.is-current");
             if (current) {
                 current.classList.add("is-active");
-                active = [...list.children].indexOf(current);
+                active = [...list.querySelectorAll(".qq-lora-pop-item")].indexOf(current);
                 current.scrollIntoView({ block: "nearest" });
             }
         };
@@ -608,7 +638,7 @@ function setup(node) {
         const pickActive = () => {
             const items = [...list.querySelectorAll(".qq-lora-pop-item")];
             const target = items[active] || items[0];
-            if (target) commit(target.textContent);
+            if (target) commit(target.dataset.name || target.textContent);
         };
 
         search.addEventListener("input", paint);
@@ -624,12 +654,13 @@ function setup(node) {
                 event.preventDefault();
                 const typed = search.value.trim();
                 const items = [...list.querySelectorAll(".qq-lora-pop-item")];
-                // 手输的名字即使不在列表里也认
-                if (typed && !items.some((item) => item.textContent === typed)) {
-                    commit(typed);
-                    return;
-                }
-                pickActive();
+                // 有列表项时优先选中的那一条，只有完全没匹配才把手输的名字当作文件名
+                const exact = typed
+                    ? items.find((item) => item.dataset.name === typed || item.textContent === typed)
+                    : null;
+                if (exact) commit(exact.dataset.name || typed);
+                else if (items.length) pickActive();
+                else if (typed) commit(typed);
             } else if (event.key === "Escape") {
                 close();
             }

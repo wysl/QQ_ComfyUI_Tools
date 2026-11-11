@@ -22,7 +22,7 @@ const pure = src
 const factory = new Function(`
   const app = { graph: null };
   ${pure}
-  return { normaliseData, activeGroup, emptyData };
+  return { normaliseData, activeGroup, emptyData, groupLoras };
 `);
 const api = factory();
 
@@ -80,6 +80,24 @@ console.log("== 3. 生效分组 ==");
   check("空表返回 null", api.activeGroup(api.emptyData()) === null);
   const fallback = api.normaliseData(JSON.stringify({ active: 5, groups: [{ name: "A", loras: [] }] }));
   check("active 越界时取第一组", api.activeGroup(fallback).name === "A");
+}
+
+console.log("== 4. 下拉按子目录分组 ==");
+{
+  const moss = "MOSS\\KOOK-MOSS\\h3\\a.safetensors";
+  const moss2 = "MOSS\\KOOK-MOSS\\b.safetensors";
+  const qwen = "MOSS/qwen2.1/c.safetensors";
+  const groups = api.groupLoras([moss, moss2, qwen, "root-only.safetensors"]);
+  check(
+    "分组数与出现顺序",
+    groups.map((g) => g.dir).join("|") === `MOSS\\KOOK-MOSS\\h3|MOSS\\KOOK-MOSS|MOSS/qwen2.1|`,
+  );
+  check("根目录文件单独一组", groups[groups.length - 1].dir === "");
+  check("叶子名去掉目录", groups[0].items[0].leaf === "a.safetensors");
+  check("保留完整名字", groups[0].items[0].name === moss);
+  check("正斜杠也识别", groups[2].items[0].name === qwen);
+  check("反斜杠子目录也能取叶子", groups[1].items[0].leaf === "b.safetensors");
+  check("空列表安全", api.groupLoras([]).length === 0);
 }
 
 console.log("");
