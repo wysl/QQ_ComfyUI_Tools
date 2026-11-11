@@ -14,6 +14,11 @@ const DATA_WIDGET = "分组数据";
 const ENABLE_WIDGET = "启用";
 
 const ROW_H = 30;
+// 接线口 → 隐藏控件：虚拟节点不会进 prompt，前端把值抄进控件才能被后端读到
+const EXTERNAL_INPUTS = [
+    { input: "启用开关", widget: "外部开关" },
+    { input: "生效分组", widget: "外部分组" },
+];
 const MIN_PANEL_HEIGHT = 250;
 const MIN_PANEL_WIDTH = 330;
 const STRENGTH_STEP = 0.05;
@@ -291,6 +296,58 @@ function isExternallyControlled(node, inputName) {
     return Boolean(node?.inputs?.find((input) => input?.name === inputName)?.link);
 }
 
+/** 读连线另一端（虚拟节点 / PrimitiveNode）当前的值。 */
+function linkedValue(node, pair) {
+    const input = node?.inputs?.find((entry) => entry?.name === pair.input);
+    const link = input?.link != null ? node?.graph?.links?.[input.link] : null;
+    if (!link) return "";
+    const source = node?.graph?.getNodeById?.(link.origin_id);
+    if (!source) return "";
+    if (!source.isVirtualNode && source.type !== "PrimitiveNode") return "";
+    const widget = source.type === "PrimitiveNode"
+        ? source.widgets?.[0]
+        : source.widgets?.find((entry) => entry?.__h3MultiPrimitiveSlot === link.origin_slot);
+    const value = widget?.value;
+    return value == null ? "" : String(value);
+}
+
+/** 把连线上的值写进隐藏控件；虚拟节点的值只有这样才到得了后端。 */
+export function syncExternalInputs(node) {
+    let changed = false;
+    for (const pair of EXTERNAL_INPUTS) {
+        const target = widgetOf(node, pair.widget);
+        if (!target) continue;
+        const value = linkedValue(node, pair);
+        if (String(target.value ?? "") === value) continue;
+        target.value = value;
+        if (target._state) target._state.value = value;
+        changed = true;
+    }
+    return changed;
+}
+
+/** 排队前把所有这类节点的外部值刷新一遍（含子图里的）。 */
+function syncAllExternalInputs(graph, seen = new Set()) {
+    if (!graph || seen.has(graph)) return;
+    seen.add(graph);
+    for (const node of graph._nodes || []) {
+        if (node?.type === NODE_TYPE) syncExternalInputs(node);
+        if (node?.subgraph) syncAllExternalInputs(node.subgraph, seen);
+    }
+}
+
+let promptHookInstalled = false;
+
+function installPromptHook() {
+    if (promptHookInstalled || typeof app?.graphToPrompt !== "function") return;
+    promptHookInstalled = true;
+    const original = app.graphToPrompt.bind(app);
+    app.graphToPrompt = async function wrappedGraphToPrompt(...args) {
+        syncAllExternalInputs(app.canvas?.graph || app.graph);
+        return original(...args);
+    };
+}
+
 function closeLoraPops(node) {
     for (const pop of node?.__qqLoraPops || []) pop.remove();
     if (node) node.__qqLoraPops = [];
@@ -303,6 +360,7 @@ function setup(node) {
 
     hideWidget(widgetOf(node, DATA_WIDGET));
     hideWidget(widgetOf(node, ENABLE_WIDGET));
+    for (const pair of EXTERNAL_INPUTS) hideWidget(widgetOf(node, pair.widget));
 
     if (!readData(node).groups.length) {
         writeData(node, { version: 1, active: 0, groups: [{ name: "默认", loras: [] }] });
@@ -380,10 +438,13 @@ function setup(node) {
         root.classList.toggle("is-off", !enabled);
 
         const external = [];
-        if (isExternallyControlled(node, "启用开关")) external.push("启用开关");
-        if (isExternallyControlled(node, "生效分组")) external.push("生效分组");
+        for (const pair of EXTERNAL_INPUTS) {
+            if (!isExternallyControlled(node, pair.input)) continue;
+            const value = widgetOf(node, pair.widget)?.value;
+            external.push(`${pair.input}=${value === "" ? "空" : value}`);
+        }
         hint.textContent = external.length
-            ? `外部控制：${external.join("、")}（面板设置仍会保存）`
+            ? `外部控制：${external.join("、")}`
             : `共 ${data.groups.length} 组`;
         hint.title = hint.textContent;
 
@@ -818,9 +879,13 @@ function setup(node) {
     const originalConnectionsChange = node.onConnectionsChange;
     node.onConnectionsChange = function onConnectionsChangeLoraGroup(...args) {
         const result = originalConnectionsChange?.apply(this, args);
+        syncExternalInputs(this);
         render();
         return result;
     };
+
+    syncExternalInputs(node);
+    installPromptHook();
 }
 
 function round2(value) {
@@ -829,6 +894,9 @@ function round2(value) {
 
 app.registerExtension({
     name: "QQ.LoraGroupLoader",
+    setup() {
+        installPromptHook();
+    },
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name !== NODE_TYPE) return;
 
