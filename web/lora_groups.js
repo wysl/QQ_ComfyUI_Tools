@@ -94,9 +94,12 @@ const CSS = `
   overflow:hidden;text-overflow:ellipsis}
 .qq-lora-pop-item:hover,.qq-lora-pop-item.is-active{background:rgba(79,140,255,.24)}
 .qq-lora-pop-item.is-current{color:#8fb9d9}
-.qq-lora-pop-group{padding:5px 8px 2px;font-size:10px;letter-spacing:.02em;color:#8fa3b0;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.qq-lora-pop-item.is-child{padding-left:18px}
+.qq-lora-pop-item.is-dir{display:flex;align-items:center;gap:4px;color:#b8c2cf}
+.qq-lora-pop-item.is-dir span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qq-lora-chevron{flex:0 0 8px;width:8px;height:8px;margin-right:2px;
+  border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;
+  transform:rotate(-45deg);transition:transform .12s ease;opacity:.75}
+.qq-lora-chevron[data-open="1"]{transform:rotate(45deg)}
 .qq-lora-pop-empty{padding:12px 8px;text-align:center;color:var(--descrip-text,#96a0b0)}
 .qq-lora-del-row{flex:0 0 auto;width:20px;height:20px;padding:0;border-radius:4px;border:0;
   background:transparent;color:var(--descrip-text,#96a0b0);cursor:pointer;font-size:14px;line-height:1}
@@ -176,20 +179,69 @@ export function activeGroup(data) {
     return data.groups[data.active] || data.groups[0];
 }
 
-/** 把 LoRA 名单按子目录分组：根目录在 ""，其它按完整目录名。 */
-function groupLoras(names) {
-    const groups = new Map();
+/**
+ * 把 LoRA 名单整理成目录树：目录可以展开/收起，文件是叶子。
+ * 名单里 "/" 和 "\\" 两种分隔符都认。
+ */
+function buildLoraTree(names) {
+    const root = { children: new Map(), order: [] };
     for (const name of names || []) {
-        const text = String(name || "");
-        if (!text) continue;
-        const cut = Math.max(text.lastIndexOf("/"), text.lastIndexOf("\\"));
-        const dir = cut > 0 ? text.slice(0, cut) : "";
-        const leaf = cut > 0 ? text.slice(cut + 1) : text;
-        if (!leaf) continue;
-        if (!groups.has(dir)) groups.set(dir, []);
-        groups.get(dir).push({ name: text, leaf });
+        const parts = String(name || "").split(/[\\/]/).filter(Boolean);
+        if (!parts.length) continue;
+        let node = root;
+        for (let index = 0; index < parts.length - 1; index += 1) {
+            const segment = parts[index];
+            if (!node.children.has(segment)) {
+                node.children.set(segment, { children: new Map(), order: [] });
+                node.order.push(segment);
+            }
+            node = node.children.get(segment);
+        }
+        const leaf = parts[parts.length - 1];
+        if (node.children.has(leaf)) continue;
+        node.children.set(leaf, { full: name });
+        node.order.push(leaf);
     }
-    return [...groups.entries()].map(([dir, items]) => ({ dir, items }));
+    return root;
+}
+
+function loraTreeHasMatch(node, needle) {
+    for (const key of node.order) {
+        const child = node.children.get(key);
+        if (child.full !== undefined) {
+            if (child.full.toLowerCase().includes(needle)) return true;
+        } else if (loraTreeHasMatch(child, needle)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * 展开成一列可见行；目录行带 path 与展开状态，文件行带完整名字。
+ * 搜索时只保留有匹配的分支，并自动展开。
+ */
+function loraTreeRows(tree, expanded, needle) {
+    const text = String(needle || "").trim().toLowerCase();
+    const rows = [];
+    const visit = (node, depth, path) => {
+        for (const key of node.order) {
+            const child = node.children.get(key);
+            const childPath = path ? `${path}/${key}` : key;
+            if (child.full !== undefined) {
+                if (!text || child.full.toLowerCase().includes(text)) {
+                    rows.push({ kind: "file", name: key, full: child.full, depth, path: childPath });
+                }
+                continue;
+            }
+            if (text && !loraTreeHasMatch(child, text)) continue;
+            const open = Boolean(text) || expanded.has(childPath);
+            rows.push({ kind: "dir", name: key, depth, path: childPath, open });
+            if (open) visit(child, depth + 1, childPath);
+        }
+    };
+    visit(tree, 0, "");
+    return rows;
 }
 
 function readData(node) {
@@ -585,13 +637,14 @@ function setup(node) {
             close();
         };
 
+        const tree = buildLoraTree(names);
+        const expanded = new Set();
         let active = -1;
         const paint = () => {
-            const needle = search.value.trim().toLowerCase();
-            const matches = names.filter((name) => name.toLowerCase().includes(needle));
+            const rows = loraTreeRows(tree, expanded, search.value);
             list.replaceChildren();
             active = -1;
-            if (!matches.length) {
+            if (!rows.length) {
                 const empty = document.createElement("div");
                 empty.className = "qq-lora-pop-empty";
                 empty.textContent = names.length
@@ -600,32 +653,43 @@ function setup(node) {
                 list.append(empty);
                 return;
             }
-            // 按子目录分组显示：目录名做小标题，文件缩进一级
-            for (const group of groupLoras(matches)) {
-                if (group.dir) {
-                    const header = document.createElement("div");
-                    header.className = "qq-lora-pop-group";
-                    header.textContent = group.dir;
-                    header.title = group.dir;
-                    list.append(header);
+            for (const row of rows) {
+                const item = document.createElement("button");
+                item.type = "button";
+                item.className = row.kind === "dir" ? "qq-lora-pop-item is-dir" : "qq-lora-pop-item is-file";
+                item.style.paddingLeft = `${6 + row.depth * 14}px`;
+                if (row.kind === "dir") {
+                    const chevron = document.createElement("i");
+                    chevron.className = "qq-lora-chevron";
+                    chevron.dataset.open = row.open ? "1" : "0";
+                    const text = document.createElement("span");
+                    text.textContent = row.name;
+                    item.append(chevron, text);
+                    item.title = row.name;
+                    item.addEventListener("click", () => {
+                        if (expanded.has(row.path)) expanded.delete(row.path);
+                        else expanded.add(row.path);
+                        paint();
+                    });
+                } else {
+                    if (row.full === lora.name) item.classList.add("is-current");
+                    item.textContent = row.name;
+                    item.title = row.full;
+                    item.dataset.name = row.full;
+                    item.addEventListener("click", () => commit(row.full));
                 }
-                for (const entry of group.items) {
-                    const item = document.createElement("button");
-                    item.type = "button";
-                    item.className = group.dir ? "qq-lora-pop-item is-child" : "qq-lora-pop-item";
-                    if (entry.name === lora.name) item.classList.add("is-current");
-                    item.textContent = entry.leaf;
-                    item.title = entry.name;
-                    item.dataset.name = entry.name;
-                    item.addEventListener("click", () => commit(entry.name));
-                    list.append(item);
-                }
+                list.append(item);
             }
+            const items = [...list.querySelectorAll(".qq-lora-pop-item")];
             const current = list.querySelector(".qq-lora-pop-item.is-current");
-            if (current) {
-                current.classList.add("is-active");
-                active = [...list.querySelectorAll(".qq-lora-pop-item")].indexOf(current);
-                current.scrollIntoView({ block: "nearest" });
+            const fallback = search.value.trim()
+                ? items.find((item) => item.dataset.name)
+                : null;
+            const highlight = current || fallback;
+            if (highlight) {
+                highlight.classList.add("is-active");
+                active = items.indexOf(highlight);
+                highlight.scrollIntoView({ block: "nearest" });
             }
         };
         const move = (delta) => {
@@ -637,8 +701,11 @@ function setup(node) {
         };
         const pickActive = () => {
             const items = [...list.querySelectorAll(".qq-lora-pop-item")];
-            const target = items[active] || items[0];
-            if (target) commit(target.dataset.name || target.textContent);
+            if (!items.length) return;
+            // 没选中时直接选第一个文件，别把目录行当成结果
+            const target = items[active] || items.find((item) => item.dataset.name) || items[0];
+            if (target.dataset.name) commit(target.dataset.name);
+            else target.click();
         };
 
         search.addEventListener("input", paint);
