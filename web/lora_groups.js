@@ -91,10 +91,10 @@ const CSS = `
   background:var(--comfy-input-bg,#12141a)}
 .qq-lora-stepper:hover{border-color:#4f8cff}
 .qq-lora-stepper:focus-within{border-color:#4f8cff;box-shadow:0 0 0 1px rgba(79,140,255,.35)}
-.qq-lora-step{width:15px;height:20px;padding:0;border:0;border-radius:0;display:grid;place-items:center;
+.qq-lora-step{width:11px;height:20px;padding:0;border:0;border-radius:0;display:grid;place-items:center;
   background:transparent;color:var(--descrip-text,#96a0b0);cursor:pointer}
 .qq-lora-step:hover{background:rgba(79,140,255,.18);color:#8fb9d9}
-.qq-lora-strength{width:30px;height:20px;padding:0;border:0;border-radius:0;text-align:center;
+.qq-lora-strength{width:30px;height:20px;padding:0;font-size:11px;font-variant-numeric:tabular-nums;border:0;border-radius:0;text-align:center;
   background:transparent;color:inherit;font:inherit;appearance:textfield;-moz-appearance:textfield}
 .qq-lora-strength:focus{outline:none}
 .qq-lora-strength::-webkit-outer-spin-button,.qq-lora-strength::-webkit-inner-spin-button{
