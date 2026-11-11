@@ -266,6 +266,19 @@ class FrontendWiringTests(unittest.TestCase):
         self.assertIn("syncAllExternalInputs(app.canvas?.graph || app.graph)", source)
         self.assertIn("if (node?.subgraph) syncAllExternalInputs(node.subgraph, seen);", source)
 
+    def test_panel_width_is_fixed_and_labels_are_unified(self):
+        source = (Path(__file__).resolve().parents[1] / "web" / "lora_groups.js").read_text(
+            encoding="utf-8"
+        )
+        # 最小宽度 262，且选完 LoRA 之后内容不能再把最小宽度顶大
+        self.assertIn("const MIN_NODE_WIDTH = 262;", source)
+        self.assertIn("node.computeSize = function qqLoraComputeSize", source)
+        self.assertIn("return [MIN_NODE_WIDTH, height];", source)
+        # 标题旁不再显示「外部控制…」提示
+        self.assertNotIn("qq-lora-hint", source)
+        # 输入口 model 与输出口 模型 统一显示
+        self.assertIn('modelInput.label = "模型";', source)
+
 
 class ContractTests(unittest.TestCase):
     def test_contract(self):

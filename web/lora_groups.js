@@ -22,7 +22,9 @@ const EXTERNAL_INPUTS = [
     { input: "生效分组", widget: "生效分组" },
 ];
 const MIN_PANEL_HEIGHT = 200;
-const MIN_PANEL_WIDTH = 258;
+const MIN_PANEL_WIDTH = 250;
+// 画布上的最小宽度：面板 250 + DOM 控件边距
+const MIN_NODE_WIDTH = 262;
 const STRENGTH_STEP = 0.05;
 const MIN_POP_WIDTH = 220;
 const MAX_POP_HEIGHT = 280;
@@ -34,8 +36,6 @@ const CSS = `
 .qq-lora *{box-sizing:border-box}
 .qq-lora-head{display:flex;align-items:center;gap:8px;flex:0 0 auto}
 .qq-lora-title{font-weight:600}
-.qq-lora-hint{flex:1 1 auto;min-width:0;color:var(--descrip-text,#96a0b0);font-size:11px;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qq-lora-groups{display:flex;flex-wrap:wrap;align-items:center;gap:4px;flex:0 0 auto}
 .qq-lora-chip{display:flex;align-items:center;gap:3px;height:22px;padding:0 7px;border-radius:12px;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
@@ -279,14 +279,6 @@ function fetchLoraNames() {
 
 /* ---------------- 面板 ---------------- */
 
-function isExternallyControlled(node, inputName) {
-    return Boolean(node?.inputs?.find((input) => input?.name === inputName)?.link);
-}
-
-/**
- * 读连线另一端（虚拟节点 / PrimitiveNode）当前的值。
- * 没接线、或接的是真节点时返回 null——那种情况不该动控件本身的值。
- */
 function linkedValue(node, pair) {
     const input = node?.inputs?.find((entry) => entry?.name === pair.input);
     const link = input?.link != null ? node?.graph?.links?.[input.link] : null;
@@ -379,6 +371,12 @@ function setup(node) {
     injectCSS();
 
     hideWidget(widgetOf(node, DATA_WIDGET));
+    // 输入口 model 与输出口 模型 统一显示
+    const modelInput = (node.inputs || []).find((input) => input?.name === "model");
+    if (modelInput) {
+        modelInput.label = "模型";
+        modelInput.localized_name = "模型";
+    }
 
     if (!readData(node).groups.length) {
         writeData(node, { version: 1, active: 0, groups: [{ name: "默认", loras: [] }] });
@@ -392,9 +390,7 @@ function setup(node) {
     const title = document.createElement("span");
     title.className = "qq-lora-title";
     title.textContent = "Lora 分组";
-    const hint = document.createElement("span");
-    hint.className = "qq-lora-hint";
-    head.append(title, hint);
+    head.append(title);
 
     const groups = document.createElement("div");
     groups.className = "qq-lora-groups";
@@ -423,11 +419,17 @@ function setup(node) {
             minWidth: MIN_PANEL_WIDTH,
         });
     }
+    // 画布宽度只跟面板走：选完 LoRA 后内容再长也不能把最小宽度顶大
+    const originalCompute = node.computeSize?.bind(node);
+    node.computeSize = function qqLoraComputeSize(...args) {
+        const computed = originalCompute?.(...args);
+        const height = computed?.[1] ?? Math.max(MIN_PANEL_HEIGHT + 120, Number(this.size?.[1]) || 0);
+        return [MIN_NODE_WIDTH, height];
+    };
     const currentWidth = Number(node.size?.[0]) || 0;
-    if (currentWidth < MIN_PANEL_WIDTH) {
-        const width = MIN_PANEL_WIDTH;
+    if (currentWidth !== MIN_NODE_WIDTH) {
         const height = Math.max(MIN_PANEL_HEIGHT + 120, Number(node.size?.[1]) || 0);
-        node.setSize?.([width, height]);
+        node.setSize?.([MIN_NODE_WIDTH, height]);
     }
 
     let names = [];
@@ -446,13 +448,6 @@ function setup(node) {
         const enabled = Boolean(widgetOf(node, ENABLE_WIDGET)?.value ?? true);
         syncGroupChoices(node, data);
         root.classList.toggle("is-off", !enabled);
-
-        const linked = EXTERNAL_INPUTS.filter((pair) => isExternallyControlled(node, pair.input));
-        const chosen = String(widgetOf(node, GROUP_WIDGET)?.value ?? FOLLOW_PANEL) || FOLLOW_PANEL;
-        hint.textContent = linked.length
-            ? `外部控制：${linked.map((pair) => pair.input).join("、")}（生效分组=${chosen}）`
-            : `${enabled ? "" : "已停用 · "}共 ${data.groups.length} 组`;
-        hint.title = hint.textContent;
 
         // 分组条
         groups.replaceChildren();
