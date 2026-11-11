@@ -60,10 +60,9 @@ const CSS = `
 .qq-lora-name{flex:1 1 auto;min-width:92px;height:24px;padding:0 6px;border-radius:4px;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
   color:inherit;font:inherit}
-.qq-lora-strength{flex:0 0 62px;height:24px;padding:0 4px;border-radius:4px;text-align:right;
+.qq-lora-strength{flex:0 0 66px;height:24px;padding:0 4px;border-radius:4px;text-align:right;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
   color:inherit;font:inherit}
-.qq-lora-range{flex:0 0 58px;height:20px;margin:0;accent-color:#4f8cff}
 .qq-lora-del-row{flex:0 0 auto;width:20px;height:20px;padding:0;border-radius:4px;border:0;
   background:transparent;color:var(--descrip-text,#96a0b0);cursor:pointer;font-size:14px;line-height:1}
 .qq-lora-del-row:hover{background:rgba(255,255,255,.1);color:#ff8f8f}
@@ -439,15 +438,6 @@ function setup(node) {
         strength.max = "100";
         strength.value = String(round2(lora.strength));
         strength.title = "强度";
-        const range = document.createElement("input");
-        range.className = "qq-lora-range";
-        range.type = "range";
-        range.min = "0";
-        range.max = "2";
-        range.step = "0.05";
-        range.value = String(Math.max(0, Math.min(2, round2(lora.strength))));
-        range.title = "拖动调整强度（0–2）";
-
         const commitStrength = (value) => {
             let number = Number(value);
             if (!Number.isFinite(number)) number = 1;
@@ -458,10 +448,8 @@ function setup(node) {
             target.loras[index].strength = round2(number);
             writeData(node, next);
             strength.value = String(round2(number));
-            range.value = String(Math.max(0, Math.min(2, round2(number))));
         };
         strength.addEventListener("change", () => commitStrength(strength.value));
-        range.addEventListener("input", () => commitStrength(range.value));
 
         const remove = document.createElement("button");
         remove.type = "button";
@@ -477,7 +465,7 @@ function setup(node) {
             render();
         });
 
-        row.append(order, name, strength, range, remove);
+        row.append(order, name, strength, remove);
         return row;
     }
 
