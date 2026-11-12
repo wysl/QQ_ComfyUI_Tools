@@ -129,6 +129,18 @@ class FrontendWiringTests(unittest.TestCase):
         self.assertIn('name: "QQ.ImageComparer"', self.source)
         self.assertIn("beforeRegisterNodeDef", self.source)
 
+    def test_node_resizes_freely(self):
+        # 固定 minWidth 会锁住缩放；容器要铺满节点且 resizable
+        self.assertIn("node.resizable = true;", self.source)
+        self.assertIn("minWidth: 0", self.source)
+        self.assertIn("width:100%;height:100%;min-width:0;min-height:0", self.source)
+
+    def test_no_broken_image_placeholder_when_empty(self):
+        # 没接图时 img 无 src 会显示浏览器坏图占位，必须隐藏
+        self.assertIn('imgA.style.display = "none";', self.source)
+        self.assertIn('imgB.style.display = "none";', self.source)
+        self.assertIn('imgA.getAttribute("src") ? "block" : "none"', self.source)
+
 
 if __name__ == "__main__":
     unittest.main()

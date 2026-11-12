@@ -20,7 +20,8 @@ const MODE_SLIDE = "Slide";
 const MODE_CLICK = "Click";
 
 const CSS = `
-.qq-compare{box-sizing:border-box;height:100%;display:flex;flex-direction:column;gap:4px;
+.qq-compare{box-sizing:border-box;width:100%;height:100%;min-width:0;min-height:0;max-width:100%;max-height:100%;
+  display:flex;flex-direction:column;gap:4px;
   padding:4px;background:var(--comfy-menu-bg,#1e2128);color:var(--input-text,#e6e8ee);
   border-radius:6px;overflow:hidden;font:12px/1.35 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
 .qq-compare *{box-sizing:border-box}
@@ -122,8 +123,10 @@ function setup(node) {
     stage.className = "qq-compare-stage";
     const imgA = document.createElement("img");
     imgA.alt = "A";
+    imgA.style.display = "none";
     const imgB = document.createElement("img");
     imgB.alt = "B";
+    imgB.style.display = "none";
     const divider = document.createElement("div");
     divider.className = "qq-compare-divider";
     const empty = document.createElement("div");
@@ -141,10 +144,12 @@ function setup(node) {
     });
     if (widget) {
         widget.serialize = false;
+        // minWidth 设 0，节点宽高都能自由拖拽（固定 minWidth 会锁住缩放）
         widget.computeLayoutSize = () => ({
-            minHeight: MIN_HEIGHT, maxHeight: undefined, minWidth: MIN_WIDTH,
+            minHeight: MIN_HEIGHT, maxHeight: undefined, minWidth: 0,
         });
     }
+    node.resizable = true;
     if ((Number(node.size?.[0]) || 0) < MIN_WIDTH) {
         node.setSize?.([Math.max(MIN_WIDTH, 320), Math.max(MIN_HEIGHT + 60, 320)]);
     }
@@ -165,9 +170,14 @@ function setup(node) {
         if (!hasImages) {
             imgA.removeAttribute("src");
             imgB.removeAttribute("src");
+            imgA.style.display = "none";
+            imgB.style.display = "none";
             divider.style.display = "none";
             return;
         }
+        // 没有 src 的 img 会显示浏览器的「坏图」占位，没图时一律隐藏
+        imgA.style.display = imgA.getAttribute("src") ? "block" : "none";
+        imgB.style.display = imgB.getAttribute("src") ? "block" : "none";
         if (current === MODE_CLICK) {
             imgB.style.clipPath = state.clickShowB ? "inset(0 0 0 0)" : "inset(0 100% 0 0)";
             divider.style.display = "none";
