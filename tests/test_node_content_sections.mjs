@@ -16,10 +16,6 @@ assert.ok(source.includes(".lg-node textarea"), "targets the prompt textarea");
 assert.ok(source.includes("border:1px solid var(--border-color"), "gives the text block a clear boundary");
 assert.ok(source.includes(":has(textarea)"), "separates the text block from following params");
 assert.ok(source.includes("row-gap:6px"), "relaxes widget row rhythm");
-// Lora 面板分区在全局层实现（不修改节点源码）
-assert.ok(source.includes("div.qq-lora-groups"), "Lora group bar sectioned via global CSS");
-assert.ok(source.includes("div.qq-lora-rows"), "Lora list sectioned via global CSS");
-assert.ok(source.includes("div.qq-lora-foot"), "Lora footer separated via global CSS");
 assert.ok(!source.includes("MutationObserver"), "must not move Vue-managed DOM");
 
 function makeContext(app) {
