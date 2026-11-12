@@ -12,16 +12,27 @@ const CSS = `
 /* Vue 节点的徽章行（默认 mt-auto 沉在底部） lifted 到右上角标题行 */
 .lg-node div.mt-auto.gap-2{
   position:absolute;
-  top:4px;
-  right:6px;
+  top:0;
+  right:8px;
   left:auto;
   bottom:auto;
   width:auto;
-  height:auto;
+  height:32px;
   margin:0;
   padding:0;
+  display:flex;
+  align-items:center;
   z-index:5;
   pointer-events:none;
+}
+/* 去掉徽章自带的圆角底色包裹，直接落在标题底色上，只留裸文字 */
+.lg-node div.mt-auto.gap-2 > div,
+.lg-node div.mt-auto.gap-2 > div > div{
+  background:transparent !important;
+  border-radius:0 !important;
+  height:auto !important;
+  padding:0 !important;
+  overflow:visible;
 }
 `;
 

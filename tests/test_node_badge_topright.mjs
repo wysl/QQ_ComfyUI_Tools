@@ -14,8 +14,9 @@ const source = (await fs.readFile(new URL("../web/node_badge_topright.js", impor
 // 静态断言：选择器与纯 CSS 方式
 assert.ok(source.includes(".lg-node div.mt-auto.gap-2"), "targets the Vue node badge footer row");
 assert.ok(source.includes("position:absolute"), "repositions via CSS");
-assert.ok(source.includes("right:6px"), "anchors to the right edge");
-assert.ok(source.includes("top:4px"), "aligns with the title row");
+assert.ok(source.includes("right:8px"), "anchors to the right edge");
+assert.ok(source.includes("top:0"), "aligns with the title row");
+assert.ok(source.includes("background:transparent !important"), "strips the pill background so it sits on the title color");
 assert.ok(!source.includes("appendChild(badge") && !source.includes("MutationObserver"), "must not move Vue-managed DOM");
 
 // 行为断言：setup 注入样式且幂等
