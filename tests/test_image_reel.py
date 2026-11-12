@@ -108,18 +108,19 @@ class CombineTests(unittest.TestCase):
         self.assertEqual(out.shape[2] % 2, 0)
         self.assertEqual(out.shape[3], 3)
 
-    def test_list_images_each_add_a_row(self):
+    def test_list_images_join_horizontal_row(self):
         one = self._combine()
         three = self._combine(image_list=[_solid((1, 2, 3)), _solid((4, 5, 6)), _solid((7, 8, 9))])
-        # 列表里每张图各占一行 → 更高
-        self.assertGreater(three.shape[1], one.shape[1])
+        # 列表图片横向并入同一条卷轴 → 更宽，但仍是单行（高度不变）
+        self.assertGreater(three.shape[2], one.shape[2])
+        self.assertEqual(three.shape[1], one.shape[1])
         self.assertEqual(three.shape[0], 1)
 
-    def test_list_batch_is_flattened_into_rows(self):
-        # 一个列表项里含 2 帧 batch，也应展成 2 行
+    def test_list_batch_is_flattened_into_row(self):
+        # 一个列表项里含 2 帧 batch，也逐张展开横向并排
         out = self._combine(image_list=[_solid((1, 2, 3), frames=2)])
         single = self._combine(image_list=[_solid((1, 2, 3))])
-        self.assertGreater(out.shape[1], single.shape[1])
+        self.assertGreater(out.shape[2], single.shape[2])
 
     def test_image1_batch_produces_multiple_frames(self):
         out = self._combine(image1=[_solid((220, 80, 80), frames=2)])
@@ -152,14 +153,13 @@ class CombineTests(unittest.TestCase):
         # 左上角是背景色：浅色明显亮于深色
         self.assertGreater(float(light[0, 0, 0, 0]), float(dark[0, 0, 0, 0]))
 
-    def test_different_widths_padded_to_common_shape(self):
-        # image1 宽、列表项窄 → 输出 batch 内宽高统一
-        out = self._combine(
-            image1=[_solid((220, 80, 80), width=120)],
-            image_list=[_solid((1, 2, 3), width=30)],
-        )
-        self.assertEqual(out.shape[0], 1)
+    def test_batch_frames_have_uniform_shape(self):
+        # 多帧 batch 逐帧输出，每帧一条横向卷轴，宽高统一且为偶数
+        out = self._combine(image1=[_solid((220, 80, 80), frames=3)])
+        self.assertEqual(out.shape[0], 3)
         self.assertEqual(out.shape[1] % 2, 0)
+        self.assertEqual(out.shape[2] % 2, 0)
+        self.assertEqual(out.shape[3], 3)
 
 
 class ContractTests(unittest.TestCase):
