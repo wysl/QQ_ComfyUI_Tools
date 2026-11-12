@@ -68,6 +68,17 @@ class IgnoreRuleTests(unittest.TestCase):
         self.assertEqual(self.module.QQGroupBypassTag.describe("绕过", 8), ("[魔术贴] 绕过 深度=5",))
         self.assertEqual(self.module.QQGroupBypassTag.describe("启用", -2), ("[魔术贴] 启用 深度=0",))
 
+    def test_group_bypass_tag_mode_is_labeled_toggle(self):
+        # 与 QQ-Lora分组加载「启用开关」同款：BOOLEAN + label_on/label_off
+        mode = self.module.QQGroupBypassTag.INPUT_TYPES()["required"]["模式"]
+        self.assertEqual(mode[0], "BOOLEAN")
+        self.assertEqual(mode[1]["label_on"], "绕过")
+        self.assertEqual(mode[1]["label_off"], "启用")
+        self.assertEqual(mode[1]["default"], False)
+        # 布尔与旧字符串都兼容
+        self.assertEqual(self.module.QQGroupBypassTag.describe(True, 0), ("[魔术贴] 绕过 深度=0",))
+        self.assertEqual(self.module.QQGroupBypassTag.describe(False, 0), ("[魔术贴] 启用 深度=0",))
+
 
 if __name__ == "__main__":
     unittest.main()

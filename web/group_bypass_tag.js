@@ -162,7 +162,9 @@ function isTagNode(node) {
 function tagMode(node) {
     const widget = (node?.widgets || []).find((entry) => entry && entry.name === "模式");
     const value = widget?.value;
-    return value === MODE_BYPASS ? MODE_BYPASS : MODE_ON;
+    // 模式现为布尔开关（true=绕过）；兼容旧工作流/多值输入的字符串「绕过」
+    const bypass = value === true || value === 1 || value === MODE_BYPASS || value === "true";
+    return bypass ? MODE_BYPASS : MODE_ON;
 }
 
 // A state forced for one prompt (the phone builds one prompt per switch state).
