@@ -85,6 +85,16 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(self.mod._first(None, 9), 9)
         self.assertEqual(self.mod._first(5, 0), 5)
 
+    def test_nth_picks_positional_item_from_list(self):
+        a, b = object(), object()
+        self.assertIs(self.mod._nth([a, b], 0), a)
+        self.assertIs(self.mod._nth([a, b], 1), b)
+        # 单元素列表（普通图 / batch 接线）索引越界时退回第一个
+        self.assertIs(self.mod._nth([a], 1), a)
+        self.assertIs(self.mod._nth([], 0), None)
+        self.assertIs(self.mod._nth(None, 0), None)
+        self.assertIs(self.mod._nth(a, 0), a)
+
     def test_labels_apply_positionally_to_list_images(self):
         a, b, c, d, e = (object() for _ in range(5))
         labels = ["111", "222", "image3", "image4"]
@@ -140,6 +150,18 @@ class CombineTests(unittest.TestCase):
     def test_image1_batch_produces_multiple_frames(self):
         out = self._combine(image1=[_solid((220, 80, 80), frames=2)])
         self.assertEqual(out.shape[0], 2)
+
+    def test_same_list_to_image1_and_image2_unpacks_positionally(self):
+        # multi output 是列表，分别接 image1/image2 应取第 1/第 2 张，而非都取第一张
+        red = _solid((220, 0, 0))
+        blue = _solid((0, 0, 220))
+        out = self._combine(image1=[red, blue], image2=[red, blue])
+        h, w = out.shape[1], out.shape[2]
+        # 左半应是红图、右半应是蓝图（两张不同的图并排）
+        self.assertGreater(float(out[0, h // 2, w // 4, 0]), 0.5)
+        self.assertLess(float(out[0, h // 2, w // 4, 2]), 0.5)
+        self.assertGreater(float(out[0, h // 2, 3 * w // 4, 2]), 0.5)
+        self.assertLess(float(out[0, h // 2, 3 * w // 4, 0]), 0.5)
 
     def test_no_images_returns_empty_batch(self):
         with patch.object(self.mod, "_font_dict", return_value={"default": ""}):
