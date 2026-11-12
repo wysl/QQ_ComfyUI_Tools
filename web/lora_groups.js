@@ -38,13 +38,11 @@ const EXTERNAL_INPUTS = [
 ];
 
 const CSS = `
-.qq-lora{box-sizing:border-box;height:100%;display:flex;flex-direction:column;gap:6px;
+.qq-lora{box-sizing:border-box;height:100%;display:flex;flex-direction:column;gap:5px;
   padding:6px;background:var(--comfy-menu-bg,#1e2128);color:var(--input-text,#e6e8ee);
   border-radius:6px;overflow:hidden;font:12px/1.35 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
 .qq-lora *{box-sizing:border-box}
-/* 分组条独立成区：浅一层底色+描边，与列表/状态清晰分界 */
-.qq-lora-groups{display:flex;flex-wrap:wrap;align-items:center;gap:4px;flex:0 0 auto;
-  background:var(--comfy-menu-secondary-bg,#ded4c2);border:1px solid var(--border-color,#39404d);border-radius:6px;padding:5px 6px}
+.qq-lora-groups{display:flex;flex-wrap:wrap;align-items:center;gap:4px;flex:0 0 auto}
 .qq-lora-chip{position:relative;display:flex;align-items:center;justify-content:center;height:22px;padding:0 16px;border-radius:4px;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
   color:inherit;font:inherit;cursor:pointer;max-width:132px}
@@ -71,8 +69,7 @@ const CSS = `
 /* 添加 Lora 固定在列表下方，不随列表滚动 */
 .qq-lora-addbar{flex:0 0 auto;display:flex}
 .qq-lora-add-lora{flex:1 1 auto;height:24px;border-radius:4px}
-.qq-lora-rows{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:4px;
-  background:var(--comfy-menu-secondary-bg,#ded4c2);border:1px solid var(--border-color,#39404d);border-radius:6px;padding:6px}
+.qq-lora-rows{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:4px;padding:2px 0}
 .qq-lora-row{display:flex;align-items:center;gap:5px;height:${ROW_HEIGHT_PX - 4}px;flex:0 0 auto}
 .qq-lora-row.is-dragging{opacity:.45}
 .qq-lora-row.drop-before{box-shadow:0 -2px 0 0 #4f8cff}
@@ -122,7 +119,7 @@ const CSS = `
 .qq-lora-empty{flex:1 1 auto;display:flex;align-items:center;justify-content:center;text-align:center;
   color:var(--descrip-text,#96a0b0);line-height:1.7;padding:8px}
 .qq-lora-foot{flex:0 0 auto;display:flex;align-items:center;gap:6px;color:var(--descrip-text,#96a0b0);
-  font-size:11px;padding-top:6px;border-top:1px solid var(--border-color,#39404d)}
+  font-size:11px;padding-top:2px}
 .qq-lora-foot span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* LoRA 下拉：贴着按钮弹出的目录树 */
 .qq-lora-pop{position:fixed;z-index:11000;display:flex;flex-direction:column;min-width:200px;
