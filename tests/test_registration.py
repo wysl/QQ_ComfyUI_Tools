@@ -37,6 +37,17 @@ def install_comfy_stubs():
     comfy_nodes = types.ModuleType("nodes")
     comfy_nodes.MAX_RESOLUTION = 16384
     comfy_nodes.NODE_CLASS_MAPPINGS = {}
+
+    class _StubSaveImage:
+        RETURN_TYPES = ("IMAGE",)
+        RETURN_NAMES = ("image",)
+        OUTPUT_NODE = True
+
+        def save_images(self, images, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+            return {"ui": {"images": []}}
+
+    comfy_nodes.SaveImage = _StubSaveImage
+    comfy_nodes.PreviewImage = _StubSaveImage
     sys.modules["nodes"] = comfy_nodes
 
     comfy = types.ModuleType("comfy")
@@ -64,11 +75,13 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 40)
+        self.assertEqual(len(mappings), 42)
         self.assertIn("QQImagePackageLoader", mappings)
         self.assertIn("QQImagePackageSaver", mappings)
         self.assertIn("QQGuliPosePicker", mappings)
         self.assertIn("QQLoraGroupLoader", mappings)
+        self.assertIn("QQImageComparer", mappings)
+        self.assertIn("QQImageReelCombine", mappings)
         self.assertTrue(all(name.startswith("QQ") for name in mappings))
         self.assertEqual(len(mappings), len(set(mappings)))
         self.assertNotIn("QQLightroomImage", mappings)
@@ -117,6 +130,8 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(display["QQRouteDispatch"], "QQ-条件分发")
         self.assertEqual(display["QQLoraGroupLoader"], "QQ-Lora分组加载")
         self.assertEqual(display["QQRouteCollect"], "QQ-条件收集")
+        self.assertEqual(display["QQImageComparer"], "QQ-图像对比")
+        self.assertEqual(display["QQImageReelCombine"], "QQ-图像卷轴合成")
 
     def test_ignore_rules_controller_is_frontend_only_and_keeps_stable_bindings(self):
         controller = self.package.NODE_CLASS_MAPPINGS["QQIgnoreRulesController"]
