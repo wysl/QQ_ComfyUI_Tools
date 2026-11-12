@@ -182,7 +182,7 @@ Lora 行的细节：
 
 - `image1`-`image4` + 各自文字 → 横向卷轴的前几张（和原 ImageReel 一致，按 `reel_height` 等高缩放、`border` 留间距）。
 - **`image_list`（IMAGE 列表口）**：列表里的图**横向并入同一条卷轴**，接在 `image1-4` 后面左右并排，突破原来最多 4 张的限制，不用再堆多个 ImageReel 节点。列表项本身是 batch 时也逐张展开并入。
-- **文字标签按图片顺序对应** `image1_text`…`image4_text`：第 1 张图用 `image1_text`、第 2 张用 `image2_text`……无论这张图来自 `image1-4` 还是 `image_list`（所以只接列表时，列表图也读这几个 text 值）；第 5 张起自动编号「图 N」。
+- **文字标签按图片顺序对应** `image1_text`…`image4_text`：第 1 张图用 `image1_text`、第 2 张用 `image2_text`……无论这张图来自 `image1-4` 还是 `image_list`（所以只接列表时，列表图也读这几个 text 值）；第 5 张起自动编号「图 N」。把 `font_size` 设为 **0** 则完全不显示文字（也不留字距）。
 - `font_file` / `font_size` / `color_theme` / `border` → 直接合成最终 `图像`（和原 ImageReelComposit 一致：图片下方居中文字标签 + 投影 + 浅/深主题背景，宽高自动凑偶数）。
 
 原节点最多接 4 张图，想多接就得堆节点、还容易接成竖排；这个节点用列表口把任意多张图**横向并排**成一条卷轴。**`image1` 是可选的**：只接 `image_list` 就能出图；接了 `image1`-`image4` 时列表图接在它们后面。多帧 batch 会逐帧输出（每帧一条横向卷轴）。

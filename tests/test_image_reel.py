@@ -168,6 +168,15 @@ class CombineTests(unittest.TestCase):
         # 左上角是背景色：浅色明显亮于深色
         self.assertGreater(float(light[0, 0, 0, 0]), float(dark[0, 0, 0, 0]))
 
+    def test_font_size_zero_hides_text(self):
+        # font_size=0 不显示文字，也不留字距 → 比有文字时更矮，且正常出图
+        with_text = self._combine(font_size=[20])
+        no_text = self._combine(font_size=[0])
+        self.assertLess(no_text.shape[1], with_text.shape[1])
+        self.assertEqual(no_text.shape[0], 1)
+        self.assertEqual(no_text.shape[1] % 2, 0)
+        self.assertEqual(no_text.shape[2] % 2, 0)
+
     def test_batch_frames_have_uniform_shape(self):
         # 多帧 batch 逐帧输出，每帧一条横向卷轴，宽高统一且为偶数
         out = self._combine(image1=[_solid((220, 80, 80), frames=3)])
@@ -205,7 +214,10 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(optional["image_list"][0], "IMAGE")
         self.assertEqual(required["color_theme"][0], ["light", "dark"])
         self.assertTrue(len(required["font_file"][0]) >= 1)
-        self.assertEqual(required["reel_height"][1]["default"], 512)
+        self.assertEqual(required["reel_height"][1]["default"], 1024)
+        self.assertEqual(required["border"][1]["default"], 24)
+        self.assertEqual(required["font_size"][1]["default"], 42)
+        self.assertEqual(required["font_size"][1]["min"], 0)
 
     def test_display_name(self):
         self.assertEqual(
