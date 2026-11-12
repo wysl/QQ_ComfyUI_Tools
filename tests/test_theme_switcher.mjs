@@ -7,7 +7,7 @@ const source = (await fs.readFile(new URL("../web/theme_switcher.js", import.met
     .replaceAll("import.meta.url", '"https://example.test/extensions/QQ_ComfyUI_Tools/theme_switcher.js"');
 const palette = JSON.parse(await fs.readFile(new URL("../web/recycled_paper.json", import.meta.url), "utf8"));
 assert.equal(palette.id, "qq-recycled-paper");
-assert.equal(palette.colors.litegraph_base.CLEAR_BACKGROUND_COLOR, "#e7dfcf");
+assert.equal(palette.colors.litegraph_base.CLEAR_BACKGROUND_COLOR, "#d8d5c8");
 const grid = decodeURIComponent(palette.colors.litegraph_base.BACKGROUND_IMAGE);
 assert.ok(grid.startsWith("data:image/svg+xml,"));
 assert.ok(grid.includes("width='100' height='100'"));
