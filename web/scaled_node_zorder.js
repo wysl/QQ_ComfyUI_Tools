@@ -62,6 +62,44 @@ function installGuards() {
     guardBringToFront(nodeProto, "bringToFront");
 }
 
+// ---- Nodes 2.0（Vue）：层级由 DOM z-index 决定，与 graph._nodes 顺序无关 ----
+// 只把缩放节点的 z-index 压到所有未缩放节点之下，未缩放节点保持 Vue 默认行为。
+function applyVueZOrder() {
+    if (!enabled) return;
+    const graph = app.graph;
+    if (!graph || typeof document.querySelectorAll !== "function") return;
+    const els = [...document.querySelectorAll(".lg-node")];
+    if (!els.length) return;
+    const items = els
+        .map((el) => ({ el, node: graph.getNodeById(Number(el.dataset.nodeId)) }))
+        .filter((x) => x.node);
+    const scaled = items.filter((x) => isScaled(x.node));
+    if (!scaled.length) return;
+    const unscaledZ = items.filter((x) => !isScaled(x.node))
+        .map((x) => Number(getComputedStyle(x.el).zIndex) || 0);
+    const minUnscaled = unscaledZ.length ? Math.min(...unscaledZ) : 1000;
+    scaled.sort((a, b) => scaleOf(a.node) - scaleOf(b.node));
+    const base = Math.max(0, minUnscaled - scaled.length - 1);
+    scaled.forEach((x, i) => {
+        const z = String(base + i);
+        if (x.el.style.zIndex !== z) x.el.style.zIndex = z;
+    });
+}
+
+let vueObserver = null;
+let vueRaf = 0;
+function scheduleVue() {
+    if (vueRaf || typeof requestAnimationFrame !== "function") return;
+    vueRaf = requestAnimationFrame(() => { vueRaf = 0; applyVueZOrder(); });
+}
+function installVueObserver() {
+    if (vueObserver || typeof MutationObserver !== "function") return;
+    vueObserver = new MutationObserver(scheduleVue);
+    vueObserver.observe(document.body, {
+        subtree: true, childList: true, attributes: true, attributeFilter: ["style", "class"],
+    });
+}
+
 app.registerExtension({
     name: "QQ.ScaledNodeZOrder",
     settings: [
@@ -74,7 +112,11 @@ app.registerExtension({
             defaultValue: true,
             onChange(value) {
                 enabled = Boolean(value);
-                if (enabled) restack(app.graph);
+                if (enabled) {
+                    restack(app.graph);
+                    installVueObserver();
+                    scheduleVue();
+                }
             },
         },
     ],
@@ -85,15 +127,22 @@ app.registerExtension({
             enabled = true;
         }
         installGuards();
+        installVueObserver();
         restack(app.graph);
+        scheduleVue();
     },
     afterConfigureGraph() {
         installGuards();
+        installVueObserver();
         restack(app.graph);
+        scheduleVue();
     },
     loadedGraphNode(node) {
         clearTimeout(globalThis.__qqScaledRestackTimer);
-        globalThis.__qqScaledRestackTimer = setTimeout(() => restack(app.graph), 0);
+        globalThis.__qqScaledRestackTimer = setTimeout(() => {
+            restack(app.graph);
+            scheduleVue();
+        }, 0);
         return node;
     },
 });
