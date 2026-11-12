@@ -133,6 +133,19 @@ class CombineTests(unittest.TestCase):
             )[0]
         self.assertEqual(out.shape[0], 0)
 
+    def test_list_only_without_image1(self):
+        # 只接 image_list、不接 image1 也要能出图（image1 已改为可选）
+        with patch.object(self.mod, "_font_dict", return_value={"default": ""}):
+            out = self.mod.QQImageReelCombine().combine(
+                image1=None,
+                image_list=[_solid((1, 2, 3)), _solid((4, 5, 6))],
+                reel_height=[64], border=[8], font_size=[12],
+                font_file=["default"], color_theme=["light"],
+            )[0]
+        self.assertEqual(out.shape[0], 1)
+        self.assertGreater(out.shape[1], 0)
+        self.assertEqual(out.shape[1] % 2, 0)
+
     def test_theme_changes_background(self):
         light = self._combine(color_theme=["light"])
         dark = self._combine(color_theme=["dark"])
@@ -166,11 +179,13 @@ class ContractTests(unittest.TestCase):
         with patch.object(self.mod, "_font_dict", return_value={"default": ""}):
             inputs = self.mod.QQImageReelCombine.INPUT_TYPES()
         required = inputs["required"]
-        for key in ("image1", "image1_text", "image2_text", "image3_text", "image4_text",
+        for key in ("image1_text", "image2_text", "image3_text", "image4_text",
                     "reel_height", "border", "font_file", "font_size", "color_theme"):
             self.assertIn(key, required)
+        # image1 可选：只接 image_list 也能跑
+        self.assertNotIn("image1", required)
         optional = inputs["optional"]
-        for key in ("image2", "image3", "image4", "image_list"):
+        for key in ("image1", "image2", "image3", "image4", "image_list"):
             self.assertIn(key, optional)
         self.assertEqual(optional["image_list"][0], "IMAGE")
         self.assertEqual(required["color_theme"][0], ["light", "dark"])
