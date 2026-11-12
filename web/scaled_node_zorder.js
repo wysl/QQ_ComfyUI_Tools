@@ -62,8 +62,18 @@ function installGuards() {
     guardBringToFront(nodeProto, "bringToFront");
 }
 
-// ---- Nodes 2.0（Vue）：层级由 DOM z-index 决定，与 graph._nodes 顺序无关 ----
-// 只把缩放节点的 z-index 压到所有未缩放节点之下，未缩放节点保持 Vue 默认行为。
+// ---- Nodes 2.0（Vue）：层级由布局 store 的 z-index 决定，Vue 每次渲染都会写回，
+// 直接改 inline style.zIndex 会被覆盖。改用「data 属性 + CSS 变量 + !important」：
+// Vue 不管理 data-qq-scaled / --qq-z，故能稳定压住缩放节点到未缩放之下。
+const VUE_CSS_ID = "qq-scaled-zorder-css";
+function installVueCSS() {
+    if (document.getElementById(VUE_CSS_ID)) return;
+    const style = document.createElement("style");
+    style.id = VUE_CSS_ID;
+    style.textContent = ".lg-node[data-qq-scaled]{z-index:var(--qq-z,0)!important}";
+    document.head.append(style);
+}
+
 function applyVueZOrder() {
     if (!enabled) return;
     const graph = app.graph;
@@ -74,6 +84,13 @@ function applyVueZOrder() {
         .map((el) => ({ el, node: graph.getNodeById(Number(el.dataset.nodeId)) }))
         .filter((x) => x.node);
     const scaled = items.filter((x) => isScaled(x.node));
+    // 未缩放节点清除标记，恢复 Vue 默认层级
+    for (const x of items) {
+        if (!isScaled(x.node) && x.el.hasAttribute("data-qq-scaled")) {
+            x.el.removeAttribute("data-qq-scaled");
+            x.el.style.removeProperty("--qq-z");
+        }
+    }
     if (!scaled.length) return;
     const unscaledZ = items.filter((x) => !isScaled(x.node))
         .map((x) => Number(getComputedStyle(x.el).zIndex) || 0);
@@ -81,8 +98,8 @@ function applyVueZOrder() {
     scaled.sort((a, b) => scaleOf(a.node) - scaleOf(b.node));
     const base = Math.max(0, minUnscaled - scaled.length - 1);
     scaled.forEach((x, i) => {
-        const z = String(base + i);
-        if (x.el.style.zIndex !== z) x.el.style.zIndex = z;
+        x.el.setAttribute("data-qq-scaled", "1");
+        x.el.style.setProperty("--qq-z", String(base + i));
     });
 }
 
@@ -114,6 +131,7 @@ app.registerExtension({
                 enabled = Boolean(value);
                 if (enabled) {
                     restack(app.graph);
+                    installVueCSS();
                     installVueObserver();
                     scheduleVue();
                 }
@@ -127,12 +145,14 @@ app.registerExtension({
             enabled = true;
         }
         installGuards();
+        installVueCSS();
         installVueObserver();
         restack(app.graph);
         scheduleVue();
     },
     afterConfigureGraph() {
         installGuards();
+        installVueCSS();
         installVueObserver();
         restack(app.graph);
         scheduleVue();

@@ -17,7 +17,22 @@ function makeContext() {
         { id: 2, scale: 0.5 },
         { id: 3, scale: 0.3 },
     ];
-    const els = nodes.map((n) => ({ dataset: { nodeId: String(n.id) }, style: {}, _z: "11" }));
+    const els = nodes.map((n) => {
+        const attrs = {}; const props = {};
+        return {
+            dataset: { nodeId: String(n.id) },
+            style: {
+                setProperty: (k, v) => { props[k] = String(v); },
+                removeProperty: (k) => { delete props[k]; },
+                getPropertyValue: (k) => props[k] || "",
+            },
+            setAttribute: (k, v) => { attrs[k] = String(v); },
+            getAttribute: (k) => attrs[k] ?? null,
+            hasAttribute: (k) => k in attrs,
+            removeAttribute: (k) => { delete attrs[k]; },
+            _z: "11",
+        };
+    });
     const graph = {
         _nodes: [...nodes],
         getNodeById: (id) => nodes.find((n) => n.id === id) || null,
@@ -30,6 +45,9 @@ function makeContext() {
     };
     const document = {
         querySelectorAll: (sel) => (sel === ".lg-node" ? els : []),
+        getElementById: () => null,
+        createElement: () => ({ id: "", textContent: "" }),
+        head: { append() {} },
         body: {},
     };
     const sandbox = {
@@ -52,15 +70,18 @@ function makeContext() {
     assert.deepEqual(graph._nodes.map((n) => n.id), [3, 2, 1], "scaled sorted below unscaled, smaller scale lower");
 }
 
-// 2.0：缩放节点 DOM z-index 低于所有未缩放节点
+// 2.0：缩放节点带 data-qq-scaled + 低 --qq-z（CSS !important 压住 Vue），未缩放无标记
 {
     const { ext, els } = makeContext();
     ext.setup();
     const [normal, scaledHalf, scaledThird] = els;
-    assert.equal(normal.style.zIndex, undefined, "unscaled left untouched");
-    assert.ok(Number(scaledHalf.style.zIndex) < 11, "scaled 0.5 below unscaled");
-    assert.ok(Number(scaledThird.style.zIndex) < 11, "scaled 0.3 below unscaled");
-    assert.ok(Number(scaledThird.style.zIndex) < Number(scaledHalf.style.zIndex), "smaller scale lower");
+    assert.ok(!normal.hasAttribute("data-qq-scaled"), "unscaled left untouched");
+    assert.equal(scaledHalf.getAttribute("data-qq-scaled"), "1");
+    assert.equal(scaledThird.getAttribute("data-qq-scaled"), "1");
+    const zHalf = Number(scaledHalf.style.getPropertyValue("--qq-z"));
+    const zThird = Number(scaledThird.style.getPropertyValue("--qq-z"));
+    assert.ok(zHalf < 11 && zThird < 11, "scaled below unscaled");
+    assert.ok(zThird < zHalf, "smaller scale lower");
 }
 
 // 设置默认开启、可切换
