@@ -43,19 +43,20 @@ const CSS = `
   border-radius:6px;overflow:hidden;font:12px/1.35 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
 .qq-lora *{box-sizing:border-box}
 .qq-lora-groups{display:flex;flex-wrap:wrap;align-items:center;gap:4px;flex:0 0 auto}
-.qq-lora-chip{display:flex;align-items:center;gap:3px;height:22px;padding:0 7px;border-radius:12px;
+.qq-lora-chip{position:relative;display:flex;align-items:center;justify-content:center;height:22px;padding:0 16px;border-radius:4px;
   border:1px solid var(--border-color,#39404d);background:var(--comfy-input-bg,#12141a);
   color:inherit;font:inherit;cursor:pointer;max-width:132px}
-.qq-lora-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qq-lora-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
 .qq-lora-chip:hover{border-color:#4f8cff}
 .qq-lora-chip[data-on="1"]{border-color:#4f8cff;color:#8fb9d9;background:rgba(79,140,255,.14)}
 /* 由「生效分组」下拉指定的组：描边提示，和面板当前组区分 */
 .qq-lora-chip[data-eff="1"]{box-shadow:inset 0 0 0 1px rgba(143,185,217,.85)}
-.qq-lora-chip .qq-lora-del{flex:0 0 auto;width:14px;height:14px;line-height:12px;padding:0;
+/* 删除键悬浮在右端，不占布局，保证组名始终居中 */
+.qq-lora-chip .qq-lora-del{position:absolute;right:2px;top:50%;transform:translateY(-50%);width:14px;height:14px;line-height:12px;padding:0;
   border:0;border-radius:7px;background:transparent;color:inherit;cursor:pointer;opacity:0;font-size:12px}
 .qq-lora-chip:hover .qq-lora-del{opacity:.6}
 .qq-lora-chip .qq-lora-del:hover{opacity:1;background:rgba(255,255,255,.12)}
-.qq-lora-chip input{width:96px;height:18px;padding:0 4px;border-radius:6px;font:inherit;
+.qq-lora-chip input{width:96px;height:18px;padding:0 4px;border-radius:4px;font:inherit;
   border:1px solid #4f8cff;background:var(--comfy-input-bg,#12141a);color:inherit}
 .qq-lora-add{height:22px;padding:0 9px;border-radius:12px;border:1px dashed var(--border-color,#39404d);
   background:transparent;color:var(--descrip-text,#96a0b0);font:inherit;cursor:pointer}
