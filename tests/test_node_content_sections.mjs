@@ -15,6 +15,7 @@ const source = (await fs.readFile(new URL("../web/node_content_sections.js", imp
 assert.ok(source.includes(".lg-node textarea"), "targets the prompt textarea");
 assert.ok(source.includes("border:1px solid var(--border-color"), "gives the text block a clear boundary");
 assert.ok(source.includes(":has(textarea)"), "separates the text block from following params");
+assert.ok(!source.includes("border-bottom"), "no divider line (user removed it)");
 assert.ok(source.includes("row-gap:6px"), "relaxes widget row rhythm");
 assert.ok(!source.includes("MutationObserver"), "must not move Vue-managed DOM");
 

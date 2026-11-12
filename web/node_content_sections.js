@@ -18,11 +18,10 @@ const CSS = `
 .lg-node textarea{
   border:1px solid var(--border-color,#b3ad9c);
 }
-/* 文本块与后续参数控件之间加细分隔，区分内容类型 */
+/* 文本块与后续参数控件之间留白分隔（不画分隔线） */
 .lg-node-widget:has(textarea){
   padding-bottom:8px;
   margin-bottom:2px;
-  border-bottom:1px solid var(--border-color,#b3ad9c);
 }
 /* 参数行节奏放宽，控件分界更清晰 */
 .lg-node-widgets{
