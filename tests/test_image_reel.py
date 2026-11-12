@@ -85,6 +85,21 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(self.mod._first(None, 9), 9)
         self.assertEqual(self.mod._first(5, 0), 5)
 
+    def test_labels_apply_positionally_to_list_images(self):
+        a, b, c, d, e = (object() for _ in range(5))
+        labels = ["111", "222", "image3", "image4"]
+        # 只接列表：第 1 张用 image1_text，第 2 张用 image2_text
+        pairs = self.mod._labelled_images([None, None, None, None], [a, b], labels)
+        self.assertEqual([lab for _, lab in pairs], ["111", "222"])
+        # image1 + 列表混合：按顺序对应 text
+        pairs2 = self.mod._labelled_images([a, None, None, None], [b, c], ["T1", "T2", "T3", "T4"])
+        self.assertEqual([lab for _, lab in pairs2], ["T1", "T2", "T3"])
+        # 超过 4 张自动编号
+        pairs3 = self.mod._labelled_images([None] * 4, [a, b, c, d, e], ["1", "2", "3", "4"])
+        self.assertEqual([lab for _, lab in pairs3], ["1", "2", "3", "4", "图 5"])
+        # 空输入返回空
+        self.assertEqual(self.mod._labelled_images([None] * 4, [], labels), [])
+
 
 class CombineTests(unittest.TestCase):
     @classmethod
