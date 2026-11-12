@@ -320,7 +320,7 @@ class FrontendWiringTests(unittest.TestCase):
         # 标题栏整行都不要（既无提示也无「Lora 分组」标题）
         self.assertNotIn("qq-lora-hint", source)
         self.assertNotIn("qq-lora-title", source)
-        self.assertIn("root.append(groups, rows, foot);", source)
+        self.assertIn("root.append(groups, rows, addBar, foot);", source)
         # 输入口 model 与输出口 模型 统一显示
         self.assertIn('modelInput.label = "模型";', source)
 

@@ -10,7 +10,7 @@ import { app } from "../../scripts/app.js";
 //
 // 面板结构：分组条（点击切换 / 双击改名 / ×删除 / 右键复制 / +新增）→ 当前分组的
 // LoRA 列表（左侧勾选框=本次是否参与叠加，名称点开目录树选择，强度可微调，行可拖动排序、
-// 右键换组）→ 底部状态。鼠标停在 LoRA 上会弹出缩略图。
+// 右键换组/删除）→ 固定的「+ 添加 Lora」→ 底部状态。鼠标停在 LoRA 上会弹出缩略图。
 
 const NODE_TYPE = "QQLoraGroupLoader";
 const DATA_WIDGET = "分组数据";
@@ -60,6 +60,14 @@ const CSS = `
 .qq-lora-add{height:22px;padding:0 9px;border-radius:12px;border:1px dashed var(--border-color,#39404d);
   background:transparent;color:var(--descrip-text,#96a0b0);font:inherit;cursor:pointer}
 .qq-lora-add:hover{border-color:#4f8cff;color:#8fb9d9}
+.qq-lora-add:disabled{opacity:.45;cursor:default}
+.qq-lora-add:disabled:hover{border-color:var(--border-color,#39404d);color:var(--descrip-text,#96a0b0)}
+/* 分组条上的新建：和垃圾桶一样的 22px 虚线方块，窄节点里不挤占第二行 */
+.qq-lora-add-group{flex:0 0 22px;width:22px;height:22px;padding:0;border-radius:4px;display:grid;place-items:center}
+.qq-lora-add-group svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+/* 添加 Lora 固定在列表下方，不随列表滚动 */
+.qq-lora-addbar{flex:0 0 auto;display:flex}
+.qq-lora-add-lora{flex:1 1 auto;height:24px;border-radius:4px}
 .qq-lora-rows{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:4px;padding:2px 0}
 .qq-lora-row{display:flex;align-items:center;gap:5px;height:${ROW_HEIGHT_PX - 4}px;flex:0 0 auto}
 .qq-lora-row.is-dragging{opacity:.45}
@@ -148,6 +156,7 @@ const CSS = `
   color:inherit;font:inherit;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qq-lora-menu button:hover{background:rgba(79,140,255,.24)}
 .qq-lora-menu .qq-lora-menu-title{padding:2px 8px 4px;color:var(--descrip-text,#96a0b0);font-size:11px}
+.qq-lora-menu-sep{height:1px;margin:4px 6px;background:var(--border-color,#39404d)}
 /* 缩略图预览 */
 .qq-lora-preview{position:fixed;z-index:11200;padding:3px;border-radius:6px;
   border:1px solid var(--p-primary-color,#85a8c4);background:var(--comfy-menu-bg,#25292d);
@@ -158,6 +167,12 @@ const CSS = `
   color:var(--descrip-text,#96a0b0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 停用时把可编辑区压暗，状态一眼可见 */
 .qq-lora.is-off .qq-lora-groups,.qq-lora.is-off .qq-lora-rows{opacity:.5}
+/* 滚动条用面板自己的配色，别露出浏览器默认的亮灰 */
+.qq-lora-rows,.qq-lora-pop-list,.qq-lora-menu{scrollbar-width:thin;scrollbar-color:#39404d transparent}
+.qq-lora-rows::-webkit-scrollbar,.qq-lora-pop-list::-webkit-scrollbar,.qq-lora-menu::-webkit-scrollbar{width:6px}
+.qq-lora-rows::-webkit-scrollbar-track,.qq-lora-pop-list::-webkit-scrollbar-track,.qq-lora-menu::-webkit-scrollbar-track{background:transparent}
+.qq-lora-rows::-webkit-scrollbar-thumb,.qq-lora-pop-list::-webkit-scrollbar-thumb,.qq-lora-menu::-webkit-scrollbar-thumb{background:#39404d;border-radius:3px}
+.qq-lora-rows::-webkit-scrollbar-thumb:hover,.qq-lora-pop-list::-webkit-scrollbar-thumb:hover,.qq-lora-menu::-webkit-scrollbar-thumb:hover{background:#4f8cff}
 `;
 
 function injectCSS() {
@@ -581,6 +596,26 @@ function setup(node) {
     const rows = document.createElement("div");
     rows.className = "qq-lora-rows";
 
+    // 「+ 添加 Lora」固定在列表外：行再多也不用滚到底才能加
+    const addBar = document.createElement("div");
+    addBar.className = "qq-lora-addbar";
+    const addLora = document.createElement("button");
+    addLora.type = "button";
+    addLora.className = "qq-lora-add qq-lora-add-lora";
+    addLora.textContent = "+ 添加 Lora";
+    addLora.title = "在当前分组末尾新增一条 LoRA";
+    addLora.addEventListener("click", () => {
+        const next = readData(node);
+        const target = activeGroup(next);
+        if (!target) return;
+        target.loras.push({ name: "", strength: 1, off: false });
+        writeData(node, next);
+        render();
+        const buttons = rows.querySelectorAll(".qq-lora-row .qq-lora-combo-btn");
+        buttons[buttons.length - 1]?.click();
+    });
+    addBar.append(addLora);
+
     const foot = document.createElement("div");
     foot.className = "qq-lora-foot";
     const footText = document.createElement("span");
@@ -594,7 +629,7 @@ function setup(node) {
         + '</svg>';
     foot.append(footText, trash);
 
-    root.append(groups, rows, foot);
+    root.append(groups, rows, addBar, foot);
 
     const gallery = node.addDOMWidget("qq_lora_groups", "qq_lora_groups", root, {
         serialize: false,
@@ -759,9 +794,10 @@ function setup(node) {
 
         const add = document.createElement("button");
         add.type = "button";
-        add.className = "qq-lora-add";
-        add.textContent = "+ 分组";
+        add.className = "qq-lora-add qq-lora-add-group";
         add.title = "新增一个分组并立即改名";
+        add.setAttribute("aria-label", "新增分组");
+        add.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
         add.addEventListener("click", () => {
             const next = readData(node);
             const name = uniqueGroupName(next, `分组 ${next.groups.length + 1}`);
@@ -781,31 +817,13 @@ function setup(node) {
             empty.className = "qq-lora-empty";
             empty.innerHTML = data.groups.length
                 ? "这一组还没有 Lora。<br>点下面的「+ 添加 Lora」开始挑。"
-                : "还没有分组，先点「+ 分组」建一个。";
+                : "还没有分组，点分组条上的 + 建一个。";
             rows.append(empty);
         } else {
             group.loras.forEach((lora, index) => rows.append(loraRow(group, index, lora)));
         }
 
-        const addRow = document.createElement("div");
-        addRow.className = "qq-lora-row";
-        const addLora = document.createElement("button");
-        addLora.type = "button";
-        addLora.className = "qq-lora-add";
-        addLora.textContent = "+ 添加 Lora";
         addLora.disabled = !data.groups.length;
-        addLora.addEventListener("click", () => {
-            const next = readData(node);
-            const target = activeGroup(next);
-            if (!target) return;
-            target.loras.push({ name: "", strength: 1, off: false });
-            writeData(node, next);
-            render();
-            const buttons = rows.querySelectorAll(".qq-lora-row .qq-lora-combo-btn");
-            buttons[buttons.length - 1]?.click();
-        });
-        addRow.append(addLora);
-        rows.append(addRow);
 
         // 底部说明
         const chosen = String(widgetOf(node, GROUP_WIDGET)?.value ?? FOLLOW_PANEL);
@@ -816,15 +834,20 @@ function setup(node) {
                 : data.groups.find((entry) => entry.name === chosen) || group);
         if (effective) {
             const activeCount = effective.loras.filter((entry) => entry.name && !entry.off).length;
-            footText.textContent = enabled
-                ? (activeCount
-                    ? `当前生效：${effective.name} · ${activeCount} 个 Lora（按顺序叠加）`
-                    : `当前生效：${effective.name} · 这一组为空，不会改变模型`)
-                : `已停用：模型原样透传（当前分组 ${effective.name}）`;
+            if (!enabled) {
+                footText.textContent = "已停用 · 模型原样透传";
+                footText.title = `已停用：模型原样透传（当前分组 ${effective.name}）`;
+            } else if (activeCount) {
+                footText.textContent = `生效：${effective.name} · ${activeCount} 个 LoRA`;
+                footText.title = `当前生效：${effective.name}，${activeCount} 个 LoRA 按列表顺序依次叠加`;
+            } else {
+                footText.textContent = `生效：${effective.name} · 空组`;
+                footText.title = `当前生效：${effective.name}，这一组为空，不会改变模型`;
+            }
         } else {
-            footText.textContent = enabled ? "没有分组，模型原样透传" : "已停用";
+            footText.textContent = enabled ? "没有分组 · 原样透传" : "已停用";
+            footText.title = footText.textContent;
         }
-        footText.title = footText.textContent;
     }
 
     function loraRow(group, index, lora) {
@@ -1032,30 +1055,32 @@ function setup(node) {
     function openRowMenu(event, index, lora) {
         closeLoraMenu(node);
         const data = readData(node);
-        if (data.groups.length <= 1) {
-            toast("只有一个分组，先加一个再移动");
-            return;
-        }
         const menu = document.createElement("div");
         menu.className = "qq-lora-menu";
         const title = document.createElement("div");
         title.className = "qq-lora-menu-title";
         title.textContent = `「${lora.name || "未命名"}」`;
         menu.append(title);
-        data.groups.forEach((target, targetIndex) => {
-            if (targetIndex === data.active) return;
-            const button = document.createElement("button");
-            button.type = "button";
-            button.textContent = target.name;
-            button.addEventListener("click", () => {
-                closeLoraMenu(node);
-                const next = readData(node);
-                moveLoraToGroup(next, data.active, index, targetIndex);
-                writeData(node, next);
-                render();
+        // 只有一组时没有「移到分组」，但删除始终可用
+        if (data.groups.length > 1) {
+            data.groups.forEach((target, targetIndex) => {
+                if (targetIndex === data.active) return;
+                const button = document.createElement("button");
+                button.type = "button";
+                button.textContent = target.name;
+                button.addEventListener("click", () => {
+                    closeLoraMenu(node);
+                    const next = readData(node);
+                    moveLoraToGroup(next, data.active, index, targetIndex);
+                    writeData(node, next);
+                    render();
+                });
+                menu.append(button);
             });
-            menu.append(button);
-        });
+            const sep = document.createElement("div");
+            sep.className = "qq-lora-menu-sep";
+            menu.append(sep);
+        }
         const remove = document.createElement("button");
         remove.type = "button";
         remove.textContent = "删除这一条";
