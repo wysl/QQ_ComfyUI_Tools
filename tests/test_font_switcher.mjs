@@ -50,6 +50,8 @@ const setting = (ext, id) => ext.settings.find((x) => x.id === id);
     assert.equal(mono.defaultValue, "默认（当前）");
     assert.ok(ui.options.includes("霞鹜文楷"));
     assert.ok(mono.options.includes("霞鹜文楷"));
+    // 前端 buildTree 一个 category 叶子只存一条设置，路径相同会互相覆盖。
+    assert.notDeepEqual(ui.category, mono.category);
 }
 
 // 默认：注入 wenkai face，但无界面/等宽覆盖，画布字体不变

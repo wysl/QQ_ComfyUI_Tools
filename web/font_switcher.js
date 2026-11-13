@@ -101,7 +101,9 @@ app.registerExtension({
     settings: [
         {
             id: SETTING_ID,
-            category: ["QQ", "外观", "字体"],
+            // 注意：前端 buildTree 以完整 category 路径为节点键，一个叶子只存一条
+            // 设置（后注册者覆盖）。两条字体设置必须各自占用唯一叶子，故加第 4 级。
+            category: ["QQ", "外观", "字体", "界面字体"],
             name: "界面字体",
             tooltip: "选择界面字体；默认（当前）保持现有字体。霞鹜文楷需本机已安装该字体。等宽区域由「代码/等宽字体」单独控制。",
             type: "combo",
@@ -113,7 +115,7 @@ app.registerExtension({
         },
         {
             id: MONO_SETTING_ID,
-            category: ["QQ", "外观", "字体"],
+            category: ["QQ", "外观", "字体", "代码/等宽字体"],
             name: "代码/等宽字体",
             tooltip: "单独覆盖提示词文本框、代码等等宽区域的字体；默认（当前）保持 ui-monospace。",
             type: "combo",
