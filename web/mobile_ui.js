@@ -17,6 +17,24 @@ const BUTTON_TOOLTIP = "打开手机界面（竖屏，仅显示提升参数）";
 const TEMPLATE_ENDPOINT = "/qq_mobile/template";
 const MOBILE_PAGE = "/qq_mobile/";
 
+// 工具栏 actionBar 的 <i> 只认 class，不解析 iconify，故用自定义 class + CSS mask
+// 内联一个 3:4 竖屏手机 SVG（viewBox 24×32、渲染 12×16），随工具栏墨色自适应。
+const MOBILE_ICON_CLASS = "qq-mobile-action-icon";
+const MOBILE_ICON_SVG = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 32' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><rect x='4' y='2.5' width='16' height='27' rx='3.5'/><path d='M10 6.5h4'/><path d='M10.5 25.5h3'/></svg>`;
+
+function installMobileIconCSS() {
+    if (document.getElementById("qq-mobile-action-icon-css")) return;
+    const url = `data:image/svg+xml,${encodeURIComponent(MOBILE_ICON_SVG)}`;
+    const style = document.createElement("style");
+    style.id = "qq-mobile-action-icon-css";
+    style.textContent = `.${MOBILE_ICON_CLASS}{display:inline-block;width:12px;height:16px;`
+        + `background-color:currentColor;`
+        + `-webkit-mask-image:url("${url}");mask-image:url("${url}");`
+        + `-webkit-mask-size:100% 100%;mask-size:100% 100%;`
+        + `-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;}`;
+    document.head.append(style);
+}
+
 /** Frontend virtual node whose values win over subgraph promoted inputs. */
 const MULTI_PRIMITIVE_TYPE = "QQ-多值输入";
 const MULTI_PRIMITIVE_LEGACY = "QQMultiPrimitive";
@@ -1248,6 +1266,11 @@ function register(opts) {
 
 const core = {
     async setup() {
+        try {
+            installMobileIconCSS();
+        } catch (error) {
+            console.warn("[QQ Mobile] icon css unavailable:", error);
+        }
         // Keep the phone's copy of the form current as the canvas changes.
         try {
             startTemplateWatcher();
@@ -1271,9 +1294,9 @@ const core = {
     ],
     actionBarButtons: [
         {
-            // 单一入口：交给框架渲染，图标用与其它工具栏按钮一致的 iconify 类，
-            // 不再手动插按钮（风格不符）也不再用无效图标类（隐形重复按钮）。
-            icon: "icon-[lucide--smartphone]",
+            // 单一入口：框架渲染，图标用自定义 class + CSS mask 内联 3:4 竖屏手机
+            // SVG（actionBar 的 <i> 不解析 iconify，用 lucide 类会不显示）。
+            icon: MOBILE_ICON_CLASS,
             tooltip: BUTTON_TOOLTIP,
             onClick: () => openMobile({}),
         },

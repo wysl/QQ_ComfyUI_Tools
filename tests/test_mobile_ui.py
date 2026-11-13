@@ -2108,20 +2108,21 @@ class ExtensionRegistrationTests(unittest.TestCase):
     def setUp(self):
         self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
 
-    def test_single_mobile_button_uses_toolbar_icon_style(self):
-        """One entry only, rendered by the framework with a toolbar-style icon.
+    def test_single_mobile_button_uses_3x4_svg_icon(self):
+        """One framework-rendered entry with a visible 3:4 portrait-phone SVG.
 
-        Previously a manual SVG button (mismatched style) plus an actionBar
-        button with an invalid icon class (invisible) both appeared. Now a
-        single actionBarButtons entry uses a valid iconify class so it renders
-        visibly and consistently with the other toolbar icons.
+        The actionBar <i> only honors a class (not iconify), so the icon is a
+        custom class backed by a CSS mask of an inline 3:4 SVG (24x32 viewBox,
+        rendered 12x16). No manual button and no invalid/invisible icon class.
         """
         self.assertIn("actionBarButtons", self.js)
-        self.assertIn('icon: "icon-[lucide--smartphone]"', self.js)
+        self.assertIn("icon: MOBILE_ICON_CLASS", self.js)
+        self.assertIn("viewBox='0 0 24 32'", self.js)
+        self.assertIn("width:12px;height:16px", self.js)
+        self.assertIn("mask-image", self.js)
         self.assertNotIn("const createButton", self.js)
         self.assertNotIn("const attachButton", self.js)
-        self.assertNotIn("qq-mobile-icon", self.js)
-        self.assertNotIn("ICON_SVG", self.js)
+        self.assertNotIn('icon: "qq-mobile-icon"', self.js)
 
     def test_no_manual_duplicate_toolbar_button(self):
         """The button is framework-rendered; we no longer inject our own element."""
