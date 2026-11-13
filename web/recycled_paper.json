@@ -14,7 +14,7 @@
       "NODE_DEFAULT_BGCOLOR": "#e9e6db",
       "NODE_DEFAULT_BOXCOLOR": "#5f7d63",
       "NODE_BOX_OUTLINE_COLOR": "#587a6c",
-      "WIDGET_BGCOLOR": "#e3dfd0",
+      "WIDGET_BGCOLOR": "#BFC096",
       "WIDGET_OUTLINE_COLOR": "#b3ad9c",
       "WIDGET_TEXT_COLOR": "#33302a",
       "WIDGET_SECONDARY_TEXT_COLOR": "#6b675e",
@@ -25,7 +25,7 @@
       "bg-color": "#d8d5c8",
       "comfy-menu-bg": "#e9e6db",
       "comfy-menu-secondary-bg": "#e0dccd",
-      "comfy-input-bg": "#e6e2d5",
+      "comfy-input-bg": "#d9d7c1",
       "input-text": "#33302a",
       "descrip-text": "#6b675e",
       "drag-text": "#5f7d63",
@@ -45,6 +45,8 @@
       "interface-button-hover-surface": "#cfdcc9"
     },
     "theme": {
+      "input": "#BFC096",
+      "muted": "#BECAB7",
       "primary": "#4b86b4",
       "primary-foreground": "#f2efe6",
       "ring": "#4b86b4",
