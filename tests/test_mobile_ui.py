@@ -2108,32 +2108,25 @@ class ExtensionRegistrationTests(unittest.TestCase):
     def setUp(self):
         self.js = (_MODULES_DIR.parent / "web" / "mobile_ui.js").read_text(encoding="utf-8")
 
-    def test_toolbar_button_draws_its_own_icon(self):
-        """The bundled Material font is a subset: a missing glyph is a box.
+    def test_single_mobile_button_uses_toolbar_icon_style(self):
+        """One entry only, rendered by the framework with a toolbar-style icon.
 
-        `mdi-cellphone` had a CSS rule but no glyph in the font file, so the
-        button rendered as a hollow square. The icon is an inline SVG now and
-        no longer depends on which glyphs shipped.
+        Previously a manual SVG button (mismatched style) plus an actionBar
+        button with an invalid icon class (invisible) both appeared. Now a
+        single actionBarButtons entry uses a valid iconify class so it renders
+        visibly and consistently with the other toolbar icons.
         """
-        self.assertIn("const ICON_SVG = `", self.js)
-        self.assertIn("<rect x=\"7\" y=\"2.6\"", self.js)
-        self.assertIn("button.innerHTML = ICON_SVG", self.js)
-        # No webfont icon option anywhere: it becomes an <i> only a font fills.
-        block = self.js.split("const createButton = () => {")[1].split("\n};")[0]
-        self.assertNotIn("icon:", block)
+        self.assertIn("actionBarButtons", self.js)
+        self.assertIn('icon: "icon-[lucide--smartphone]"', self.js)
+        self.assertNotIn("const createButton", self.js)
+        self.assertNotIn("const attachButton", self.js)
+        self.assertNotIn("qq-mobile-icon", self.js)
+        self.assertNotIn("ICON_SVG", self.js)
 
-    def test_the_button_is_ours_not_the_frameworks(self):
-        """ComfyButton returns a wrapper whose <button> is framework-rendered.
-
-        Children added from outside were wiped on mount (icon 0×0, or appended
-        to a neighbouring button), so the button is a plain element we own that
-        borrows the toolbar's classes.
-        """
-        block = self.js.split("const createButton = () => {")[1].split("\n};")[0]
-        self.assertIn('createElement("button")', block)
-        self.assertIn("comfyui-button", block)
-        self.assertIn("background: \"transparent\"", block)
-        self.assertNotIn("ComfyButton", block)
+    def test_no_manual_duplicate_toolbar_button(self):
+        """The button is framework-rendered; we no longer inject our own element."""
+        self.assertNotIn("settingsGroup.element.before", self.js)
+        self.assertNotIn("BUTTON_GROUP_CLASS", self.js)
         self.assertNotIn("MutationObserver", self.js)
 
     def test_shortcut_does_not_collide_with_the_builtin_minimap_toggle(self):
@@ -2275,7 +2268,7 @@ class ReachabilityTests(unittest.TestCase):
         self.assertIn("reachable: true, known: false", block)
 
     def test_entry_checks_reachability_before_navigating(self):
-        block = self.js.split("const openMobile")[1].split("\nconst createButton")[0]
+        block = self.js.split("const openMobile")[1].split("\nglobalThis.qqMobile")[0]
         self.assertIn("probeMobileReachable()", block)
         # The warning is shown instead of navigating.
         self.assertIn("手机无法访问这个 ComfyUI", block)

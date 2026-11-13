@@ -16,7 +16,6 @@ import { setTagModeOverrides } from "./group_bypass_tag.js";
 const BUTTON_TOOLTIP = "打开手机界面（竖屏，仅显示提升参数）";
 const TEMPLATE_ENDPOINT = "/qq_mobile/template";
 const MOBILE_PAGE = "/qq_mobile/";
-const BUTTON_GROUP_CLASS = "qq-mobile-top-menu-group";
 
 /** Frontend virtual node whose values win over subgraph promoted inputs. */
 const MULTI_PRIMITIVE_TYPE = "QQ-多值输入";
@@ -1221,70 +1220,9 @@ const openMobile = async (event) => {
     window.location.assign(url);
 };
 
-/**
- * Toolbar glyph, drawn inline.
- *
- * The toolbar's icons come from a Material webfont that ComfyUI ships as a
- * subset: `mdi-cellphone` exists in the stylesheet but not always in the
- * font file, and a missing glyph renders as a hollow box. An SVG has no such
- * dependency and keeps the toolbar's stroked look at the same 13×15 size.
- */
-const ICON_SVG = `
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-  <rect x="7" y="2.6" width="10" height="18.8" rx="2.4"></rect>
-  <path d="M10.8 5.4h2.4"></path>
-  <path d="M11 18.6h2"></path>
-</svg>`;
-
-/**
- * Build the toolbar button ourselves.
- *
- * `ComfyButton` is a frontend-internal component: it returns a wrapper whose
- * inner <button> is rendered by the framework, so children added from outside
- * are wiped on mount (the icon ended up 0×0, or on a neighbouring button).
- * A plain <button> carrying the toolbar's own classes gets the same styling
- * without that problem, and the SVG inside is ours.
- */
-const createButton = () => {
-    const button = document.createElement("button");
-    button.type = "button";
-    // The class set the toolbar's icon buttons use in this frontend version.
-    button.className = "comfyui-button comfyui-menu-mobile-collapse qq-mobile-toolbar";
-    button.title = BUTTON_TOOLTIP;
-    button.setAttribute("aria-label", BUTTON_TOOLTIP);
-    button.innerHTML = ICON_SVG;
-    // The other toolbar glyphs (star, vacuum, share) sit directly on the bar:
-    // no chip behind them, and the ink is whatever the bar uses.
-    Object.assign(button.style, {
-        background: "transparent",
-        border: "0",
-        color: "inherit",
-        boxShadow: "none",
-    });
-    const svg = button.querySelector("svg");
-    if (svg) {
-        svg.style.width = "17px";
-        svg.style.height = "17px";
-        svg.style.display = "block";
-    }
-    button.addEventListener("click", openMobile);
-    return button;
-};
-
-const attachButton = async (attempt = 0) => {
-    if (document.querySelector(`.${BUTTON_GROUP_CLASS}`)) return;
-    const settingsGroup = app.menu?.settingsGroup;
-    if (!settingsGroup?.element?.parentElement) {
-        if (attempt > 120) return;
-        requestAnimationFrame(() => attachButton(attempt + 1));
-        return;
-    }
-    const button = createButton();
-    // The group class doubles as the "already attached" marker.
-    button.classList.add(BUTTON_GROUP_CLASS);
-    settingsGroup.element.before(button);
-};
+// 手机入口按钮统一交给框架的 actionBarButtons 渲染（见下方 core.actionBarButtons），
+// 使用与其它工具栏图标一致的 iconify 图标，避免再手动插入一个风格不符的按钮、
+// 或留下一个图标类无效导致的“隐形”重复按钮。
 
 // Expose the entry points before registering, so the phone page and tests keep
 // working even if the UI registration below fails for any reason.
@@ -1310,11 +1248,6 @@ function register(opts) {
 
 const core = {
     async setup() {
-        try {
-            await attachButton();
-        } catch (error) {
-            console.warn("[QQ Mobile] toolbar button unavailable:", error);
-        }
         // Keep the phone's copy of the form current as the canvas changes.
         try {
             startTemplateWatcher();
@@ -1338,9 +1271,9 @@ const core = {
     ],
     actionBarButtons: [
         {
-            // Same glyph as the toolbar button, and likewise an SVG: the icon
-            // classes this API expects resolve to the same subsetted webfont.
-            icon: "qq-mobile-icon",
+            // 单一入口：交给框架渲染，图标用与其它工具栏按钮一致的 iconify 类，
+            // 不再手动插按钮（风格不符）也不再用无效图标类（隐形重复按钮）。
+            icon: "icon-[lucide--smartphone]",
             tooltip: BUTTON_TOOLTIP,
             onClick: () => openMobile({}),
         },
