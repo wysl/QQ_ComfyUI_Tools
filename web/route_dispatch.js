@@ -146,15 +146,6 @@ export function setPollingIndex(node, index) {
     return true;
 }
 
-// 入队循环里用这个：只写值不触发回调，避免每轮都惊动下游节点
-function writeSelectValue(node, index) {
-    const widget = selectWidget(node);
-    const names = outputNames(node);
-    if (!widget || index < 0 || index >= names.length) return false;
-    widget.value = names[index];
-    return true;
-}
-
 // 下拉框只列「已经连上线」的输出口：没接东西的口选了也没用，
 // 反而让人以为能往一个空口送数据。
 export function selectOptionNames(node) {
@@ -338,10 +329,10 @@ function install(nodeType) {
 // 在真机上反复失效（只跑第一个口 / 每点一次只前进一个口）。
 // 现在改成一次点击就把 N 个口全部提交：ComfyUI 自带队列按提交顺序串行执行。
 //
-// 实现要点：app.queuePrompt 的序列化发生在它自己的 queueItems 循环里，
-// 连写多次“改值 + 调用”会和它重序列化的时机赛跑。所以这里先用
-// graphToPrompt() 把每一轮的 prompt 自己算好，再直接走 api.queuePrompt 提交，
-// 不碰任何会重读节点状态的路径。
+// 实现要点：只序列化一次得到基准 prompt，每轮克隆后直接改写该轮 prompt 里的
+// select（连同 workflow 快照里的 select）。不再「写 widget.value 再序列化」——
+// 真机上序列化可能读 Vue 控件值存储、或受控件置灰影响，写进去的值到不了
+// prompt，表现为每轮都跑用户选中的那个口。prompt 是纯 JSON，改写即本轮状态。
 
 function routeNodes() {
     return (app?.graph?._nodes || []).filter((node) => node?.type === NODE_TYPE);
@@ -367,16 +358,12 @@ function installPollingQueue() {
 
     /**
      * 点一次运行 = 每个已连接的口各提交一次，顺序就是端口顺序。
-     * 每轮都重新序列化，因此每份 prompt 里带着该轮自己的 select 值。
+     * 基准 prompt 只序列化一次；每轮克隆并改写 select，提交互不串值。
      */
     async function runPollingRound(appInstance, number, batchCount, options, originalQueue) {
         const plan = routeNodes()
             .filter((node) => isPolling(node))
-            .map((node) => ({
-                node,
-                indexes: connectedIndexes(node),
-                original: selectWidget(node)?.value,
-            }))
+            .map((node) => ({ node, indexes: connectedIndexes(node) }))
             .filter((entry) => entry.indexes.length);
         if (!plan.length) {
             return originalQueue.call(appInstance, number, batchCount, options);
@@ -386,20 +373,15 @@ function installPollingQueue() {
         let allQueued = true;
         queueGuard = true;
         try {
+            let base;
+            try {
+                base = await appInstance.graphToPrompt(appInstance.rootGraph);
+            } catch (error) {
+                console.warn("[QQ-条件分发] 轮询构建 prompt 失败", error);
+                return false;
+            }
             for (let round = 0; round < rounds; round += 1) {
-                // 把选择拨到本轮该走的口（只写值，不触发回调）
-                for (const entry of plan) {
-                    writeSelectValue(entry.node, entry.indexes[Math.min(round, entry.indexes.length - 1)]);
-                }
-                // 自己序列化：此时节点状态就是本轮的值，无需依赖外部时机
-                let built;
-                try {
-                    built = await appInstance.graphToPrompt(appInstance.rootGraph);
-                } catch (error) {
-                    console.warn("[QQ-条件分发] 轮询构建 prompt 失败", error);
-                    allQueued = false;
-                    break;
-                }
+                const built = patchPollingRound(base, plan, round);
                 try {
                     await api.queuePrompt(number, built);
                 } catch (error) {
@@ -410,14 +392,34 @@ function installPollingQueue() {
             }
         } finally {
             queueGuard = false;
-            // 还原成用户原来看的那个口
-            for (const entry of plan) {
-                writeSelectValue(entry.node, entry.indexes[0]);
-            }
+            // 不写选择框：界面保持用户原来选的口
             appInstance.graph?.setDirtyCanvas?.(true, true);
         }
         return allQueued;
     }
+}
+
+// 克隆基准 prompt，把每个轮询节点本轮该走的口写进 inputs.select。
+// 同时同步 workflow 快照里的 select（手机端自动跟随读这份存档）。
+export function patchPollingRound(base, plan, round) {
+    const built = structuredClone(base);
+    for (const entry of plan) {
+        const index = entry.indexes[Math.min(round, entry.indexes.length - 1)];
+        const name = outputNames(entry.node)[index];
+        const promptNode = built?.output?.[entry.node.id];
+        if (promptNode) {
+            promptNode.inputs ||= {};
+            promptNode.inputs[SELECT_WIDGET] = name;
+        }
+        const wfNode = (built?.workflow?.nodes || []).find(
+            (n) => String(n?.id) === String(entry.node.id)
+        );
+        const pos = (entry.node.widgets || []).findIndex((w) => w?.name === SELECT_WIDGET);
+        if (wfNode && pos >= 0 && Array.isArray(wfNode.widgets_values) && pos < wfNode.widgets_values.length) {
+            wfNode.widgets_values[pos] = name;
+        }
+    }
+    return built;
 }
 
 app.registerExtension({
