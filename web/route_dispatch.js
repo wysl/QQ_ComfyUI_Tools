@@ -338,7 +338,7 @@ function routeNodes() {
     return (app?.graph?._nodes || []).filter((node) => node?.type === NODE_TYPE);
 }
 
-let queueGuard = false;
+let pollingFlight = null;
 
 function installPollingQueue() {
     if (globalThis.__qqRoutePollingQueue) return;
@@ -346,14 +346,20 @@ function installPollingQueue() {
 
     const originalAppQueue = app.queuePrompt;
     app.queuePrompt = async function qqRouteAppQueue(number, batchCount, options) {
-        if (queueGuard) {
+        if (!routeNodes().some((node) => isPolling(node))) {
             return originalAppQueue.call(this, number, batchCount, options);
         }
-        const polling = routeNodes().filter((node) => isPolling(node));
-        if (!polling.length) {
-            return originalAppQueue.call(this, number, batchCount, options);
+        // 连点排在上一轮轮询之后：旧 queueGuard 会把第二次点击放行到原始
+        // 队列，插进一次「选中口」的单跑。链式等待保证每次点击都完整轮换。
+        const run = () => runPollingRound(this, number, batchCount, options, originalAppQueue);
+        const prev = pollingFlight ?? Promise.resolve();
+        const flight = prev.then(run, run);
+        pollingFlight = flight;
+        try {
+            return await flight;
+        } finally {
+            if (pollingFlight === flight) pollingFlight = null;
         }
-        return runPollingRound(this, number, batchCount, options, originalAppQueue);
     };
 
     /**
@@ -371,7 +377,6 @@ function installPollingQueue() {
 
         const rounds = Math.max(...plan.map((entry) => entry.indexes.length));
         let allQueued = true;
-        queueGuard = true;
         try {
             let base;
             try {
@@ -391,7 +396,6 @@ function installPollingQueue() {
                 }
             }
         } finally {
-            queueGuard = false;
             // 不写选择框：界面保持用户原来选的口
             appInstance.graph?.setDirtyCanvas?.(true, true);
         }

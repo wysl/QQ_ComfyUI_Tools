@@ -146,6 +146,17 @@ console.log("== 6. 轮询关闭：走原始 queuePrompt，不展开 ==");
   check("原始队列调用一次", ctx.plainCalls() === 1);
 }
 
+console.log("== 7. 连点两次：排队完整轮换，不插选中口单跑 ==");
+{
+  const node = makeNode([0, 1, 2], "输出2");
+  const ctx = makeContext(node, "输出2");
+  await Promise.all([ctx.app.queuePrompt(0, 1), ctx.app.queuePrompt(0, 1)]);
+  check("共提交 6 次", ctx.submitted.length === 6);
+  check("两次完整轮换", JSON.stringify(selects(ctx.submitted)) === JSON.stringify(
+    ["输出1", "输出2", "输出3", "输出1", "输出2", "输出3"]));
+  check("没有原始队列单跑", ctx.plainCalls() === 0);
+}
+
 console.log("");
 console.log(`通过 ${pass} / 失败 ${fail}`);
 process.exit(fail === 0 ? 0 : 1);

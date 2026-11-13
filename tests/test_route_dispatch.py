@@ -227,8 +227,8 @@ class RouteDispatchFrontendTests(unittest.TestCase):
         self.assertIn("async function runPollingRound", self.source)
         self.assertIn("api.queuePrompt(number, built)", self.source)
         self.assertIn("graphToPrompt", self.source)
-        # 必须阻止自身递归展开
-        self.assertIn("queueGuard", self.source)
+        # 连点必须链式排队，不能放行到原始队列插单跑
+        self.assertIn("pollingFlight", self.source)
 
 
 if __name__ == "__main__":
