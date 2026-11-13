@@ -43,6 +43,23 @@
       "interface-panel-hover-surface": "#e0dccd",
       "interface-panel-selected-surface": "#cfdcc9",
       "interface-button-hover-surface": "#cfdcc9"
+    },
+    "theme": {
+      "primary": "#4b86b4",
+      "primary-foreground": "#f2efe6",
+      "ring": "#4b86b4",
+      "foreground": "#33302a",
+      "secondary-foreground": "#33302a",
+      "accent-foreground": "#33302a",
+      "popover-foreground": "#33302a",
+      "card-foreground": "#33302a",
+      "node-header-foreground": "#33302a",
+      "muted-foreground": "#6b675e",
+      "destructive": "#a4432f",
+      "destructive-foreground": "#f2efe6",
+      "success": "#5f7d63",
+      "warning": "#b9862e",
+      "info": "#4b86b4"
     }
   }
 }
