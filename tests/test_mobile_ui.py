@@ -1190,7 +1190,8 @@ class BatchTests(unittest.TestCase):
         self.assertIn("prompt_id: state.promptId", block)
         route = self.source.split('@server.routes.post("/qq_mobile/interrupt")')[1]
         route = route.split("@server.routes")[0]
-        self.assertIn('"delete": [prompt_id]', route)
+        # 轮询组：排队里的每一轮都要删
+        self.assertIn('json={"delete": ids}', route)
 
     def test_one_failed_job_does_not_hide_the_others(self):
         """A batch whose first job fails must still show the rest.
@@ -2827,63 +2828,54 @@ class SubmitSideEffectTests(unittest.TestCase):
 
 
 class PollingGroupTests(unittest.TestCase):
-    """手机轮询：按口展开提交 + 组状态聚合（手机客户端不变）。"""
+    """手机轮询：服务端按口展开提交，客户端复用批量多 id 轮询逐轮出结果。"""
 
     def setUp(self):
         self.ui = _load("mobile_ui_polling_group", _MODULES_DIR / "mobile_ui.py")
+        self.source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+        self.html = (_MODULES_DIR.parent / "web" / "mobile.html").read_text(encoding="utf-8")
 
-    def _job(self, status, filename=None, error=None):
-        job = {"status": status, "outputs": {}}
-        if filename:
-            job["outputs"] = {
-                "9": {"images": [{"filename": filename, "subfolder": "", "type": "output"}]}
+    def test_submit_handler_expands_and_returns_group_ids(self):
+        self.assertIn("expand_polling(prompt, graph)", self.source)
+        self.assertIn('"prompt_ids": ids', self.source)
+
+    def test_group_registered_under_every_member_for_cancel(self):
+        self.assertIn("for pid in ids:", self.source)
+        self.assertIn("PROMPT_GROUPS[pid] = ids", self.source)
+        route = self.source.split('@server.routes.post("/qq_mobile/interrupt")')[1]
+        route = route.split("@server.routes")[0]
+        self.assertIn("PROMPT_GROUPS.get(prompt_id)", route)
+        self.assertIn('json={"delete": ids}', route)
+
+    def test_client_tracks_every_round_id(self):
+        gen = self.html.split("async function generate()")[1].split("\nfunction stopPolling")[0]
+        self.assertIn("data.prompt_ids?.length", gen)
+        self.assertIn("ids.push(...data.prompt_ids)", gen)
+        poll = self.html.split("async function poll()")[1].split("\nasync function cancel")[0]
+        self.assertIn("state.promptIds", poll)
+
+    def test_expand_polling_wired_without_mutating_template(self):
+        prompt = {
+            "5": {
+                "class_type": "QQRouteDispatch",
+                "inputs": {"轮询输出": True, "select": "输出1"},
             }
-        if error:
-            job["execution_error"] = {"exception_message": error}
-        return job
-
-    def test_all_completed_concatenates_media_in_order(self):
-        payload = self.ui.aggregate_group_jobs(
-            [self._job("completed", "a.png"), self._job("completed", "b.png")],
-            [1, 1],
-            ["p1", "p2"],
-        )
-        self.assertEqual(payload["status"], "completed")
-        self.assertTrue(payload["completed"])
-        self.assertEqual([m["filename"] for m in payload["media"]], ["a.png", "b.png"])
-
-    def test_running_wins_over_completed(self):
-        payload = self.ui.aggregate_group_jobs(
-            [self._job("completed", "a.png"), self._job("in_progress")], [1, 1]
-        )
-        self.assertEqual(payload["status"], "in_progress")
-        self.assertEqual(len(payload["media"]), 1)
-
-    def test_pending_reports_position_id(self):
-        payload = self.ui.aggregate_group_jobs(
-            [self._job("completed"), self._job("pending")], [1, 1], ["p1", "p2"]
-        )
-        self.assertEqual(payload["status"], "pending")
-        self.assertEqual(payload["pending_id"], "p2")
-
-    def test_failed_keeps_partial_media_and_error(self):
-        payload = self.ui.aggregate_group_jobs(
-            [self._job("completed", "a.png"), self._job("failed", error="boom")], [1, 1]
-        )
-        self.assertEqual(payload["status"], "failed")
-        self.assertFalse(payload["completed"])
-        self.assertEqual(payload["execution_error"], "boom")
-        self.assertEqual(len(payload["media"]), 1)
-
-    def test_unknown_within_settle_is_settling_then_lost(self):
-        self.assertEqual(self.ui.aggregate_group_jobs([None], [1])["status"], "settling")
-        self.assertEqual(self.ui.aggregate_group_jobs([None], [999])["status"], "failed")
-
-    def test_submit_handler_expands_and_groups(self):
-        source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
-        self.assertIn("expand_polling(prompt, graph)", source)
-        self.assertIn("PROMPT_GROUPS[ids[0]] = ids", source)
-        self.assertIn('json={"delete": ids}', source)
+        }
+        graph = {
+            "nodes": [
+                {
+                    "id": 5,
+                    "outputs": [
+                        {"name": "输出1", "links": [1]},
+                        {"name": "输出2", "links": [2]},
+                    ],
+                    "widgets_values": [True, "输出1"],
+                }
+            ]
+        }
+        pairs = self.ui.expand_polling(prompt, graph)
+        self.assertEqual([p["5"]["inputs"]["select"] for p, _ in pairs], ["输出1", "输出2"])
+        self.assertEqual(prompt["5"]["inputs"]["select"], "输出1")
 
 
 if __name__ == "__main__":

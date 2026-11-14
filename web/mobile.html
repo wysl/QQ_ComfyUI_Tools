@@ -4337,7 +4337,9 @@ async function generate() {
                 // The same client_id gets the WebSocket events for these jobs.
                 body: JSON.stringify({ workflow: state.workflow, values, client_id: socketClientId() }),
             });
-            if (data.prompt_id) ids.push(data.prompt_id);
+            // 轮询展开时一次提交返回整组 id，逐轮跟踪、逐轮出结果。
+            if (data.prompt_ids?.length) ids.push(...data.prompt_ids);
+            else if (data.prompt_id) ids.push(data.prompt_id);
             if (data.warnings?.length) toast(data.warnings.join("；"));
         }
         if (!ids.length) throw new Error("没有返回任务号");
