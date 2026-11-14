@@ -231,5 +231,87 @@ class RouteDispatchFrontendTests(unittest.TestCase):
         self.assertIn("pollingFlight", self.source)
 
 
+class ExpandPollingTests(unittest.TestCase):
+    """服务端轮询展开（手机提交路径），与前端 patchPollingRound 同语义。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.module = load_module()
+
+    def _prompt(self, polling=True, exec_ids=("5",)):
+        return {
+            exec_id: {
+                "class_type": "QQRouteDispatch",
+                "inputs": {"轮询输出": polling, "select": "输出1"},
+            }
+            for exec_id in exec_ids
+        }
+
+    def _graph(self, linked=None, labels=None):
+        linked = linked or {"5": [0, 1, 2]}
+        labels = labels or {}
+        nodes = []
+        for exec_id, ports in linked.items():
+            outputs = []
+            for i in range(4):
+                entry = {
+                    "name": f"输出{i + 1}",
+                    "type": "*",
+                    "links": [100 + i] if i in ports else [],
+                }
+                if labels.get(exec_id, {}).get(i):
+                    entry["label"] = labels[exec_id][i]
+                outputs.append(entry)
+            nodes.append(
+                {"id": int(exec_id), "outputs": outputs, "widgets_values": [True, "输出1"]}
+            )
+        return {"nodes": nodes}
+
+    def test_no_polling_returns_original_single_pair(self):
+        prompt, graph = self._prompt(False), self._graph()
+        pairs = self.module.expand_polling(prompt, graph)
+        self.assertEqual(len(pairs), 1)
+        self.assertIs(pairs[0][0], prompt)
+        self.assertIs(pairs[0][1], graph)
+
+    def test_three_connected_ports_rotate_both_channels(self):
+        prompt, graph = self._prompt(), self._graph()
+        pairs = self.module.expand_polling(prompt, graph)
+        self.assertEqual(
+            [p["5"]["inputs"]["select"] for p, _ in pairs], ["输出1", "输出2", "输出3"]
+        )
+        self.assertEqual(
+            [g["nodes"][0]["widgets_values"][1] for _, g in pairs],
+            ["输出1", "输出2", "输出3"],
+        )
+        # 原对象不被改写
+        self.assertEqual(prompt["5"]["inputs"]["select"], "输出1")
+        self.assertEqual(graph["nodes"][0]["widgets_values"][1], "输出1")
+
+    def test_renamed_labels_win(self):
+        graph = self._graph(labels={"5": {0: "优化器A", 1: "优化器B", 2: "优化器C"}})
+        pairs = self.module.expand_polling(self._prompt(), graph)
+        self.assertEqual(
+            [p["5"]["inputs"]["select"] for p, _ in pairs], ["优化器A", "优化器B", "优化器C"]
+        )
+
+    def test_unconnected_ports_skipped(self):
+        pairs = self.module.expand_polling(self._prompt(), self._graph(linked={"5": [0, 2]}))
+        self.assertEqual([p["5"]["inputs"]["select"] for p, _ in pairs], ["输出1", "输出3"])
+
+    def test_shorter_node_clamps_to_last_port(self):
+        prompt = self._prompt(exec_ids=("5", "6"))
+        graph = self._graph(linked={"5": [0, 1, 2], "6": [1]})
+        pairs = self.module.expand_polling(prompt, graph)
+        self.assertEqual(len(pairs), 3)
+        self.assertEqual(
+            [p["6"]["inputs"]["select"] for p, _ in pairs], ["输出2", "输出2", "输出2"]
+        )
+
+    def test_polling_without_links_single_pair(self):
+        pairs = self.module.expand_polling(self._prompt(), self._graph(linked={"5": []}))
+        self.assertEqual(len(pairs), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2826,5 +2826,65 @@ class SubmitSideEffectTests(unittest.TestCase):
         self.assertEqual(prompt["998"]["inputs"]["seed"], ["1005", 2])
 
 
+class PollingGroupTests(unittest.TestCase):
+    """手机轮询：按口展开提交 + 组状态聚合（手机客户端不变）。"""
+
+    def setUp(self):
+        self.ui = _load("mobile_ui_polling_group", _MODULES_DIR / "mobile_ui.py")
+
+    def _job(self, status, filename=None, error=None):
+        job = {"status": status, "outputs": {}}
+        if filename:
+            job["outputs"] = {
+                "9": {"images": [{"filename": filename, "subfolder": "", "type": "output"}]}
+            }
+        if error:
+            job["execution_error"] = {"exception_message": error}
+        return job
+
+    def test_all_completed_concatenates_media_in_order(self):
+        payload = self.ui.aggregate_group_jobs(
+            [self._job("completed", "a.png"), self._job("completed", "b.png")],
+            [1, 1],
+            ["p1", "p2"],
+        )
+        self.assertEqual(payload["status"], "completed")
+        self.assertTrue(payload["completed"])
+        self.assertEqual([m["filename"] for m in payload["media"]], ["a.png", "b.png"])
+
+    def test_running_wins_over_completed(self):
+        payload = self.ui.aggregate_group_jobs(
+            [self._job("completed", "a.png"), self._job("in_progress")], [1, 1]
+        )
+        self.assertEqual(payload["status"], "in_progress")
+        self.assertEqual(len(payload["media"]), 1)
+
+    def test_pending_reports_position_id(self):
+        payload = self.ui.aggregate_group_jobs(
+            [self._job("completed"), self._job("pending")], [1, 1], ["p1", "p2"]
+        )
+        self.assertEqual(payload["status"], "pending")
+        self.assertEqual(payload["pending_id"], "p2")
+
+    def test_failed_keeps_partial_media_and_error(self):
+        payload = self.ui.aggregate_group_jobs(
+            [self._job("completed", "a.png"), self._job("failed", error="boom")], [1, 1]
+        )
+        self.assertEqual(payload["status"], "failed")
+        self.assertFalse(payload["completed"])
+        self.assertEqual(payload["execution_error"], "boom")
+        self.assertEqual(len(payload["media"]), 1)
+
+    def test_unknown_within_settle_is_settling_then_lost(self):
+        self.assertEqual(self.ui.aggregate_group_jobs([None], [1])["status"], "settling")
+        self.assertEqual(self.ui.aggregate_group_jobs([None], [999])["status"], "failed")
+
+    def test_submit_handler_expands_and_groups(self):
+        source = (_MODULES_DIR / "mobile_ui.py").read_text(encoding="utf-8")
+        self.assertIn("expand_polling(prompt, graph)", source)
+        self.assertIn("PROMPT_GROUPS[ids[0]] = ids", source)
+        self.assertIn('json={"delete": ids}', source)
+
+
 if __name__ == "__main__":
     unittest.main()
