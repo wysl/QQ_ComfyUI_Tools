@@ -335,6 +335,22 @@ function refresh(node) {
     node.setDirtyCanvas?.(true, true);
 }
 
+// Vue 节点不发射 onDrawForeground，靠绘制节拍发现规则节点的刷新会失效。
+// 这里用同周期定时器兜底（仅 2.0 装；1.0 仍走绘制钩子，行为不变）。
+function startDiscovery(node) {
+    if (!node || node.__qqIgnoreRulesDiscovery) return;
+    if (!globalThis.LiteGraph?.vueNodesMode) return;
+    node.__qqIgnoreRulesDiscovery = globalThis.setInterval(() => {
+        if (!node.graph) {
+            globalThis.clearInterval(node.__qqIgnoreRulesDiscovery);
+            node.__qqIgnoreRulesDiscovery = null;
+            return;
+        }
+        if (app?.configuringGraph || app?.loading_graph) return;
+        refresh(node);
+    }, 400);
+}
+
 function install(nodeType) {
     const prototype = nodeType?.prototype;
     if (!prototype || prototype.__qqIgnoreRulesControllerInstalled) return;
@@ -346,6 +362,7 @@ function install(nodeType) {
         this.serialize_widgets = true;
         this.properties ||= {};
         rebuildRows(this, [], MIN_ROWS, true);
+        startDiscovery(this);
         return result;
     };
 
@@ -359,6 +376,7 @@ function install(nodeType) {
         const savedCount = Number(info?.properties?.[COUNT_PROP]);
         const count = clampRows(Math.max(rows.length, Number.isFinite(savedCount) ? savedCount : 0, MIN_ROWS));
         rebuildRows(this, rows, count);
+        startDiscovery(this);
         return result;
     };
 
@@ -389,6 +407,15 @@ function install(nodeType) {
             syncController(this);
         }
         return result;
+    };
+
+    const originalRemoved = prototype.onRemoved;
+    prototype.onRemoved = function onQQIgnoreRulesControllerRemoved() {
+        if (this.__qqIgnoreRulesDiscovery) {
+            globalThis.clearInterval(this.__qqIgnoreRulesDiscovery);
+            this.__qqIgnoreRulesDiscovery = null;
+        }
+        return originalRemoved?.apply(this, arguments);
     };
 
     prototype.__qqIgnoreRulesControllerInstalled = true;

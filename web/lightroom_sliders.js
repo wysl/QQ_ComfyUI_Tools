@@ -200,6 +200,10 @@ function drawLightroomWidget(context, node, width, y, height, lowQuality) {
 }
 
 function styleWidgets(node) {
+    // Nodes 2.0 用 DOM 渲染控件，widget.draw 的画布绘制不生效。
+    // 2.0 下保留本地化标签 + 标准滑条（与全局 UI 统一），不挂空的绘制函数；
+    // Lightroom 渐变轨道外观仅在 1.0 画布渲染下呈现。
+    const vue = Boolean(globalThis.LiteGraph?.vueNodesMode);
     for (const widget of node?.widgets || []) {
         if (!widget?.name || widget?.options?.min == null || widget?.options?.max == null) continue;
         // Seed is a reproducibility control, not a Lightroom adjustment.
@@ -207,7 +211,7 @@ function styleWidgets(node) {
             widget.label = controlLabel(widget.name);
             continue;
         }
-        widget.draw = drawLightroomWidget;
+        if (!vue) widget.draw = drawLightroomWidget;
         widget.label = controlLabel(widget.name);
     }
 }

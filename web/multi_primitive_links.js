@@ -185,6 +185,39 @@ function patchLinkRenderer() {
     return true;
 }
 
+// Nodes 2.0：节点改 DOM 渲染，onDrawForeground 的画布光晕不生效。
+// 把呼吸光晕改挂到输出端口接点圆点（.slot-dot）的 box-shadow 上，
+// 复用同一节拍按「是否已连线」开关，选择器缺失时自动降级（无副作用）。
+const VUE_GLOW_CSS = `
+.lg-slot--output.qq-multi-glow .slot-dot{animation:qq-multi-breath 2.4s ease-in-out infinite}
+@keyframes qq-multi-breath{
+  0%,100%{box-shadow:0 0 0 1px rgba(124,199,55,.55),0 0 4px 1px rgba(124,199,55,.35)}
+  50%{box-shadow:0 0 0 2px rgba(124,199,55,.22),0 0 7px 2px rgba(124,199,55,.16)}
+}`;
+
+function injectVueGlowCSS() {
+    if (document.getElementById("qq-multi-glow-css")) return;
+    const style = document.createElement("style");
+    style.id = "qq-multi-glow-css";
+    style.textContent = VUE_GLOW_CSS;
+    document.head.append(style);
+}
+
+function applyVueGlows(graph) {
+    if (!globalThis.LiteGraph?.vueNodesMode) return;
+    for (const node of graph._nodes || []) {
+        if (node?.type !== NODE_TYPE && node?.type !== LEGACY_NODE_TYPE) continue;
+        const el = document.querySelector(`.lg-node[data-node-id="${node.id}"]`);
+        if (!el) continue;
+        el.querySelectorAll(".lg-slot--output").forEach((slotEl, index) => {
+            const connected = Boolean(node.outputs?.[index]?.links?.length);
+            slotEl.classList.toggle("qq-multi-glow", connected);
+            const dot = slotEl.querySelector(".slot-dot");
+            if (dot) dot.style.animationDelay = connected ? `${index * 0.35}s` : "";
+        });
+    }
+}
+
 function start() {
     if (globalThis.__qqMultiLinkTimer) return;
     globalThis.__qqMultiLinkTimer = setInterval(() => {
@@ -194,6 +227,7 @@ function start() {
         patchCanvasLinkRenderer(app.canvas);
         const { selected, hover } = currentState();
         applyLinkStyles(graph, selected, hover);
+        applyVueGlows(graph);
     }, 160);
 }
 
@@ -205,6 +239,7 @@ app.registerExtension({
     },
     setup() {
         const patched = patchLinkRenderer();
+        injectVueGlowCSS();
         start();
         console.info(TAG, "已加载：多值输入连线平时隐形，输出口带草绿呼吸光晕，选中/悬停端点时连线高亮 | renderLink 钩子:", patched ? "已安装" : "不需要/不可用", "| build:", BUILD, "| idle:", GRASS_IDLE);
     },
