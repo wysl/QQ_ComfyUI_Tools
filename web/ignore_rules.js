@@ -323,45 +323,120 @@ function graphSignature(graph) {
     return parts.join("|");
 }
 
-function start() {
-    if (globalThis.__wyslBypassTimer) return;
-    console.log(TAG, "扩展已加载（支持 ! 排除）");
-    let lastLog = 0;
-    let lastSig = null;
-    const applyAndLog = () => {
-        const result = safeApply();
-        // 应用后刷新签名，交互后心跳立即静默，不做冗余对账
-        lastSig = graphSignature(currentGraph());
-        const now = Date.now();
-        const hasRules = result && (result.nodeInclude + result.nodeExclude
-            + result.groupInclude + result.groupExclude) > 0;
-        if (hasRules && now - lastLog > 5000) {
-            lastLog = now;
-            console.log(
-                TAG,
-                `规则 ${result.ruleCount} | 节点 ${result.nodeInclude}/排除 ${result.nodeExclude}`
-                + ` | 组 ${result.groupInclude}/排除 ${result.groupExclude}`
-                + ` | 已绕过 ${result.bypassed} | 被排除 ${result.excluded}`
-                + ` | 本轮变更 ${result.changed}`,
-            );
+// ── 事件驱动 + 签名守卫 + 慢兜底 ─────────────────────────────
+// 不再 800ms 快轮询：图变更（LGraph.change）与规则控件编辑触发防抖 apply，
+// 签名未变则跳过重算；3s 慢心跳兜底个别版本的事件漏触发。
+let lastLog = 0;
+let lastSig = null;
+let applyTimer = null;
+let applying = false;
+
+function applyAndLog() {
+    applying = true;
+    let result;
+    try { result = safeApply(); } finally { applying = false; }
+    // 应用后刷新签名，后续触发立即静默，不做冗余对账
+    lastSig = graphSignature(currentGraph());
+    const now = Date.now();
+    const hasRules = result && (result.nodeInclude + result.nodeExclude
+        + result.groupInclude + result.groupExclude) > 0;
+    if (hasRules && now - lastLog > 5000) {
+        lastLog = now;
+        console.log(
+            TAG,
+            `规则 ${result.ruleCount} | 节点 ${result.nodeInclude}/排除 ${result.nodeExclude}`
+            + ` | 组 ${result.groupInclude}/排除 ${result.groupExclude}`
+            + ` | 已绕过 ${result.bypassed} | 被排除 ${result.excluded}`
+            + ` | 本轮变更 ${result.changed}`,
+        );
+    }
+    return result;
+}
+
+function runGuardedApply() {
+    installChangeHook(); // 懒安装：LiteGraph 就绪后生效
+    if (!app || app.loading_graph || app.configuringGraph) return;
+    const graph = currentGraph();
+    if (!graph) return;
+    if (graphSignature(graph) === lastSig) return;
+    applyAndLog();
+}
+
+// 尾随防抖：连续变更只在停下来 ~120ms 后算一次
+function scheduleApply() {
+    if (applying) return;
+    if (applyTimer) clearTimeout(applyTimer);
+    applyTimer = setTimeout(() => { applyTimer = null; runGuardedApply(); }, 120);
+}
+
+// 包一层 LGraph.prototype.change（链式调原函数，不抢占 on_change）：
+// 节点增删/改名/改模式/组变化都会走 change() → 触发防抖 apply。
+function installChangeHook() {
+    const proto = globalThis.LiteGraph?.LGraph?.prototype;
+    if (!proto || proto.__wyslBypassChangeHooked || typeof proto.change !== "function") return;
+    proto.__wyslBypassChangeHooked = true;
+    const original = proto.change;
+    proto.change = function wyslBypassChange(...args) {
+        const result = original.apply(this, args);
+        if (!applying) scheduleApply();
+        return result;
+    };
+}
+
+// 排队前强制 apply，保证提交出去的 prompt 绕过状态最新
+function installPromptHook() {
+    if (globalThis.__wyslBypassPromptHook) return;
+    const original = app.graphToPrompt?.bind(app);
+    if (!original) return;
+    globalThis.__wyslBypassPromptHook = true;
+    app.graphToPrompt = async function wyslBypassGraphToPrompt(...args) {
+        if (!app.loading_graph && !app.configuringGraph) {
+            applying = true;
+            try { safeApply(); } finally { applying = false; }
+            lastSig = graphSignature(currentGraph());
+        }
+        return original(...args);
+    };
+}
+
+// 规则控件（启用/节点/组）编辑即时触发
+function installWidgetHooks(nodeType) {
+    const prototype = nodeType?.prototype;
+    if (!prototype || prototype.__wyslBypassWidgetsHooked) return;
+    prototype.__wyslBypassWidgetsHooked = true;
+    const originalCreated = prototype.onNodeCreated;
+    prototype.onNodeCreated = function onNodeCreatedIgnoreRules() {
+        const result = originalCreated?.apply(this, arguments);
+        for (const widget of this.widgets || []) {
+            if (!widget || !["启用", "节点", "组"].includes(widget.name)) continue;
+            const originalCallback = widget.callback;
+            widget.callback = (...args) => {
+                const value = originalCallback?.apply(this, args);
+                scheduleApply();
+                return value;
+            };
         }
         return result;
     };
-    const tick = () => {
-        if (!app || app.loading_graph || app.configuringGraph) return;
-        const graph = currentGraph();
-        if (!graph) return;
-        if (graphSignature(graph) === lastSig) return;
-        applyAndLog();
-    };
-    globalThis.__wyslBypassTimer = setInterval(tick, 800);
-    setTimeout(tick, 2000);
+}
+
+function start() {
+    if (globalThis.__wyslBypassStarted) return;
+    globalThis.__wyslBypassStarted = true;
+    console.log(TAG, "扩展已加载（事件驱动 + 签名守卫，支持 ! 排除）");
+    installChangeHook();
+    installPromptHook();
+    // 慢兜底心跳：平时签名稳定直接跳过，仅防个别版本事件漏触发
+    globalThis.__wyslBypassTimer = setInterval(runGuardedApply, 3000);
+    setTimeout(runGuardedApply, 1500);
 }
 
 app.registerExtension({
     name: "QQ.IgnoreRules",
     setup() { start(); },
     async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (nodeData?.name === NODE_TYPE) start();
+        if (nodeData?.name !== NODE_TYPE) return;
+        start();
+        installWidgetHooks(nodeType);
     },
 });
