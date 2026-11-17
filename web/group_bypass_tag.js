@@ -138,8 +138,8 @@ function groupDepthForNode(group, node, groups, nodes, memberSets) {
 }
 
 // 魔术贴所属组：优先常规判定；都落空时退化为「节点整体与组矩形相交」的兜底
-function groupForTag(node, groups, nodes) {
-    const direct = groupOf(node, groups, nodes);
+function groupForTag(node, groups, nodes, memberSets) {
+    const direct = groupOf(node, groups, nodes, memberSets);
     if (direct) return direct;
     const overlapping = groups
         .filter((group) => nodeOverlapsGroup(node, group))
@@ -246,14 +246,16 @@ function groupSize(group) {
     return rect ? Math.abs(rect.w * rect.h) : Number.POSITIVE_INFINITY;
 }
 
-// 取包含该节点的最内层组（面积最小）；官方列表和位置判定都算
-function groupOf(node, groups, nodes) {
+// 取包含该节点的最内层组（面积最小）；官方列表和位置判定都算。
+// 复用预算好的 memberSets，避免每个魔术贴×每个组都重算 recomputeInsideNodes。
+function groupOf(node, groups, nodes, memberSets) {
     let best = null;
     let bestCount = Number.POSITIVE_INFINITY;
     let bestArea = Number.POSITIVE_INFINITY;
     for (const group of groups) {
-        const listed = nodesInGroup(group);
-        const inside = listed.includes(node) || nodeInGroupRect(node, group);
+        const set = memberSets?.get(group);
+        const listed = set ? [...set] : nodesInGroup(group);
+        const inside = (set ? set.has(node) : listed.includes(node)) || nodeInGroupRect(node, group);
         if (!inside) continue;
         // 成员更少 = 更内层；成员数相同再比面积
         const count = listed.length || Number.POSITIVE_INFINITY;
@@ -270,25 +272,38 @@ function groupOf(node, groups, nodes) {
 function applyTag(graph) {
     if (!graph) return null;
     const nodes = allNodes(graph);
-    const groups = allGroups(graph);
-    const memberSets = buildMemberSets(groups, nodes);
     const { ALWAYS, BYPASS } = enums();
     let changed = false;
     let tags = 0;
     let bypassed = 0;
     const report = [];
 
+    const tagNodes = nodes.filter(isTagNode);
+    // 没有魔术贴：只释放历史接管节点，跳过昂贵的组几何/成员重算
+    if (!tagNodes.length) {
+        for (const node of nodes) {
+            if (node?.properties?.[PROP_TAG_OWNED] && setBypassed(node, false)) changed = true;
+        }
+        if (changed) {
+            try { graph.setDirtyCanvas?.(true, true); } catch { /* 忽略 */ }
+            try { graph.change?.(); } catch { /* 忽略 */ }
+        }
+        return { tags: 0, bypassed: 0, changed, report };
+    }
+
+    const groups = allGroups(graph);
+    const memberSets = buildMemberSets(groups, nodes);
+
     // 先收集每个组里的魔术贴：同组多个魔术贴时，只要有一个选「绕过」就整组绕过
     const tagsByGroup = new Map();
-    for (const node of nodes) {
-        if (!isTagNode(node)) continue;
+    for (const node of tagNodes) {
         tags += 1;
         // 魔术贴自己不受任何绕过控制
         if (node.mode === BYPASS) {
             node.mode = ALWAYS;
             changed = true;
         }
-        const group = groupForTag(node, groups, nodes);
+        const group = groupForTag(node, groups, nodes, memberSets);
         if (!group) {
             report.push(`#${node.id} ${forcedModeOf(node) ?? tagMode(node)} 不在任何组内`);
             continue;
@@ -358,6 +373,8 @@ function safeApply() {
 let lastLog = 0;
 function loggedApply() {
     const result = safeApply();
+    // 任何一次应用后都刷新签名，交互后心跳立即静默，不做冗余对账
+    lastSig = graphSignature(currentGraph());
     if (!result || !result.tags) return result;
     const now = Date.now();
     if (now - lastLog > 5000 || result.changed) {
@@ -367,10 +384,41 @@ function loggedApply() {
     return result;
 }
 
+// 轻量状态签名：只读节点/组的几何与关键状态，不做组几何重算。
+// 空闲时签名稳定 → 心跳直接跳过昂贵的 applyTag，消除持续卡顿。
+function graphSignature(graph) {
+    const nodes = allNodes(graph);
+    const groups = allGroups(graph);
+    const parts = [];
+    for (const node of nodes) {
+        const pos = node.pos || [0, 0];
+        const size = node.size || [0, 0];
+        parts.push(
+            node.id, pos[0], pos[1], size[0], size[1], node.mode,
+            node.properties?.[PROP_TAG_OWNED] ? 1 : 0,
+            node.properties?.[PROP_PREV_MODE] ?? "",
+        );
+        if (isTagNode(node)) parts.push("T", tagMode(node), tagDepth(node));
+    }
+    for (const group of groups) {
+        const rect = groupRect(group);
+        parts.push("G", rect ? `${rect.x},${rect.y},${rect.w},${rect.h}` : "null", group.title || group.name || "");
+    }
+    return parts.join("|");
+}
+
+let lastSig = null;
+
 function start() {
     if (globalThis.__wyslGroupTagTimer) return;
     const tick = () => {
         if (!app || app.loading_graph || app.configuringGraph) return;
+        // 变体展开（forcedMode）期间由 graphToPrompt 钩子驱动，心跳不插手
+        if (forcedMode instanceof Map) return;
+        const graph = currentGraph();
+        if (!graph) return;
+        const sig = graphSignature(graph);
+        if (sig === lastSig) return;
         loggedApply();
     };
     globalThis.__wyslGroupTagTimer = setInterval(tick, 900);
