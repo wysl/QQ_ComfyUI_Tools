@@ -266,9 +266,11 @@ async function togglePin(node, surface) {
     if (lw) lw.value = data.name;
     await new Promise((r) => setTimeout(r, 300));
     const slot = (node.outputs || []).findIndex((o) => o.name === "固定媒体");
-    // 子图内部输出节点：inner.outputNode.slots[slot] 为对应输入口
+    // 子图虚拟输出口接线：outputNode.slots[i].connect(源输出slot, 源节点)
     const outNode = inner.outputNode;
-    if (outNode && slot >= 0) loader.connect(0, outNode, slot);
+    if (outNode && slot >= 0 && outNode.slots?.[slot]) {
+        outNode.slots[slot].connect(loader.outputs[0], loader);
+    }
 
     node.properties.qqPinned = { kind: media.kind, name: data.name, type };
     watchLock(node);
