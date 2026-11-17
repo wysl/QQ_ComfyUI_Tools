@@ -160,14 +160,18 @@ function drawLightroomWidget(context, node, width, y, height, lowQuality) {
     const trackEnd = Math.max(trackStart + 34, valueX - 29);
     const trackWidth = trackEnd - trackStart;
     const trackY = y + rowHeight * 0.58;
-    const textColor = widget?.computedDisabled ? "rgba(190, 194, 199, 0.42)" : "#d3d6da";
-    const mutedColor = widget?.computedDisabled ? "rgba(150, 154, 160, 0.28)" : "#9ea3aa";
+    // 文字/刻度颜色跟随主题：再生纸等浅色主题下 WIDGET_TEXT_COLOR 为深色，
+    // 硬编码浅色会在浅色底上看不清。禁用态改用整体透明度表达。
+    const LG = globalThis.LiteGraph;
+    const textColor = LG?.WIDGET_TEXT_COLOR || "#d3d6da";
+    const mutedColor = LG?.WIDGET_SECONDARY_TEXT_COLOR || "#9ea3aa";
     const { min, max, value } = controlValueRatio(widget);
     const ratio = (value - min) / Math.max(1e-6, max - min);
     const centerX = trackStart + trackWidth * 0.5;
     const valueXOnTrack = trackStart + trackWidth * ratio;
 
     context.save();
+    if (widget?.computedDisabled) context.globalAlpha = 0.4;
     context.font = "12px Arial, sans-serif";
     context.textBaseline = "middle";
     context.fillStyle = textColor;
@@ -191,7 +195,7 @@ function drawLightroomWidget(context, node, width, y, height, lowQuality) {
     context.stroke();
 
     // The triangle follows the current value; at zero it sits over the center tick.
-    drawTriangle(context, valueXOnTrack, trackY, 4.2, widget?.computedDisabled ? "rgba(212, 215, 218, 0.45)" : "#d4d7da");
+    drawTriangle(context, valueXOnTrack, trackY, 4.2, textColor);
 
     context.fillStyle = textColor;
     context.textAlign = "right";
