@@ -16,13 +16,18 @@ function hideNativePreview(node) {
     if (document.getElementById(styleId)) return;
     const style = document.createElement("style");
     style.id = styleId;
+    const s = `.lg-node[data-node-id="${node.id}"]`;
     style.textContent =
-        `.lg-node[data-node-id="${node.id}"] .image-preview{display:none!important}` +
-        `.lg-node[data-node-id="${node.id}"] [data-testid="node-widget"]:not(:has(.qq-card)){display:none!important}` +
-        `.lg-node[data-node-id="${node.id}"] .grid-cols-subgrid.justify-between:not(:has(.qq-card)){display:none!important}` +
-        `.lg-node[data-node-id="${node.id}"] :has(> [data-testid="node-title"]){display:none!important}` +
-        `.lg-node[data-node-id="${node.id}"] :has(> [data-testid="subgraph-enter-button"]){display:none!important}` +
-        `.lg-node[data-node-id="${node.id}"] .h-5.w-full.px-2{display:none!important}`;
+        `${s} .image-preview{display:none!important}` +
+        `${s} [data-testid="node-widget"]:not(:has(.qq-card)){display:none!important}` +
+        `${s} .grid-cols-subgrid.justify-between:not(:has(.qq-card)){display:none!important}` +
+        `${s} [data-testid="node-title"]{display:none!important}` +
+        `${s} [data-testid="subgraph-enter-button"]{display:none!important}` +
+        `${s} [data-testid="node-inner-wrapper"]>:first-child{display:none!important}` +
+        `${s} [data-testid="node-id"]{display:none!important}` +
+        `${s} :has(> [data-testid="node-title"]){display:none!important}` +
+        `${s} :has(> [data-testid="subgraph-enter-button"]){display:none!important}` +
+        `${s} .h-5.w-full.px-2{display:none!important}`;
     document.head.append(style);
 }
 
