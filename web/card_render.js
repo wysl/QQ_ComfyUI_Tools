@@ -29,6 +29,11 @@ const CSS = `
 .qq-card-spectrum{width:100%;height:64px;display:block}
 .qq-card-zoom{position:fixed;inset:0;z-index:11400;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;cursor:zoom-out}
 .qq-card-zoom img{max-width:94vw;max-height:94vh;object-fit:contain}
+.qq-card-plate{height:100%;padding:0;gap:0}
+.qq-card-plate .qq-card-stage{height:100%;flex:1;border-radius:10px;border:1px solid rgba(255,255,255,.28);background:linear-gradient(145deg,#3a3f46,#23272e 40%,#2e333a);box-shadow:inset 0 1px 0 rgba(255,255,255,.35),inset 0 -1px 0 rgba(0,0,0,.5),0 1px 3px rgba(0,0,0,.4)}
+.qq-card-plate .qq-card-empty{display:none}
+.qq-card-plate .qq-card-nav{position:absolute;bottom:6px;left:0;right:0;background:rgba(0,0,0,.35);border-radius:0 0 9px 9px;padding:2px 0}
+.qq-card-plate .qq-card-nav button{background:transparent;border-color:rgba(255,255,255,.3);color:#fff}
 `;
 
 export function injectCardCSS() {
@@ -112,11 +117,12 @@ function previewUrl(buffer) {
 }
 
 // 创建一个卡面表面，返回控制接口。node 用于持久化与事件归属。
-export function createCardSurface(node, { emptyText = "运行后在此呈现结果" } = {}) {
+export function createCardSurface(node, { emptyText = "运行后在此呈现结果", plate = false } = {}) {
     injectCardCSS();
     node.properties ||= {};
     const root = document.createElement("div");
-    root.className = "qq-card";
+    root.className = "qq-card" + (plate ? " qq-card-plate" : "");
+    if (plate) root.style.position = "relative";
     const stage = document.createElement("div");
     stage.className = "qq-card-stage";
     const empty = document.createElement("div");
@@ -171,7 +177,7 @@ export function createCardSurface(node, { emptyText = "运行后在此呈现结�
         const img = document.createElement("img");
         img.className = "qq-card-photo";
         img.src = viewUrl(list[index]);
-        img.addEventListener("click", () => openZoom(img.src));
+        if (!plate) img.addEventListener("click", () => openZoom(img.src));
         stage.append(img);
         if (list.length > 1) {
             nav.style.display = "flex";

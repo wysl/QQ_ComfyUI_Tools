@@ -19,12 +19,27 @@ function hideNativePreview(node) {
     style.textContent =
         `.lg-node[data-node-id="${node.id}"] .image-preview{display:none!important}` +
         `.lg-node[data-node-id="${node.id}"] [data-testid="node-widget"]:not(:has(.qq-card)){display:none!important}` +
-        `.lg-node[data-node-id="${node.id}"] .grid-cols-subgrid.justify-between:not(:has(.qq-card)){display:none!important}`;
+        `.lg-node[data-node-id="${node.id}"] .grid-cols-subgrid.justify-between:not(:has(.qq-card)){display:none!important}` +
+        `.lg-node[data-node-id="${node.id}"] :has(> [data-testid="node-title"]){display:none!important}` +
+        `.lg-node[data-node-id="${node.id}"] :has(> [data-testid="subgraph-enter-button"]){display:none!important}` +
+        `.lg-node[data-node-id="${node.id}"] .h-5.w-full.px-2{display:none!important}`;
     document.head.append(style);
 }
 
 function unhideNativePreview(node) {
     document.getElementById(`qq-card-hide-${node.id}`)?.remove();
+    document.getElementById("qq-card-menu-css")?.remove();
+}
+
+function injectMenuCSS() {
+    if (document.getElementById("qq-card-menu-css")) return;
+    const style = document.createElement("style");
+    style.id = "qq-card-menu-css";
+    style.textContent =
+        ".qq-card-menu{position:fixed;z-index:11500;min-width:150px;display:flex;flex-direction:column;padding:4px;border-radius:8px;border:1px solid var(--border-color,#4b545b);background:var(--comfy-menu-bg,#1a1d23);box-shadow:0 4px 16px rgba(0,0,0,.5)}" +
+        ".qq-card-menu button{height:28px;text-align:left;padding:0 10px;border:0;border-radius:5px;background:transparent;color:var(--input-text,#e6e8ee);cursor:pointer;font:12px/1 system-ui,'Microsoft YaHei',sans-serif}" +
+        ".qq-card-menu button:hover{background:var(--primary,#4f8cff);color:#fff}";
+    document.head.append(style);
 }
 
 // 卡面只显示结果：隐藏子图提升出来的输入控件（如 image 文件选择器会显示文件名）。
@@ -85,10 +100,12 @@ function attachCard(node) {
     node.__qqCardModeSetup = true;
     node.properties ||= {};
     node.properties.qqCardMode = true;
-    const surface = createCardSurface(node, { emptyText: "卡面模式\n运行流水线后在此呈现结果" });
+    const surface = createCardSurface(node, { plate: true });
     clearNativePreview(node);
     hideNativePreview(node);
     hideInputWidgets(node);
+    if (!node.__qqCardSized) { node.__qqCardSized = true; node.size = [280, 360]; }
+    setupCardMenus(node, surface);
 
     const originalExecuted = node.onExecuted;
     node.onExecuted = function (output) {
@@ -129,10 +146,166 @@ function attachCard(node) {
     };
 
     node.addDOMWidget("qq_card_mode", "qq_card_mode", surface.root, {
-        serialize: false, hideOnZoom: false, margin: 4, getMinHeight: () => CARD_MEDIA_HEIGHT + 40,
+        serialize: false, hideOnZoom: false, margin: 0,
+        getMinHeight: () => Math.max(140, (node.size?.[1] || 360) - 10),
     });
     node.resizable = true;
     node.__qqCardSurface = surface;
+}
+
+// ── 菜单：右键原生上下文 + 双击自定义选项（卡面无文字按钮，操作只走菜单） ──
+function cardMenuItems(node, surface) {
+    return [
+        {
+            label: node.properties?.qqPinned ? "解除固定媒体" : "固定媒体信息",
+            action: () => togglePin(node, surface),
+        },
+        { label: "进入子图编辑", action: () => enterSubgraph(node) },
+        { label: "取消卡面模式", action: () => unpackCard(node) },
+    ];
+}
+
+function showCardMenu(node, surface, clientX, clientY) {
+    if (node.properties?.qqLocked) return; // 锁定为媒体源时禁止操作
+    document.querySelector(".qq-card-menu")?.remove();
+    const menu = document.createElement("div");
+    menu.className = "qq-card-menu";
+    menu.style.left = `${clientX}px`;
+    menu.style.top = `${clientY}px`;
+    for (const item of cardMenuItems(node, surface)) {
+        const button = document.createElement("button");
+        button.textContent = item.label;
+        button.addEventListener("click", (e) => {
+            e.stopPropagation();
+            menu.remove();
+            item.action();
+        });
+        menu.append(button);
+    }
+    const close = (e) => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener("pointerdown", close); } };
+    setTimeout(() => document.addEventListener("pointerdown", close), 0);
+    document.body.append(menu);
+}
+
+function setupCardMenus(node, surface) {
+    const originalMenu = node.getExtraMenuOptions;
+    node.getExtraMenuOptions = function (_, options) {
+        const result = originalMenu?.apply(this, arguments);
+        if (!node.properties?.qqLocked) {
+            for (const item of cardMenuItems(node, surface)) {
+                options.push({ content: item.label, callback: item.action });
+            }
+        }
+        return result ?? options;
+    };
+    const originalDblClick = node.onDblClick;
+    node.onDblClick = function (e, pos, canvas) {
+        if (node.properties?.qqLocked) return true;
+        showCardMenu(node, surface, e?.clientX ?? 200, e?.clientY ?? 200);
+        return true; // 阻止默认进入子图
+    };
+    // Vue 子图双击不经过 onDblClick，直接在卡面根元素拦截
+    surface.root.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        if (node.properties?.qqLocked) return;
+        showCardMenu(node, surface, e.clientX, e.clientY);
+    }, true);
+}
+
+function enterSubgraph(node) {
+    try {
+        const el = document.querySelector("#vue-app") || document.querySelector("[data-v-app]");
+        const nav = el?.__vue_app__?.config?.globalProperties?.$pinia?._s?.get("subgraphNavigation");
+        if (nav?.enterSubgraph) { nav.enterSubgraph(node); return; }
+    } catch { /* 忽略 */ }
+    node.subgraph && app.canvas?.openSubgraph?.(node);
+}
+
+function unpackCard(node) {
+    try {
+        const el = document.querySelector("#vue-app") || document.querySelector("[data-v-app]");
+        const cs = el?.__vue_app__?.config?.globalProperties?.$pinia?._s?.get("command");
+        app.canvas?.selectItems?.([node]);
+        cs?.execute?.("Comfy.Graph.UnpackSubgraph");
+    } catch { /* 忽略 */ }
+}
+
+// ── 固定媒体信息：快照结果→注入加载器→暴露输出口；接上即锁定，断开恢复 ──
+function pickMedia(ui) {
+    if (ui?.videos?.length) return { kind: "video", item: ui.videos[0] };
+    if (ui?.audio?.length) return { kind: "audio", item: ui.audio[0] };
+    if (ui?.images?.length) return { kind: "image", item: ui.images[0] };
+    return null;
+}
+
+async function togglePin(node, surface) {
+    if (node.properties?.qqPinned) { unpin(node); return; }
+    const media = pickMedia(node.properties?.qq_card_ui);
+    if (!media) { console.warn("[QQ-卡面] 先运行得到结果，再固定媒体"); return; }
+    let data;
+    try {
+        const res = await fetch("/qq_card/pin", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(media.item),
+        });
+        data = await res.json();
+    } catch { return; }
+    if (!data?.name) return;
+
+    const type = media.kind === "video" ? "VIDEO" : media.kind === "audio" ? "AUDIO" : "IMAGE";
+    const loaderType = media.kind === "video" ? "LoadVideo" : media.kind === "audio" ? "LoadAudio" : "LoadImage";
+    const inner = node.subgraph;
+    if (!inner) return;
+    inner.addOutput("固定媒体", type);
+    const loader = LiteGraph.createNode(loaderType);
+    loader.properties = { qqPinnedLoader: true };
+    inner.add(loader);
+    const wname = media.kind === "video" ? "video" : media.kind === "audio" ? "audio" : "image";
+    const lw = (loader.widgets || []).find((x) => x.name === wname);
+    if (lw) lw.value = data.name;
+    await new Promise((r) => setTimeout(r, 300));
+    const slot = (node.outputs || []).findIndex((o) => o.name === "固定媒体");
+    // 子图内部输出节点：inner.outputNode.slots[slot] 为对应输入口
+    const outNode = inner.outputNode;
+    if (outNode && slot >= 0) loader.connect(0, outNode, slot);
+
+    node.properties.qqPinned = { kind: media.kind, name: data.name, type };
+    watchLock(node);
+    node.setDirtyCanvas?.(true, true);
+}
+
+function unpin(node) {
+    const inner = node.subgraph;
+    if (inner) {
+        for (const n of [...(inner._nodes || [])]) {
+            if (n.properties?.qqPinnedLoader) inner.remove(n);
+        }
+        const slot = (node.outputs || []).findIndex((o) => o.name === "固定媒体");
+        if (slot >= 0) node.removeOutput(slot);
+    }
+    delete node.properties.qqPinned;
+    node.properties.qqLocked = false;
+    node.setDirtyCanvas?.(true, true);
+}
+
+function updateLock(node) {
+    if (!node.properties?.qqPinned) { node.properties.qqLocked = false; return; }
+    const out = (node.outputs || []).find((o) => o.name === "固定媒体");
+    node.properties.qqLocked = !!(out && out.links && out.links.length);
+    node.setDirtyCanvas?.(true, true);
+}
+
+function watchLock(node) {
+    if (node.__qqLockWatched) { updateLock(node); return; }
+    node.__qqLockWatched = true;
+    const orig = node.onConnectionsChange;
+    node.onConnectionsChange = function () {
+        const r = orig?.apply(this, arguments);
+        updateLock(node);
+        return r;
+    };
+    updateLock(node);
 }
 
 function convertSelectionToCard() {
@@ -164,7 +337,7 @@ function convertSelectionToCard() {
 
 app.registerExtension({
     name: "QQ.CardMode",
-    setup() { injectCardCSS(); },
+    setup() { injectCardCSS(); injectMenuCSS(); },
     commands: [
         {
             id: COMMAND_ID,
