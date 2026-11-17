@@ -102,7 +102,7 @@ function attachCard(node) {
     node.__qqCardModeSetup = true;
     node.properties ||= {};
     node.properties.qqCardMode = true;
-    const surface = createCardSurface(node, { plate: true });
+    const surface = createCardSurface(node, { plate: true, onRun: () => app.queuePrompt(0, 1) });
     clearNativePreview(node);
     hideNativePreview(node);
     hideInputWidgets(node);

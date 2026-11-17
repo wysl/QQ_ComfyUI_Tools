@@ -34,6 +34,8 @@ const CSS = `
 .qq-card-plate .qq-card-stage img.qq-card-photo{width:100%;height:100%;max-width:none;max-height:none;object-fit:contain}
 .qq-card-plate .qq-card-stage video{width:100%;height:100%;object-fit:contain;background:transparent}
 .qq-card-plate .qq-card-empty{display:none}
+.qq-card-run{position:absolute;top:6px;right:6px;z-index:5;width:28px;height:28px;border:0;border-radius:50%;background:rgba(0,0,0,.45);color:#fff;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;opacity:.65}
+.qq-card-run:hover{opacity:1;background:var(--primary,#4f8cff)}
 .qq-card-plate .qq-card-nav{position:absolute;bottom:6px;left:0;right:0;background:rgba(0,0,0,.35);border-radius:0 0 9px 9px;padding:2px 0}
 .qq-card-plate .qq-card-nav button{background:transparent;border-color:rgba(255,255,255,.3);color:#fff}
 `;
@@ -119,12 +121,20 @@ function previewUrl(buffer) {
 }
 
 // 创建一个卡面表面，返回控制接口。node 用于持久化与事件归属。
-export function createCardSurface(node, { emptyText = "运行后在此呈现结果", plate = false } = {}) {
+export function createCardSurface(node, { emptyText = "运行后在此呈现结果", plate = false, onRun = null } = {}) {
     injectCardCSS();
     node.properties ||= {};
     const root = document.createElement("div");
     root.className = "qq-card" + (plate ? " qq-card-plate" : "");
-    if (plate) root.style.position = "relative";
+    if (plate) root.style.position = "absolute";
+    if (plate && onRun) {
+        const run = document.createElement("button");
+        run.className = "qq-card-run";
+        run.textContent = "▶";
+        run.title = "运行";
+        run.addEventListener("click", (e) => { e.stopPropagation(); onRun(); });
+        root.append(run);
+    }
     const stage = document.createElement("div");
     stage.className = "qq-card-stage";
     const empty = document.createElement("div");
