@@ -34,7 +34,7 @@ const CSS = `
 .qq-card-plate .qq-card-stage img.qq-card-photo{width:100%;height:100%;max-width:none;max-height:none;object-fit:contain}
 .qq-card-plate .qq-card-stage video{width:100%;height:100%;object-fit:contain;background:transparent}
 .qq-card-plate .qq-card-empty{display:none}
-.qq-card-run{position:absolute;top:6px;right:6px;z-index:5;width:28px;height:28px;border:0;border-radius:50%;background:rgba(0,0,0,.45);color:#fff;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;opacity:.65}
+.qq-card-run{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:5;width:46px;height:46px;border:0;border-radius:50%;background:rgba(0,0,0,.5);color:#fff;cursor:pointer;font-size:17px;display:flex;align-items:center;justify-content:center;opacity:.8;box-shadow:0 2px 10px rgba(0,0,0,.4)}
 .qq-card-run:hover{opacity:1;background:var(--primary,#4f8cff)}
 .qq-card-plate .qq-card-nav{position:absolute;bottom:6px;left:0;right:0;background:rgba(0,0,0,.35);border-radius:0 0 9px 9px;padding:2px 0}
 .qq-card-plate .qq-card-nav button{background:transparent;border-color:rgba(255,255,255,.3);color:#fff}
@@ -132,6 +132,7 @@ export function createCardSurface(node, { emptyText = "运行后在此呈现结�
         run.className = "qq-card-run";
         run.textContent = "▶";
         run.title = "运行";
+        run.addEventListener("pointerdown", (e) => e.stopPropagation());
         run.addEventListener("click", (e) => { e.stopPropagation(); onRun(); });
         root.append(run);
     }
@@ -221,6 +222,7 @@ export function createCardSurface(node, { emptyText = "运行后在此呈现结�
         empty.style.display = "none";
         const box = document.createElement("div");
         box.className = "qq-card-audio";
+        box.addEventListener("pointerdown", (e) => e.stopPropagation());
         const top = document.createElement("div");
         top.className = "qq-card-audio-top";
         const music = document.createElement("span");
@@ -339,8 +341,10 @@ export function createCardSurface(node, { emptyText = "运行后在此呈现结�
         },
     };
 
-    root.addEventListener("pointerdown", (e) => e.stopPropagation());
-    root.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
+    // 不在根元素拦截 pointerdown/wheel，保证卡面可被左键拖动、画布可缩放；
+    // 仅交互控件（运行/批次/音频）阻止冒泡，避免误触拖动。
+    const stopDrag = (el) => el.addEventListener("pointerdown", (e) => e.stopPropagation());
+    stopDrag(nav);
 
     const saved = node.properties.qq_card_ui;
     if (saved && (saved.images?.length || saved.videos?.length || saved.audio?.length)) renderResult(saved);
