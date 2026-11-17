@@ -159,7 +159,8 @@ function attachCard(node) {
 let selBtn = null;
 function updateSelectionButton() {
     const nodes = selectedNodes();
-    if (!nodes.length) { selBtn?.remove(); selBtn = null; return; }
+    const toolbox = document.querySelector('[data-testid="selection-toolbox"]');
+    if (!nodes.length || !toolbox) { selBtn?.remove(); selBtn = null; return; }
     if (!selBtn) {
         selBtn = document.createElement("button");
         selBtn.className = "qq-card-selbtn";
@@ -167,15 +168,11 @@ function updateSelectionButton() {
         selBtn.addEventListener("click", (e) => { e.stopPropagation(); convertSelectionToCard(); });
         document.body.append(selBtn);
     }
-    const canvas = app.canvas; const ds = canvas?.ds;
-    if (!ds) return;
-    let minX = 1e9, minY = 1e9, maxX = -1e9;
-    for (const n of nodes) { minX = Math.min(minX, n.pos[0]); minY = Math.min(minY, n.pos[1]); maxX = Math.max(maxX, n.pos[0] + (n.size?.[0] || 200)); }
-    const rect = canvas.canvas.getBoundingClientRect();
-    const sx = rect.left + ((minX + maxX) / 2) * ds.scale + ds.offset[0];
-    const sy = rect.top + minY * ds.scale + ds.offset[1] - 46;
-    selBtn.style.left = `${sx}px`;
-    selBtn.style.top = `${sy}px`;
+    // 贴着原生选区工具栏右侧，保证可见
+    const r = toolbox.getBoundingClientRect();
+    selBtn.style.left = `${r.right + 8}px`;
+    selBtn.style.top = `${r.top + (r.height - 30) / 2}px`;
+    selBtn.style.transform = "none";
 }
 
 function installSelectionButton() {
@@ -197,6 +194,16 @@ function installSelectionButton() {
             updateSelectionButton();
             return r;
         };
+    }
+    // 工具栏出现/消失时同步按钮（Vue 重渲染兜底）
+    if (!window.__qqSelBtnObs) {
+        window.__qqSelBtnObs = true;
+        let raf = 0;
+        const obs = new MutationObserver(() => {
+            if (raf) return;
+            raf = requestAnimationFrame(() => { raf = 0; updateSelectionButton(); });
+        });
+        obs.observe(document.body, { childList: true, subtree: true });
     }
     updateSelectionButton();
 }
