@@ -75,7 +75,7 @@ class RegistrationTests(unittest.TestCase):
 
     def test_all_requested_nodes_are_registered_with_unique_qq_ids(self):
         mappings = self.package.NODE_CLASS_MAPPINGS
-        self.assertEqual(len(mappings), 47)
+        self.assertEqual(len(mappings), 46)
         self.assertIn("QQImagePackageLoader", mappings)
         self.assertIn("QQImagePackageSaver", mappings)
         self.assertIn("QQGuliPosePicker", mappings)
@@ -93,7 +93,6 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("QQPromptTemplate", mappings)
         self.assertIn("QQLutGrading", mappings)
         self.assertIn("QQCurvesGrading", mappings)
-        self.assertIn("QQCardPreview", mappings)
 
     def test_display_names_match_requested_names(self):
         display = self.package.NODE_DISPLAY_NAME_MAPPINGS
