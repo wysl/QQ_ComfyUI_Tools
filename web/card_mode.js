@@ -124,8 +124,23 @@ function attachCard(node) {
         }
     };
     const onStart = () => surface.enterRunning();
-    const onEnd = () => {
+    const onEnd = async () => {
         surface.exitRunning();
+        // 兜底：运行成功后直接从 history 取本卡面（宿主:内部）的输出渲染，
+        // 不依赖 executed 事件的 id 格式，确保结果一定呈现。
+        try {
+            const hist = await (await fetch("/history?max_items=1")).json();
+            const outputs = Object.values(hist)[0]?.outputs || {};
+            const ui = { images: [], videos: [], audio: [] };
+            for (const [key, value] of Object.entries(outputs)) {
+                if (key === String(node.id) || key.startsWith(`${node.id}:`)) {
+                    ui.images.push(...(value.images || []));
+                    ui.videos.push(...(value.videos || []));
+                    ui.audio.push(...(value.audio || []));
+                }
+            }
+            if (ui.images.length || ui.videos.length || ui.audio.length) { surface.renderResult(ui); return; }
+        } catch { /* 忽略 */ }
         const saved = node.properties.qq_card_ui;
         if (saved && (saved.images?.length || saved.videos?.length || saved.audio?.length)) surface.renderResult(saved);
     };
@@ -211,6 +226,7 @@ function installSelectionButton() {
 // ── 菜单：右键原生上下文 + 双击自定义选项（卡面无文字按钮，操作只走菜单） ──
 function cardMenuItems(node, surface) {
     return [
+        { label: "运行", action: () => app.queuePrompt(0, 1) },
         {
             label: node.properties?.qqPinned ? "解除固定媒体" : "固定媒体信息",
             action: () => togglePin(node, surface),

@@ -29,9 +29,10 @@ const CSS = `
 .qq-card-spectrum{width:100%;height:64px;display:block}
 .qq-card-zoom{position:fixed;inset:0;z-index:11400;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;cursor:zoom-out}
 .qq-card-zoom img{max-width:94vw;max-height:94vh;object-fit:contain}
-.qq-card-plate{height:100%;padding:0;gap:0}
-.qq-card-plate .qq-card-stage{height:100%;flex:1;border-radius:10px;border:1px solid var(--border-color,#4b545b);background:transparent;box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 1px 3px rgba(0,0,0,.25)}
-.qq-card-plate .qq-card-stage video{background:transparent}
+.qq-card-plate{position:absolute;inset:0;padding:0;gap:0}
+.qq-card-plate .qq-card-stage{position:absolute;inset:0;height:100%;border:0;border-radius:0;box-shadow:none;background:transparent}
+.qq-card-plate .qq-card-stage img.qq-card-photo{width:100%;height:100%;max-width:none;max-height:none;object-fit:contain}
+.qq-card-plate .qq-card-stage video{width:100%;height:100%;object-fit:contain;background:transparent}
 .qq-card-plate .qq-card-empty{display:none}
 .qq-card-plate .qq-card-nav{position:absolute;bottom:6px;left:0;right:0;background:rgba(0,0,0,.35);border-radius:0 0 9px 9px;padding:2px 0}
 .qq-card-plate .qq-card-nav button{background:transparent;border-color:rgba(255,255,255,.3);color:#fff}
