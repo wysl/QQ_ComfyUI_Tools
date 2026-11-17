@@ -38,7 +38,9 @@ function injectMenuCSS() {
     style.textContent =
         ".qq-card-menu{position:fixed;z-index:11500;min-width:150px;display:flex;flex-direction:column;padding:4px;border-radius:8px;border:1px solid var(--border-color,#4b545b);background:var(--comfy-menu-bg,#1a1d23);box-shadow:0 4px 16px rgba(0,0,0,.5)}" +
         ".qq-card-menu button{height:28px;text-align:left;padding:0 10px;border:0;border-radius:5px;background:transparent;color:var(--input-text,#e6e8ee);cursor:pointer;font:12px/1 system-ui,'Microsoft YaHei',sans-serif}" +
-        ".qq-card-menu button:hover{background:var(--primary,#4f8cff);color:#fff}";
+        ".qq-card-menu button:hover{background:var(--primary,#4f8cff);color:#fff}" +
+        ".qq-card-selbtn{position:fixed;z-index:11450;transform:translateX(-50%);height:30px;padding:0 14px;border:0;border-radius:8px;background:var(--primary,#4f8cff);color:#fff;cursor:pointer;font:600 12px/1 system-ui,'Microsoft YaHei',sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.35)}" +
+        ".qq-card-selbtn:hover{filter:brightness(1.1)}";
     document.head.append(style);
 }
 
@@ -151,6 +153,52 @@ function attachCard(node) {
     });
     node.resizable = true;
     node.__qqCardSurface = surface;
+}
+
+// ── 选区浮动「卡面模式」按钮：不依赖前端菜单集成，选区出现即显示 ──
+let selBtn = null;
+function updateSelectionButton() {
+    const nodes = selectedNodes();
+    if (!nodes.length) { selBtn?.remove(); selBtn = null; return; }
+    if (!selBtn) {
+        selBtn = document.createElement("button");
+        selBtn.className = "qq-card-selbtn";
+        selBtn.textContent = "卡面模式";
+        selBtn.addEventListener("click", (e) => { e.stopPropagation(); convertSelectionToCard(); });
+        document.body.append(selBtn);
+    }
+    const canvas = app.canvas; const ds = canvas?.ds;
+    if (!ds) return;
+    let minX = 1e9, minY = 1e9, maxX = -1e9;
+    for (const n of nodes) { minX = Math.min(minX, n.pos[0]); minY = Math.min(minY, n.pos[1]); maxX = Math.max(maxX, n.pos[0] + (n.size?.[0] || 200)); }
+    const rect = canvas.canvas.getBoundingClientRect();
+    const sx = rect.left + ((minX + maxX) / 2) * ds.scale + ds.offset[0];
+    const sy = rect.top + minY * ds.scale + ds.offset[1] - 46;
+    selBtn.style.left = `${sx}px`;
+    selBtn.style.top = `${sy}px`;
+}
+
+function installSelectionButton() {
+    const el = document.querySelector("#vue-app") || document.querySelector("[data-v-app]");
+    const pinia = el?.__vue_app__?.config?.globalProperties?.$pinia;
+    if (pinia && !pinia.__qqSelBtn) {
+        pinia.__qqSelBtn = true;
+        for (const name of ["canvas", "selection"]) {
+            const store = pinia._s.get(name);
+            store?.$subscribe?.(() => updateSelectionButton());
+        }
+    }
+    const canvas = app.canvas;
+    if (canvas && !canvas.__qqSelBtnHooked) {
+        canvas.__qqSelBtnHooked = true;
+        const orig = canvas.onSelectionChange;
+        canvas.onSelectionChange = function () {
+            const r = orig?.apply(this, arguments);
+            updateSelectionButton();
+            return r;
+        };
+    }
+    updateSelectionButton();
 }
 
 // ── 菜单：右键原生上下文 + 双击自定义选项（卡面无文字按钮，操作只走菜单） ──
@@ -339,7 +387,7 @@ function convertSelectionToCard() {
 
 app.registerExtension({
     name: "QQ.CardMode",
-    setup() { injectCardCSS(); injectMenuCSS(); },
+    setup() { injectCardCSS(); injectMenuCSS(); installSelectionButton(); setTimeout(installSelectionButton, 500); setTimeout(installSelectionButton, 1500); },
     commands: [
         {
             id: COMMAND_ID,
@@ -348,8 +396,19 @@ app.registerExtension({
             function: convertSelectionToCard,
         },
     ],
+    menuCommands: [
+        { menuPath: ["Extensions"], commands: [COMMAND_ID] },
+        { menuPath: ["Extensions", "QQ"], commands: [COMMAND_ID] },
+    ],
     getSelectionToolboxCommands() {
         return selectedNodes().length ? [COMMAND_ID] : [];
+    },
+    // 右键菜单（选区/节点/画布）加入「卡面模式」，保证用户可见
+    getNodeMenuItems() {
+        return selectedNodes().length ? [{ content: "卡面模式", callback: convertSelectionToCard }] : [];
+    },
+    getCanvasMenuItems() {
+        return selectedNodes().length ? [{ content: "卡面模式", callback: convertSelectionToCard }] : [];
     },
     // 读档恢复：子图节点带 qqCardMode 标记时重新附着卡面
     nodeCreated(node) {

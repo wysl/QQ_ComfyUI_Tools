@@ -159,7 +159,7 @@ export function createCardSurface(node, { emptyText = "运行后在此呈现结�
         nav.style.display = "none";
         nav.replaceChildren();
     }
-    function showEmpty() { clearStage(); empty.style.display = "block"; }
+    function showEmpty() { clearStage(); empty.style.display = plate ? "none" : "block"; }
 
     function openZoom(src) {
         const overlay = document.createElement("div");
