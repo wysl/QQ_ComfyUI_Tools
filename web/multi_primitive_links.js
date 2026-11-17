@@ -218,6 +218,21 @@ function applyVueGlows(graph) {
     }
 }
 
+// 轻量状态签名：选择/悬停 + 图版本 + 多值节点输出口上的连线 id。
+// 只遍历多值节点的输出连线（远少于全图连线），空闲稳定时跳过全连线样式重算。
+function linkStateSignature(graph, selected, hover) {
+    const parts = [[...selected].sort((a, b) => a - b).join(","), hover, graph._version ?? ""];
+    for (const node of graph._nodes || []) {
+        if (node?.type !== NODE_TYPE && node?.type !== LEGACY_NODE_TYPE) continue;
+        for (const out of node.outputs || []) {
+            for (const linkId of out.links || []) parts.push(linkId);
+        }
+    }
+    return parts.join("|");
+}
+
+let lastLinkSig = null;
+
 function start() {
     if (globalThis.__qqMultiLinkTimer) return;
     globalThis.__qqMultiLinkTimer = setInterval(() => {
@@ -226,6 +241,9 @@ function start() {
         if (!graph) return;
         patchCanvasLinkRenderer(app.canvas);
         const { selected, hover } = currentState();
+        const sig = linkStateSignature(graph, selected, hover);
+        if (sig === lastLinkSig) return;
+        lastLinkSig = sig;
         applyLinkStyles(graph, selected, hover);
         applyVueGlows(graph);
     }, 160);

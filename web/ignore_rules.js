@@ -292,13 +292,46 @@ function safeApply() {
     }
 }
 
+// 轻量状态签名：只读匹配所需输入（节点标题/类型/模式/标记/几何、规则控件值、组标题/几何），
+// 不做正则匹配与组几何重算。空闲时签名稳定 → 心跳跳过昂贵的 applyRules，消除持续卡顿。
+function graphSignature(graph) {
+    const nodes = allNodes(graph);
+    const groups = allGroups(graph);
+    const parts = [];
+    for (const node of nodes) {
+        const pos = node.pos || [0, 0];
+        const size = node.size || [0, 0];
+        parts.push(
+            node.id, node.title, node.type, node.comfyClass, node.mode,
+            pos[0], pos[1], size[0], size[1],
+            node.properties?.[PROP_PREV_MODE] ?? "",
+            node.properties?.wyslTagOwned ? 1 : 0,
+        );
+        if (isRuleNode(node)) {
+            parts.push(
+                "R", isEnabled(node) ? 1 : 0,
+                String(getWidget(node, "节点")?.value ?? ""),
+                String(getWidget(node, "组")?.value ?? ""),
+            );
+        }
+    }
+    for (const group of groups) {
+        const pos = group.pos || group._pos || [0, 0];
+        const size = group.size || group._size || [0, 0];
+        parts.push("G", group.title, group.name, pos[0], pos[1], size[0], size[1]);
+    }
+    return parts.join("|");
+}
+
 function start() {
     if (globalThis.__wyslBypassTimer) return;
     console.log(TAG, "扩展已加载（支持 ! 排除）");
     let lastLog = 0;
-    const tick = () => {
-        if (!app || app.loading_graph || app.configuringGraph) return;
+    let lastSig = null;
+    const applyAndLog = () => {
         const result = safeApply();
+        // 应用后刷新签名，交互后心跳立即静默，不做冗余对账
+        lastSig = graphSignature(currentGraph());
         const now = Date.now();
         const hasRules = result && (result.nodeInclude + result.nodeExclude
             + result.groupInclude + result.groupExclude) > 0;
@@ -312,6 +345,14 @@ function start() {
                 + ` | 本轮变更 ${result.changed}`,
             );
         }
+        return result;
+    };
+    const tick = () => {
+        if (!app || app.loading_graph || app.configuringGraph) return;
+        const graph = currentGraph();
+        if (!graph) return;
+        if (graphSignature(graph) === lastSig) return;
+        applyAndLog();
     };
     globalThis.__wyslBypassTimer = setInterval(tick, 800);
     setTimeout(tick, 2000);
