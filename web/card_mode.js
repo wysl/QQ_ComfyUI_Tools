@@ -16,12 +16,37 @@ function hideNativePreview(node) {
     if (document.getElementById(styleId)) return;
     const style = document.createElement("style");
     style.id = styleId;
-    style.textContent = `.lg-node[data-node-id="${node.id}"] .image-preview{display:none!important}`;
+    style.textContent =
+        `.lg-node[data-node-id="${node.id}"] .image-preview{display:none!important}` +
+        `.lg-node[data-node-id="${node.id}"] [data-testid="node-widget"]:not(:has(.qq-card)){display:none!important}` +
+        `.lg-node[data-node-id="${node.id}"] .grid-cols-subgrid.justify-between:not(:has(.qq-card)){display:none!important}`;
     document.head.append(style);
 }
 
 function unhideNativePreview(node) {
     document.getElementById(`qq-card-hide-${node.id}`)?.remove();
+}
+
+// 卡面只显示结果：隐藏子图提升出来的输入控件（如 image 文件选择器会显示文件名）。
+// 代理控件可能在附着后才生成，故多次补隐藏。
+function hideInputWidgets(node) {
+    const hide = () => {
+        let changed = false;
+        for (const widget of node.widgets || []) {
+            if (widget.name === "qq_card_mode" || widget.type === "qq_card_mode") continue;
+            if (widget.hidden) continue;
+            widget.hidden = true;
+            widget.options ||= {};
+            widget.options.hidden = true;
+            widget.computeSize = () => [0, -4];
+            changed = true;
+        }
+        if (changed) node.setDirtyCanvas?.(true, true);
+    };
+    hide();
+    queueMicrotask(hide);
+    setTimeout(hide, 300);
+    setTimeout(hide, 1200);
 }
 
 // 子图内部输出节点的 executed 事件 id 为「宿主:内部」嵌套格式；宿主自身也匹配。
@@ -63,6 +88,7 @@ function attachCard(node) {
     const surface = createCardSurface(node, { emptyText: "卡面模式\n运行流水线后在此呈现结果" });
     clearNativePreview(node);
     hideNativePreview(node);
+    hideInputWidgets(node);
 
     const originalExecuted = node.onExecuted;
     node.onExecuted = function (output) {
