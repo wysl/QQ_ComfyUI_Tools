@@ -476,9 +476,26 @@ app.registerExtension({
     getCanvasMenuItems() {
         return selectedNodes().length ? [{ content: "卡面模式", callback: convertSelectionToCard }] : [];
     },
-    // 读档恢复：子图节点带 qqCardMode 标记时重新附着卡面
+    // 读档恢复：子图节点带 qqCardMode 标记时重新附着卡面。
+    // 属性在 onConfigure 才加载，故钩住子图原型 onConfigure + 多次重试兜底。
     nodeCreated(node) {
-        if (node?.properties?.qqCardMode) attachCard(node);
-        else queueMicrotask(() => { if (node?.properties?.qqCardMode) attachCard(node); });
+        if (!node) return;
+        if (node.subgraph) {
+            const proto = Object.getPrototypeOf(node);
+            if (proto && !proto.__qqCardConfigureHooked) {
+                proto.__qqCardConfigureHooked = true;
+                const origConfigure = proto.onConfigure;
+                proto.onConfigure = function () {
+                    const r = origConfigure?.apply(this, arguments);
+                    if (this.properties?.qqCardMode) attachCard(this);
+                    return r;
+                };
+            }
+        }
+        const tryAttach = () => { if (node.properties?.qqCardMode) attachCard(node); };
+        tryAttach();
+        queueMicrotask(tryAttach);
+        setTimeout(tryAttach, 300);
+        setTimeout(tryAttach, 1000);
     },
 });
