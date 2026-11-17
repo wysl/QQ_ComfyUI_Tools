@@ -131,34 +131,77 @@ function attachCard(node) {
         try {
             const hist = await (await fetch("/history?max_items=1")).json();
             const outputs = Object.values(hist)[0]?.outputs || {};
-            const ui = { images: [], videos: [], audio: [] };
-            for (const [key, value] of Object.entries(outputs)) {
-                if (key === String(node.id) || key.startsWith(`${node.id}:`)) {
-                    ui.images.push(...(value.images || []));
-                    ui.videos.push(...(value.videos || []));
-                    ui.audio.push(...(value.audio || []));
-                }
-            }
+            const ui = collectHostUi(outputs);
             if (ui.images.length || ui.videos.length || ui.audio.length) { surface.renderResult(ui); return; }
         } catch { /* 忽略 */ }
         const saved = node.properties.qq_card_ui;
         if (saved && (saved.images?.length || saved.videos?.length || saved.audio?.length)) surface.renderResult(saved);
     };
+
+    // 生成期间的有界兜底：按当前 prompt_id 轮询 history（仅 running 时，非空闲轮询），
+    // 防止完成事件未送达导致卡面停在「渲染中」。
+    let currentPromptId = null;
+    let runWatch = null;
+    function collectHostUi(outputs) {
+        const ui = { images: [], videos: [], audio: [] };
+        for (const [key, value] of Object.entries(outputs || {})) {
+            if (key === String(node.id) || key.startsWith(`${node.id}:`)) {
+                ui.images.push(...(value.images || []));
+                ui.videos.push(...(value.videos || []));
+                ui.audio.push(...(value.audio || []));
+            }
+        }
+        return ui;
+    }
+    function stopRunWatch() { if (runWatch) { clearInterval(runWatch); runWatch = null; } }
+    function startRunWatch() {
+        if (runWatch) return;
+        let tries = 0;
+        runWatch = setInterval(async () => {
+            if (++tries > 80) { stopRunWatch(); return; } // ~2min 上限
+            try {
+                const hist = await (await fetch("/history?max_items=4")).json();
+                for (const h of Object.values(hist)) {
+                    const pid = h?.status?.prompt_id || (Array.isArray(h?.prompt) ? h.prompt[1] : null);
+                    if (currentPromptId && pid !== currentPromptId) continue;
+                    const ui = collectHostUi(h?.outputs);
+                    if (ui.images.length || ui.videos.length || ui.audio.length) {
+                        stopRunWatch();
+                        surface.exitRunning();
+                        surface.renderResult(ui);
+                        return;
+                    }
+                }
+            } catch { /* 忽略 */ }
+        }, 1500);
+    }
+    const onStartWatch = (e) => { currentPromptId = e?.detail?.prompt_id || currentPromptId; surface.enterRunning(); startRunWatch(); };
+    const onExecutingWatch = (e) => { if (e?.detail?.node != null) { surface.enterRunning(); startRunWatch(); } };
+    const onEndWatch = () => stopRunWatch();
     api.addEventListener("executed", onExecuted);
-    api.addEventListener("execution_start", onStart);
+    api.addEventListener("executing", onExecutingWatch);
+    api.addEventListener("execution_start", onStartWatch);
     api.addEventListener("execution_success", onEnd);
     api.addEventListener("execution_error", onEnd);
     api.addEventListener("execution_interrupted", onEnd);
+    api.addEventListener("execution_success", onEndWatch);
+    api.addEventListener("execution_error", onEndWatch);
+    api.addEventListener("execution_interrupted", onEndWatch);
 
     const originalRemoved = node.onRemoved;
     node.onRemoved = function () {
         surface.destroy();
+        stopRunWatch();
         unhideNativePreview(node);
         api.removeEventListener?.("executed", onExecuted);
-        api.removeEventListener?.("execution_start", onStart);
+        api.removeEventListener?.("executing", onExecutingWatch);
+        api.removeEventListener?.("execution_start", onStartWatch);
         api.removeEventListener?.("execution_success", onEnd);
         api.removeEventListener?.("execution_error", onEnd);
         api.removeEventListener?.("execution_interrupted", onEnd);
+        api.removeEventListener?.("execution_success", onEndWatch);
+        api.removeEventListener?.("execution_error", onEndWatch);
+        api.removeEventListener?.("execution_interrupted", onEndWatch);
         return originalRemoved?.apply(this, arguments);
     };
 
