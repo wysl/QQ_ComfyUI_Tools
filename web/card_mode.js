@@ -8,6 +8,22 @@ import { createCardSurface, injectCardCSS, CARD_MEDIA_HEIGHT } from "./card_rend
 
 const COMMAND_ID = "QQ.CardMode";
 
+// 卡面宿主节点隐藏 ComfyUI 原生输出预览（.image-preview，带文件名/尺寸），
+// 只留自己的卡面（.qq-card-stage，独立的 node-widget）。
+// 按节点 id 注入 CSS 规则：data-node-id 由 Vue 稳定维护，手动加 class 会被重渲染冲掉。
+function hideNativePreview(node) {
+    const styleId = `qq-card-hide-${node.id}`;
+    if (document.getElementById(styleId)) return;
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.textContent = `.lg-node[data-node-id="${node.id}"] .image-preview{display:none!important}`;
+    document.head.append(style);
+}
+
+function unhideNativePreview(node) {
+    document.getElementById(`qq-card-hide-${node.id}`)?.remove();
+}
+
 // 子图内部输出节点的 executed 事件 id 为「宿主:内部」嵌套格式；宿主自身也匹配。
 function cardEventMatches(eventNodeId, hostId) {
     const nid = String(eventNodeId ?? "");
@@ -46,6 +62,7 @@ function attachCard(node) {
     node.properties.qqCardMode = true;
     const surface = createCardSurface(node, { emptyText: "卡面模式\n运行流水线后在此呈现结果" });
     clearNativePreview(node);
+    hideNativePreview(node);
 
     const originalExecuted = node.onExecuted;
     node.onExecuted = function (output) {
@@ -76,6 +93,7 @@ function attachCard(node) {
     const originalRemoved = node.onRemoved;
     node.onRemoved = function () {
         surface.destroy();
+        unhideNativePreview(node);
         api.removeEventListener?.("executed", onExecuted);
         api.removeEventListener?.("execution_start", onStart);
         api.removeEventListener?.("execution_success", onEnd);
